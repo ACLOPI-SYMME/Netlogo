@@ -46,3 +46,41 @@ python scripts\smoke_test.py
 ```
 
 Las carpetas de salida `Results/Data` y `Results/Events` se crean dentro de `model/`, porque NetLogo resuelve las rutas relativas respecto a la carpeta del modelo.
+
+## Validación y regresión
+
+Corridas completas (10.000 ticks) de las reglas 1, 2 y 3 con semilla 42 en Stochastic, con verificación de determinismo:
+
+```powershell
+.\scripts\run_all_rules.ps1
+```
+
+Comparación de esas corridas con la línea base versionada en `tests/fixtures/baseline/` (KPIs, SHA-256 de Events y Data columna por columna):
+
+```powershell
+python scripts\compare_baseline.py
+```
+
+Tests (estructura de los reporters de plataforma, no interferencia de las lecturas y regresión contra la línea base; tarda alrededor de 1 minuto):
+
+```powershell
+python -m pytest tests -v -p no:faulthandler
+```
+
+`-p no:faulthandler` evita que pytest imprima como "access violation" las excepciones que la JVM provoca y maneja internamente en Windows; no afecta el resultado de los tests.
+
+## Interfaz de plataforma del modelo
+
+Reporters de solo lectura para Python. Devuelven JSON en un string (`json.loads(str(netlogo.report(...)))`) y no consumen números aleatorios:
+
+- `platform-layout`: nodos, conveyors (incluidas las curvas), máquinas, sensores y compuertas. Se lee una vez, después de `setup`.
+- `platform-state`: estado compacto de segmentos, compuertas, máquinas y productos vivos.
+- `platform-events`: eventos registrados desde la última llamada a `platform-clear-events`.
+
+Tiempo de lectura de `platform-state`:
+
+```powershell
+python scripts\benchmark_platform_state.py
+```
+
+Los problemas conocidos del modelo que no se corrigen están en `docs/known-issues.md`.

@@ -43,6 +43,7 @@ globals [
 
   terminado
 
+  event-buffer      ; Platform: events recorded since the last platform-clear-events
 
 ]
 
@@ -78,6 +79,7 @@ products-own [
   speed-factor
   priority
   Platoon-Position
+  ProductCreationTime          ; Platform: Simulated.Time when the product was created
 ]
 
 breed [machines machine]
@@ -113,6 +115,7 @@ to Setup
 
   set EventFrameInfo[]
   set EventFrameTemp[]
+  set event-buffer []
 
   set terminado "No"
 
@@ -178,6 +181,7 @@ to EventMachineEntry [#1 #2]
   set EventFrameTemp lput [heading.Workstation] of turtle #1 EventFrameTemp                                  ; a que maquina se dirije
 
   set EventFrameInfo lput EventFrameTemp EventFrameInfo
+  Platform.Record.Event EventFrameTemp (item 6 EventFrameTemp)
   set EventFrameTemp[]
 
 end
@@ -195,6 +199,8 @@ to EventMachineExit [#1 #2]
   set EventFrameTemp lput [heading.Workstation] of turtle #1 EventFrameTemp                                  ; a que maquina se dirije
 
   set EventFrameInfo lput EventFrameTemp EventFrameInfo
+  ; The CSV keeps "XXX"/"YYY"; the platform buffer gets the operation that just completed.
+  Platform.Record.Event EventFrameTemp ([item (currentSequenceOrder - 1) productoperations] of turtle #1)
   set EventFrameTemp[]
 
 end
@@ -219,6 +225,7 @@ to EventPassing
       set EventFrameTemp lput [heading.Workstation] of turtle A EventFrameTemp                                  ; a que maquina se dirije
 
       set EventFrameInfo lput EventFrameTemp EventFrameInfo
+      Platform.Record.Event EventFrameTemp (item 6 EventFrameTemp)
       set EventFrameTemp[]
 
 
@@ -246,7 +253,7 @@ to PrintData
   set DataFrameTemp lput precision (sqrt (mean map [i -> (i - mean [ycor] of products with [Product.State != "death"]) ^ 2] [ycor] of products with [Product.State != "death"])) 2 DataFrameTemp
   set DataFrameTemp lput (sum [length productoperations] of products with [Product.State != "death"]) DataFrameTemp
   set DataFrameTemp lput (sum [length productrealcompletion] of products with [Product.State != "death"]) DataFrameTemp
-  set DataFrameTemp lput (count products with [Product.State = "Wating"]) DataFrameTemp
+  set DataFrameTemp lput (count products with [Product.State = "Waiting"]) DataFrameTemp
   set DataFrameTemp lput ((sum [length productoperations] of products with [Product.State != "death"]) - (sum [length productrealcompletion] of products with [Product.State != "death"] - (count products with [Product.State = "Waiting"]))) DataFrameTemp
 
   set DataFrameTemp lput precision (sum [sum map [i -> item  ((read-from-string (last i)) - 1)  OperationDuration] productoperations] of products with [Product.State != "death"]) 2 DataFrameTemp
@@ -493,6 +500,7 @@ to Create.product [#1]
     set ProductRealCompletion[]
     set Heading.Workstation "M1"
     set NetlogoTurtle-ID (count products - 1)
+    set ProductCreationTime Simulated.Time
     set speed-factor 1
     set platoon-position 0 - 1
     set Machine.Used []
@@ -2910,6 +2918,201 @@ to Node.Creation
   create-nodes 1 [setxy 97 100 set size 1 set shape "circle" set color black set Addressed.To.Node ""]    ; N92
   create-nodes 1 [setxy 102 106 set size 1 set shape "circle" set color black set Addressed.To.Node ""]   ; N93
 
+end
+
+; =====================================================================================
+; Platform interface: read-only access from Python.
+; Nothing below consumes random numbers or changes the order of execution of the model:
+; agents are iterated with `sort` (who order) and the reporters run inside
+; with-local-randomness, so reading them between ticks does not alter the simulation.
+; Reporters return JSON strings built only with the json-* helpers at the end.
+; =====================================================================================
+
+to Platform.Record.Event [#row #operation]
+  ; #row is an EventFrameTemp row: [time who type event location order operation next destination]
+  set event-buffer lput (list ticks (item 3 #row) (item 1 #row) (item 2 #row) (item 4 #row) #operation (item 7 #row) (item 8 #row) (item 0 #row)) event-buffer
+end
+
+to platform-clear-events
+  set event-buffer []
+end
+
+to-report platform-events
+  let result ""
+  with-local-randomness [
+    set result json-obj (list
+      (list "fields" json-list map [f -> json-str f] ["tick" "event" "who" "product_type" "location" "operation" "next_operation" "destination" "time"])
+      (list "events" json-list map [ev -> json-any ev] event-buffer))
+  ]
+  report result
+end
+
+to-report platform-state
+  let result ""
+  with-local-randomness [
+    set result json-obj (list
+      (list "tick" json-num ticks)
+      (list "time" json-num Simulated.Time)
+      (list "terminado" json-str terminado)
+      (list "finished" json-num count products with [Product.State = "death"])
+      (list "segments" platform-segments-json)
+      (list "gates" json-list map [n -> platform-gate-json n] sort nodes with [not hidden? and (count my-out-conveyors = 2 or count my-in-conveyors = 2)])
+      (list "machines" json-list map [m -> platform-machine-json m] sort machines)
+      (list "products" json-list map [p -> platform-product-json p] sort products with [Product.State != "death"]))
+  ]
+  report result
+end
+
+to-report platform-layout
+  let result ""
+  with-local-randomness [
+    set result json-obj (list
+      (list "nodes" json-list map [n -> [json-obj (list (list "id" json-num who) (list "x" json-num xcor) (list "y" json-num ycor))] of n] sort nodes with [not hidden?])
+      (list "conveyors" json-list map [c -> platform-conveyor-json c] sort conveyors)
+      ; Curve geometry as used by Curved.Move: turn direction and radius parameter.
+      (list "curves" json-obj (list
+        (list "curve1" json-obj (list (list "turn" json-str "right") (list "radius" json-num 4)))
+        (list "curve2" json-obj (list (list "turn" json-str "left") (list "radius" json-num 8)))
+        (list "curve3" json-obj (list (list "turn" json-str "right") (list "radius" json-num 8)))))
+      (list "machines" json-list map [m -> [json-obj (list (list "id" json-num who) (list "name" json-str Machine.Name) (list "x" json-num xcor) (list "y" json-num ycor))] of m] sort machines)
+      (list "sensors" json-list map [s -> [json-obj (list (list "id" json-num who) (list "sensor_id" json-any Sensor.ID) (list "x" json-num xcor) (list "y" json-num ycor))] of s] sort sensors)
+      (list "switches" json-obj (list
+        (list "diverge" json-list map [n -> json-num [who] of n] sort nodes with [not hidden? and count my-out-conveyors = 2])
+        (list "merge" json-list map [n -> json-num [who] of n] sort nodes with [not hidden? and count my-in-conveyors = 2]))))
+  ]
+  report result
+end
+
+to-report platform-segments-json
+  report json-obj (list
+    (list "W1" json-num W1-Indicator) (list "W2" json-num W2-Indicator) (list "W3A" json-num W3A-Indicator)
+    (list "W3B" json-num W3B-Indicator) (list "W4" json-num W4-Indicator) (list "W5" json-num W5-Indicator)
+    (list "W6" json-num W6-Indicator) (list "W7" json-num W7-Indicator) (list "W8" json-num W8-Indicator)
+    (list "W9" json-num W9-Indicator) (list "W10" json-num W10-Indicator) (list "W11" json-num W11-Indicator)
+    (list "W12" json-num W12-Indicator) (list "W13" json-num W13-Indicator) (list "W14" json-num W14-Indicator)
+    (list "W15" json-num W15-Indicator) (list "W16" json-num W16-Indicator) (list "W17" json-num W17-Indicator)
+    (list "W18" json-num W18-Indicator))
+end
+
+to-report platform-conveyor-json [#conveyor]
+  ; active: conveyor enabled at the time of the call (gray); disabled branches are color 29.
+  report [json-obj (list
+    (list "from" json-num [who] of end1)
+    (list "to" json-num [who] of end2)
+    (list "shape" json-str shape)
+    (list "default_position" json-bool (Default.position = "true"))
+    (list "active" json-bool (color = gray)))] of #conveyor
+end
+
+to-report platform-gate-json [#node]
+  ; Diverge: the outgoing branch currently selected. Merge: the incoming conveyor currently enabled (gray).
+  report [json-obj (list
+    (list "node" json-num who)
+    (list "kind" json-str ifelse-value (count my-out-conveyors = 2) ["diverge"] ["merge"])
+    (list "active" ifelse-value (count my-out-conveyors = 2)
+      [json-agent-id Addressed.To.Node]
+      [platform-enabled-input-json self]))] of #node
+end
+
+to-report platform-enabled-input-json [#node]
+  let enabled sort [my-in-conveyors with [color = gray]] of #node
+  report ifelse-value (length enabled = 1) [json-num [[who] of end1] of first enabled] [json-null]
+end
+
+to-report platform-machine-json [#machine]
+  let busy platform-product-in-process #machine
+  report [json-obj (list
+    (list "id" json-num who)
+    (list "name" json-str Machine.Name)
+    (list "state" json-str Machine.State)
+    (list "operation" ifelse-value (busy = nobody) [json-null] [json-any [Next.Product.Operation] of busy])
+    (list "product" json-agent-id busy)
+    (list "remaining" ifelse-value (Machine.State = "Machine.Processing") [json-num (Next.Completion - Simulated.Time)] [json-null])
+    (list "next_completion" json-num Next.Completion)
+    (list "queue" json-list map [p -> json-agent-id p] ifelse-value (is-list? Products.Queue) [sort Products.Queue] [[]])
+    (list "attractiveness" json-any Machine.Atractiveness))] of #machine
+end
+
+to-report platform-product-in-process [#machine]
+  ; The product whose last operation started but has not completed on this machine.
+  let name [Machine.Name] of #machine
+  let candidates sort products with [Heading.Workstation = name and length ProductRealStart > length ProductRealCompletion]
+  report ifelse-value (empty? candidates) [nobody] [first candidates]
+end
+
+to-report platform-product-json [#product]
+  report [json-obj (list
+    (list "id" json-num who)
+    (list "type" json-any ProductType)
+    (list "state" json-any Product.State)
+    (list "x" json-num xcor)
+    (list "y" json-num ycor)
+    (list "last_node" json-agent-id Last.Node)
+    (list "next_node" json-agent-id Next.Node)
+    (list "next_operation" json-any Next.Product.Operation)
+    (list "heading_workstation" json-any Heading.Workstation)
+    (list "sequence_order" json-num CurrentSequenceOrder)
+    (list "operations" json-any ProductOperations)
+    (list "created" json-any ProductCreationTime))] of #product
+end
+
+; ----- JSON helpers: every value is encoded through one of these -----
+
+to-report json-str [#s]
+  if not (member? "\"" #s or member? "\\" #s or member? "\n" #s or member? "\r" #s or member? "\t" #s) [
+    report (word "\"" #s "\"")
+  ]
+  let out ""
+  foreach n-values (length #s) [i -> item i #s] [c ->
+    set out (word out (ifelse-value
+      (c = "\"") ["\\\""]
+      (c = "\\") ["\\\\"]
+      (c = "\n") ["\\n"]
+      (c = "\r") ["\\r"]
+      (c = "\t") ["\\t"]
+      [c]))
+  ]
+  report (word "\"" out "\"")
+end
+
+to-report json-num [#n]
+  report (word #n)
+end
+
+to-report json-bool [#b]
+  report ifelse-value #b ["true"] ["false"]
+end
+
+to-report json-null
+  report "null"
+end
+
+to-report json-agent-id [#a]
+  report ifelse-value (is-turtle? #a) [json-num [who] of #a] [json-null]
+end
+
+to-report json-any [#v]
+  report (ifelse-value
+    (is-number? #v) [json-num #v]
+    (is-string? #v) [json-str #v]
+    (is-boolean? #v) [json-bool #v]
+    (is-list? #v) [json-list map [x -> json-any x] #v]
+    (is-turtle? #v) [json-num [who] of #v]
+    [json-null])
+end
+
+to-report json-list [#encoded-items]
+  report (word "[" json-join #encoded-items "]")
+end
+
+to-report json-obj [#pairs]
+  ; #pairs: list of [key encoded-value]
+  report (word "{" json-join map [p -> (word json-str first p ":" last p)] #pairs "}")
+end
+
+to-report json-join [#encoded-items]
+  if empty? #encoded-items [report ""]
+  report reduce [[a b] -> (word a "," b)] #encoded-items
 end
 @#$#@#$#@
 GRAPHICS-WINDOW
