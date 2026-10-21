@@ -1,0 +1,98 @@
+113.77,200,E,ProductEntersMachine,M1,0,O8,O8,M1
+213.9,200,E,ProductExitsMachine,M1,XXX,YYY,O1,M5
+259.47,200,E,PassingBy,Node 44,1,O1,O1,M5
+313.72,201,A,ProductEntersMachine,M1,0,O8,O8,M1
+326.12,200,E,PassingBy,Node 49,1,O1,O1,M5
+339.76,200,E,ProductEntersMachine,M5,1,O1,O1,M5
+413.85,201,A,ProductExitsMachine,M1,XXX,YYY,O1,M5
+459.42,201,A,PassingBy,Node 44,1,O1,O1,M5
+513.67,202,B,ProductEntersMachine,M1,0,O8,O8,M1
+526.07,201,A,PassingBy,Node 49,1,O1,O1,M5
+566.99,200,E,ProductExitsMachine,M5,XXX,YYY,O1,M5
+567.3,200,E,ProductEntersMachine,M5,2,O1,O1,M5
+613.8,202,B,ProductExitsMachine,M1,XXX,YYY,O1,M5
+659.37,202,B,PassingBy,Node 44,1,O1,O1,M5
+773.45,200,E,ProductExitsMachine,M5,XXX,YYY,O1,M5
+773.76,200,E,ProductEntersMachine,M5,3,O1,O1,M5
+813.75,203,E,ProductEntersMachine,M1,0,O8,O8,M1
+913.88,203,E,ProductExitsMachine,M1,XXX,YYY,O1,M5
+959.45,203,E,PassingBy,Node 44,1,O1,O1,M5
+975.57,200,E,ProductExitsMachine,M5,XXX,YYY,O2,M6
+987.66,201,A,ProductEntersMachine,M5,1,O1,O1,M5
+990.76,202,B,PassingBy,Node 49,1,O1,O1,M5
+1013.7,204,L,ProductEntersMachine,M1,0,O8,O8,M1
+1074.46,200,E,PassingBy,Node 67,4,O2,O2,M6
+1091.51,200,E,ProductEntersMachine,M6,4,O2,O2,M6
+1113.83,204,L,ProductExitsMachine,M1,XXX,YYY,O1,M5
+1159.4,204,L,PassingBy,Node 44,1,O1,O1,M5
+1188.23,201,A,ProductExitsMachine,M5,XXX,YYY,O1,M5
+1188.54,201,A,ProductEntersMachine,M5,2,O1,O1,M5
+1213.65,205,E,ProductEntersMachine,M1,0,O8,O8,M1
+1305.72,200,E,ProductExitsMachine,M6,XXX,YYY,O2,M6
+1306.03,200,E,ProductEntersMachine,M6,5,O2,O2,M6
+1313.78,205,E,ProductExitsMachine,M1,XXX,YYY,O1,M5
+1359.35,205,E,PassingBy,Node 44,1,O1,O1,M5
+1397.17,201,A,ProductExitsMachine,M5,XXX,YYY,O1,M5
+1397.48,201,A,ProductEntersMachine,M5,3,O1,O1,M5
+1513.73,206,A,ProductEntersMachine,M1,0,O8,O8,M1
+1526.75,200,E,ProductExitsMachine,M6,XXX,YYY,O4,M6
+1527.06,200,E,ProductEntersMachine,M6,6,O4,O4,M6
+1606.11,201,A,ProductExitsMachine,M5,XXX,YYY,O2,M6
+1613.86,206,A,ProductExitsMachine,M1,XXX,YYY,O1,M5
+1618.2,202,B,ProductEntersMachine,M5,1,O1,O1,M5
+1621.92,203,E,PassingBy,Node 49,1,O1,O1,M5
+1659.43,206,A,PassingBy,Node 44,1,O1,O1,M5
+1705,201,A,PassingBy,Node 67,4,O2,O2,M6
+1713.68,207,A,ProductEntersMachine,M1,0,O8,O8,M1
+1731.35,200,E,ProductExitsMachine,M6,XXX,YYY,O9,M1
+1743.75,201,A,ProductEntersMachine,M6,4,O2,O2,M6
+1813.81,207,A,ProductExitsMachine,M1,XXX,YYY,O1,M5
+1817.53,200,E,PassingBy,Node 81,7,O9,O9,M1
+1818.77,202,B,ProductExitsMachine,M5,XXX,YYY,O1,M5
+1819.08,202,B,ProductEntersMachine,M5,2,O1,O1,M5
+1859.38,207,A,PassingBy,Node 44,1,O1,O1,M5
+1939.67,200,E,ProductEntersMachine,M1,7,O9,O9,M1
+1952.38,201,A,ProductExitsMachine,M6,XXX,YYY,O4,M6
+1952.69,201,A,ProductEntersMachine,M6,5,O4,O4,M6
+2019.65,202,B,ProductExitsMachine,M5,XXX,YYY,O1,M5
+2019.96,202,B,ProductEntersMachine,M5,3,O1,O1,M5
+2039.8,200,E,ProductExitsMachine,M1,XXX,YYY,O9,M1
+2157.29,201,A,ProductExitsMachine,M6,XXX,YYY,O3,M6
+2157.6,201,A,ProductEntersMachine,M6,6,O3,O3,M6
+2213.71,208,E,ProductEntersMachine,M1,0,O8,O8,M1
+2231.38,202,B,ProductExitsMachine,M5,XXX,YYY,O2,M6
+2243.47,203,E,ProductEntersMachine,M5,1,O1,O1,M5
+2246.88,204,L,PassingBy,Node 49,1,O1,O1,M5
+2313.84,208,E,ProductExitsMachine,M1,XXX,YYY,O1,M5
+2330.27,202,B,PassingBy,Node 67,4,O2,O2,M6
+2359.41,208,E,PassingBy,Node 44,1,O1,O1,M5
+2376.46,201,A,ProductExitsMachine,M6,XXX,YYY,O5,M7
+2388.86,202,B,ProductEntersMachine,M6,4,O2,O2,M6
+2413.66,209,P,ProductEntersMachine,M1,0,O8,O8,M1
+2444.97,203,E,ProductExitsMachine,M5,XXX,YYY,O1,M5
+2445.28,203,E,ProductEntersMachine,M5,2,O1,O1,M5
+2481.24,201,A,PassingBy,Node 77,7,O5,O5,M7
+2497.98,201,A,ProductEntersMachine,M7,7,O5,O5,M7
+2513.79,209,P,ProductExitsMachine,M1,XXX,YYY,O1,M5
+2559.36,209,P,PassingBy,Node 44,1,O1,O1,M5
+2593.15,202,B,ProductExitsMachine,M6,XXX,YYY,O2,M6
+2593.46,202,B,ProductEntersMachine,M6,5,O2,O2,M6
+2651.74,203,E,ProductExitsMachine,M5,XXX,YYY,O1,M5
+2652.05,203,E,ProductEntersMachine,M5,3,O1,O1,M5
+2700.72,201,A,ProductExitsMachine,M7,XXX,YYY,O5,M7
+2713.74,210,P,ProductEntersMachine,M1,0,O8,O8,M1
+2802.09,202,B,ProductExitsMachine,M6,XXX,YYY,O3,M6
+2802.4,202,B,ProductEntersMachine,M6,6,O3,O3,M6
+2813.87,210,P,ProductExitsMachine,M1,XXX,YYY,O1,M5
+2825.96,201,A,ProductEntersMachine,M1,8,O9,O9,M1
+2856.65,203,E,ProductExitsMachine,M5,XXX,YYY,O2,M6
+2859.44,210,P,PassingBy,Node 44,1,O1,O1,M5
+2869.05,204,L,ProductEntersMachine,M5,1,O1,O1,M5
+2872.15,205,E,PassingBy,Node 49,1,O1,O1,M5
+2926.09,201,A,ProductExitsMachine,M1,XXX,YYY,O9,M1
+2955.54,203,E,PassingBy,Node 67,4,O2,O2,M6
+3013.82,211,L,ProductEntersMachine,M1,0,O8,O8,M1
+3016.61,202,B,ProductExitsMachine,M6,XXX,YYY,O5,M7
+3029.01,203,E,ProductEntersMachine,M6,4,O2,O2,M6
+3077.99,204,L,ProductExitsMachine,M5,XXX,YYY,O1,M5
+3078.3,204,L,ProductEntersMachine,M5,2,O1,O1,M5

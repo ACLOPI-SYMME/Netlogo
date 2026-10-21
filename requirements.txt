@@ -1,0 +1,6 @@
+pynetlogo>=0.5,<0.6
+jpype1
+numpy
+pandas
+python-dotenv
+pytest

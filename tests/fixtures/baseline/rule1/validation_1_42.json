@@ -1,0 +1,67 @@
+{
+  "rule": 1,
+  "rule_name": "Rule 1 - Random Machine",
+  "seed": 42,
+  "modeling_type": "Stochastic",
+  "interval_logs": 100,
+  "runs": [
+    {
+      "run": 1,
+      "ticks": 10000,
+      "simulated_time": 3100.31,
+      "finished": 1,
+      "wip": 10,
+      "throughput": 0.0003225483903222581,
+      "mean_flow_time": 2212.4700000000003,
+      "utilization": {
+        "M1": 0.4009599040095988,
+        "M2": 0.33756624337566254,
+        "M3": 0.5148485151484851,
+        "M4": 0.14758524147585256,
+        "M5": 0.5338466153384663,
+        "M6": 0.08649135086491347,
+        "M7": 0.5513448655134487
+      },
+      "wall_seconds": 9.79790000000503,
+      "csv_files": {
+        "Data": "results\\validation\\1_42_run1\\Data\\Data_100_Sto_R 1_0.csv",
+        "Events": "results\\validation\\1_42_run1\\Events\\Event_100_Sto_R 1_0.csv"
+      },
+      "csv_sha256": {
+        "Data": "1fa7ad77164243155c15e6a01832b0facd76c2e96e80722bb53aa024ba7b5bb0",
+        "Events": "7423d0bd5878f015efc36517da9ca44838242ffdcb138d5552bb0e55094fdebd"
+      }
+    },
+    {
+      "run": 2,
+      "ticks": 10000,
+      "simulated_time": 3100.31,
+      "finished": 1,
+      "wip": 10,
+      "throughput": 0.0003225483903222581,
+      "mean_flow_time": 2212.4700000000003,
+      "utilization": {
+        "M1": 0.4009599040095988,
+        "M2": 0.33756624337566254,
+        "M3": 0.5148485151484851,
+        "M4": 0.14758524147585256,
+        "M5": 0.5338466153384663,
+        "M6": 0.08649135086491347,
+        "M7": 0.5513448655134487
+      },
+      "wall_seconds": 7.111726199975237,
+      "csv_files": {
+        "Data": "results\\validation\\1_42_run2\\Data\\Data_100_Sto_R 1_0.csv",
+        "Events": "results\\validation\\1_42_run2\\Events\\Event_100_Sto_R 1_0.csv"
+      },
+      "csv_sha256": {
+        "Data": "1fa7ad77164243155c15e6a01832b0facd76c2e96e80722bb53aa024ba7b5bb0",
+        "Events": "7423d0bd5878f015efc36517da9ca44838242ffdcb138d5552bb0e55094fdebd"
+      }
+    }
+  ],
+  "deterministic": true,
+  "differences": {},
+  "csv_differences": {},
+  "gui_comparison": null
+}

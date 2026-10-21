@@ -1,0 +1,3 @@
+# Keep byte-exact content: the model and the regression fixtures are compared by hash.
+*.nlogo -text
+tests/fixtures/** -text

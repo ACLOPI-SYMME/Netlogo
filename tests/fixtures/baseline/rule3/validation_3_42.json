@@ -1,0 +1,77 @@
+{
+  "rule": 3,
+  "rule_name": "Rule 3 - Potential Fields",
+  "seed": 42,
+  "modeling_type": "Stochastic",
+  "interval_logs": 100,
+  "runs": [
+    {
+      "run": 1,
+      "ticks": 10000,
+      "simulated_time": 3100.31,
+      "finished": 5,
+      "wip": 6,
+      "throughput": 0.0016127419516112904,
+      "mean_flow_time": 1788.328,
+      "utilization": {
+        "M1": 0.5338466153384662,
+        "M2": 0.75032496750325,
+        "M3": 0.5342465753424659,
+        "M4": 0.2681731826817318,
+        "M5": 0.6792320767923208,
+        "M6": 0.327067293270673,
+        "M7": 0.4692530746925308
+      },
+      "wall_seconds": 9.85619029996451,
+      "csv_files": {
+        "Data": "results\\validation\\3_42_run1\\Data\\Data_100_Sto_R 3_0.csv",
+        "Events": "results\\validation\\3_42_run1\\Events\\Event_100_Sto_R 3_0.csv"
+      },
+      "csv_sha256": {
+        "Data": "9e06a106f78ec1e1cdd61361090bed45420bab35e149d7c05ceccc51e8078788",
+        "Events": "96c69dffe249c53bcc86303fcfc4478a8628dc7ec6c7c0ec1489bb1fe7adedee"
+      }
+    },
+    {
+      "run": 2,
+      "ticks": 10000,
+      "simulated_time": 3100.31,
+      "finished": 5,
+      "wip": 6,
+      "throughput": 0.0016127419516112904,
+      "mean_flow_time": 1788.328,
+      "utilization": {
+        "M1": 0.5338466153384662,
+        "M2": 0.75032496750325,
+        "M3": 0.5342465753424659,
+        "M4": 0.2681731826817318,
+        "M5": 0.6792320767923208,
+        "M6": 0.327067293270673,
+        "M7": 0.4692530746925308
+      },
+      "wall_seconds": 6.592066699988209,
+      "csv_files": {
+        "Data": "results\\validation\\3_42_run2\\Data\\Data_100_Sto_R 3_0.csv",
+        "Events": "results\\validation\\3_42_run2\\Events\\Event_100_Sto_R 3_0.csv"
+      },
+      "csv_sha256": {
+        "Data": "9e06a106f78ec1e1cdd61361090bed45420bab35e149d7c05ceccc51e8078788",
+        "Events": "96c69dffe249c53bcc86303fcfc4478a8628dc7ec6c7c0ec1489bb1fe7adedee"
+      }
+    }
+  ],
+  "deterministic": true,
+  "differences": {},
+  "csv_differences": {},
+  "gui_comparison": {
+    "folder": "results\\gui\\rule3_seed42",
+    "Data": {
+      "status": "identical",
+      "gui_file": "results\\gui\\rule3_seed42\\Data_100_Sto_R 3_0.csv"
+    },
+    "Events": {
+      "status": "identical",
+      "gui_file": "results\\gui\\rule3_seed42\\Event_100_Sto_R 3_0.csv"
+    }
+  }
+}

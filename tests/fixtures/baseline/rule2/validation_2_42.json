@@ -1,0 +1,67 @@
+{
+  "rule": 2,
+  "rule_name": "Rule 2 - Nearest Machine",
+  "seed": 42,
+  "modeling_type": "Stochastic",
+  "interval_logs": 100,
+  "runs": [
+    {
+      "run": 1,
+      "ticks": 10000,
+      "simulated_time": 3100.31,
+      "finished": 2,
+      "wip": 10,
+      "throughput": 0.0006450967806445162,
+      "mean_flow_time": 2269.2,
+      "utilization": {
+        "M1": 0.44775522447755206,
+        "M2": 0.0,
+        "M3": 0.0,
+        "M4": 0.0,
+        "M5": 0.873812618738126,
+        "M6": 0.6353364663533647,
+        "M7": 0.06539346065393453
+      },
+      "wall_seconds": 9.530389899970032,
+      "csv_files": {
+        "Data": "results\\validation\\2_42_run1\\Data\\Data_100_Sto_R 2_0.csv",
+        "Events": "results\\validation\\2_42_run1\\Events\\Event_100_Sto_R 2_0.csv"
+      },
+      "csv_sha256": {
+        "Data": "4eb2b01746aec6d4d7225f2ce59a62d654adf50cd2da7282b48a8579c8e806b8",
+        "Events": "51d1a766ac10b619ffd2e3e3c8fab15a0716086130b862b44ff233cae7c949c3"
+      }
+    },
+    {
+      "run": 2,
+      "ticks": 10000,
+      "simulated_time": 3100.31,
+      "finished": 2,
+      "wip": 10,
+      "throughput": 0.0006450967806445162,
+      "mean_flow_time": 2269.2,
+      "utilization": {
+        "M1": 0.44775522447755206,
+        "M2": 0.0,
+        "M3": 0.0,
+        "M4": 0.0,
+        "M5": 0.873812618738126,
+        "M6": 0.6353364663533647,
+        "M7": 0.06539346065393453
+      },
+      "wall_seconds": 6.437972599989735,
+      "csv_files": {
+        "Data": "results\\validation\\2_42_run2\\Data\\Data_100_Sto_R 2_0.csv",
+        "Events": "results\\validation\\2_42_run2\\Events\\Event_100_Sto_R 2_0.csv"
+      },
+      "csv_sha256": {
+        "Data": "4eb2b01746aec6d4d7225f2ce59a62d654adf50cd2da7282b48a8579c8e806b8",
+        "Events": "51d1a766ac10b619ffd2e3e3c8fab15a0716086130b862b44ff233cae7c949c3"
+      }
+    }
+  ],
+  "deterministic": true,
+  "differences": {},
+  "csv_differences": {},
+  "gui_comparison": null
+}
