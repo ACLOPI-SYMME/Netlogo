@@ -1,0 +1,14 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aclopi"
+version = "0.1.0"
+description = "ACLOPI Annecy simulation platform: headless NetLogo sessions for the monorail digital twin"
+requires-python = ">=3.12"
+# Pinned versions live in requirements.txt; install that first.
+dependencies = ["pynetlogo>=0.5,<0.6", "jpype1", "python-dotenv"]
+
+[tool.setuptools.packages.find]
+include = ["aclopi*"]

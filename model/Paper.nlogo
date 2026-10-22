@@ -44,6 +44,7 @@ globals [
   terminado
 
   event-buffer      ; Platform: events recorded since the last platform-clear-events
+  horizon-ticks     ; Platform: tick at which Go exports and stops (default 10000, set in Setup)
 
 ]
 
@@ -116,6 +117,7 @@ to Setup
   set EventFrameInfo[]
   set EventFrameTemp[]
   set event-buffer []
+  set horizon-ticks 10000
 
   set terminado "No"
 
@@ -147,7 +149,7 @@ to Go
 
 
 
-  if (ticks = 10000) [
+  if (ticks >= horizon-ticks) [
     ExportData
     set terminado "Si"
     stop
@@ -2935,6 +2937,15 @@ end
 
 to platform-clear-events
   set event-buffer []
+end
+
+to-report platform-local [#reporter]
+  ; Evaluates an anonymous reporter without affecting the simulation's random numbers:
+  ; inside, the RNG continues from its current state (same agentset order as an unwrapped call)
+  ; and is restored afterwards.
+  let result 0
+  with-local-randomness [ set result runresult #reporter ]
+  report result
 end
 
 to-report platform-events
