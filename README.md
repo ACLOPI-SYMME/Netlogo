@@ -64,10 +64,10 @@ python scripts\compare_baseline.py
 Tests (estructura de los reporters de plataforma, no interferencia de las lecturas y regresión contra la línea base; tarda alrededor de 1 minuto):
 
 ```powershell
-python -m pytest tests -v -p no:faulthandler
+python -m pytest -v
 ```
 
-`-p no:faulthandler` evita que pytest imprima como "access violation" las excepciones que la JVM provoca y maneja internamente en Windows; no afecta el resultado de los tests.
+`pytest.ini` desactiva `faulthandler`, que en Windows imprimiría como "access violation" excepciones que la JVM provoca y maneja internamente; no afecta el resultado de los tests.
 
 ## Interfaz de plataforma del modelo
 
