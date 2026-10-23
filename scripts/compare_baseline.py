@@ -135,7 +135,7 @@ def format_kpi_table(comparisons: list[RuleComparison]) -> str:
     headers = ["rule", "source"] + [k.replace("util_", "U_").replace("mean_flow_time", "mean_flow") for k in keys] + ["equal"]
     rows = []
     for c in comparisons:
-        for source, kpis in (("baseline", c.baseline_kpis), ("L2", c.current_kpis)):
+        for source, kpis in (("baseline", c.baseline_kpis), ("current", c.current_kpis)):
             cells = []
             for k in keys:
                 v = kpis.get(k)
@@ -160,7 +160,7 @@ def main() -> int:
         for r in args.rules
     ]
 
-    print("KPIs: baseline vs L2")
+    print("KPIs: baseline vs current")
     print(format_kpi_table(comparisons))
     print()
     for c in comparisons:
@@ -168,8 +168,8 @@ def main() -> int:
         if c.kpi_differences:
             print(f"  KPI differences: {c.kpi_differences}")
         status = "identical" if c.events_identical else "DIFFERENT"
-        print(f"  Events SHA-256: {status} (baseline {c.events_sha_baseline[:16]}, L2 {c.events_sha_current[:16]})")
-        print(f"  Data rows: baseline {c.data_rows[0]}, L2 {c.data_rows[1]}")
+        print(f"  Events SHA-256: {status} (baseline {c.events_sha_baseline[:16]}, current {c.events_sha_current[:16]})")
+        print(f"  Data rows: baseline {c.data_rows[0]}, current {c.data_rows[1]}")
         if c.data_column_differences:
             for col, n in sorted(c.data_column_differences.items()):
                 tag = "allowed" if col in c.data_allowed_columns else "NOT ALLOWED"

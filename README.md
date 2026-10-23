@@ -29,7 +29,10 @@ Instalar las dependencias:
 ```powershell
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
+python -m pip install -e .
 ```
+
+El último comando instala el paquete del proyecto, `aclopi`, en modo editable para que los scripts y los tests puedan importarlo.
 
 Crear el archivo `.env` a partir de la plantilla y ajustar las rutas si NetLogo está en otro sitio:
 
@@ -81,6 +84,33 @@ Tiempo de lectura de `platform-state`:
 
 ```powershell
 python scripts\benchmark_platform_state.py
+```
+
+## Sesiones de simulación (`aclopi.sim`)
+
+`SimulationSession` encapsula una simulación en su propio workspace de NetLogo y en su propia carpeta de salida (`results/sessions/<session_id>/`), de modo que las exportaciones de varias sesiones no se pisan. Un mismo proceso puede tener varias sesiones, siempre que se usen desde un solo hilo.
+
+```python
+from aclopi.sim import SimulationSession
+
+with SimulationSession() as s:
+    s.setup(seed=42, rule=3, modeling_type="Stochastic", horizon_ticks=10000)
+    s.step(100)          # avanza hasta 100 ticks en una sola llamada
+    estado = s.state()   # platform-state como dict
+    eventos = s.events() # lee y vacía el buffer de eventos
+    s.run_to_end()
+    print(s.kpis())
+```
+
+What-if: `path = s.export_world()` y luego `otra.import_world(path)` en una o varias sesiones (o directamente `s.clone_to(otra)`). El mundo exportado conserva el estado del generador aleatorio, así que el clon continúa exactamente igual que el original.
+
+El horizonte de la corrida es la global `horizon-ticks` del modelo (por defecto 10000), que `setup(..., horizon_ticks=...)` asigna después de `setup`.
+
+Benchmarks de la sesión (clonado en el tick 3000 y corridas por bloques):
+
+```powershell
+python scripts\benchmark_session.py --part clone
+python scripts\benchmark_session.py --part blocks
 ```
 
 Los problemas conocidos del modelo que no se corrigen están en `docs/known-issues.md`.

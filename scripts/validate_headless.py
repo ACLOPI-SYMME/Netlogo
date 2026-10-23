@@ -27,6 +27,8 @@ from typing import Any
 
 from dotenv import load_dotenv
 
+from aclopi.sim.kpis import compute_kpis
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 MODEL_DIR = REPO_ROOT / "model"
 MODEL_PATH = MODEL_DIR / "Paper.nlogo"
@@ -52,27 +54,6 @@ CSV_NAME_REPORTER = (
     '(word "_" Interval.Logs "_" substring Modeling.type 0 3 "_R" '
     'substring Reactivity.Rule 4 6 "_" behaviorspace-run-number ".csv")'
 )
-
-# Busy time per machine, from the per-product operation history. Completed operations
-# pair ProductRealStart[i] / ProductRealCompletion[i] / Machine.Used[i]; an operation
-# still in progress counts until Simulated.Time on its Heading.Workstation.
-BUSY_TIME_REPORTER = """
-map [m -> sum [
-    sum (map [[s c u] -> ifelse-value (u = m) [c - s] [0]]
-             (sublist ProductRealStart 0 (length ProductRealCompletion))
-             ProductRealCompletion
-             Machine.Used)
-    + ifelse-value (length ProductRealStart > length ProductRealCompletion and Heading.Workstation = m)
-        [Simulated.Time - last ProductRealStart] [0]
-  ] of products]
-  (sort [Machine.Name] of machines)
-"""
-
-FLOW_TIME_REPORTER = """
-ifelse-value any? products with [Product.State = "death"]
-  [mean [last ProductRealCompletion - first ProductRealStart] of products with [Product.State = "death"]]
-  [-1]
-"""
 
 logger = logging.getLogger("validate_headless")
 
@@ -136,10 +117,6 @@ def sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def to_float(value: Any) -> float:
-    return float(value)
-
-
 def run_once(netlogo: Any, args: argparse.Namespace, run_index: int) -> RunResult:
     rule_name = RULES[args.rule]
     netlogo.command(f"random-seed {args.seed}")
@@ -159,25 +136,18 @@ def run_once(netlogo: Any, args: argparse.Namespace, run_index: int) -> RunResul
             f"Run {run_index}: ExportData was not reached (terminado={terminado!r}, ticks={ticks})"
         )
 
-    simulated_time = to_float(netlogo.report("Simulated.Time"))
-    finished = int(netlogo.report('count products with [Product.State = "death"]'))
-    wip = int(netlogo.report('count products with [Product.State != "death"]'))
-    flow = to_float(netlogo.report(FLOW_TIME_REPORTER))
-    machine_names = [str(m) for m in netlogo.report("sort [Machine.Name] of machines")]
-    busy = [to_float(b) for b in netlogo.report(BUSY_TIME_REPORTER)]
-    utilization = {m: b / simulated_time for m, b in zip(machine_names, busy)}
-
+    kpis = compute_kpis(netlogo)
     csv_files, csv_hashes = collect_csvs(netlogo, args, run_index, started_at)
 
     return RunResult(
         run=run_index,
-        ticks=ticks,
-        simulated_time=simulated_time,
-        finished=finished,
-        wip=wip,
-        throughput=finished / simulated_time,
-        mean_flow_time=None if flow < 0 else flow,
-        utilization=utilization,
+        ticks=kpis.ticks,
+        simulated_time=kpis.simulated_time,
+        finished=kpis.finished,
+        wip=kpis.wip,
+        throughput=kpis.throughput,
+        mean_flow_time=kpis.mean_flow_time,
+        utilization=kpis.utilization,
         wall_seconds=wall_seconds,
         csv_files=csv_files,
         csv_sha256=csv_hashes,
