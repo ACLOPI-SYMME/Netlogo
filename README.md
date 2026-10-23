@@ -113,4 +113,20 @@ python scripts\benchmark_session.py --part clone
 python scripts\benchmark_session.py --part blocks
 ```
 
+## Contenedor Linux (Docker)
+
+Imagen con Python 3.12, NetLogo 6.4.0 para Linux (descargado de `downloads.netlogo.org` con su checksum verificado) y el paquete `aclopi`:
+
+```powershell
+docker build -f docker/Dockerfile -t aclopi-sim .
+```
+
+`docker/run.ps1` ejecuta un comando en el contenedor con los límites de las mediciones (`--cpus=4 --cpuset-cpus=0-3 --memory=6g --memory-swap=6g`) y monta `results/`:
+
+```powershell
+.\docker\run.ps1 bash scripts/l4/regression.sh
+```
+
+Las mediciones de concurrencia de L4 están en `scripts/l4/` y dejan sus resultados en `results/l4/`.
+
 Los problemas conocidos del modelo que no se corrigen están en `docs/known-issues.md`.

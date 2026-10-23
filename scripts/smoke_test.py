@@ -39,10 +39,8 @@ def require_path(var_name: str) -> Path:
 
 
 def main() -> None:
-    env_file = REPO_ROOT / ".env"
-    if not env_file.exists():
-        fail(f"Missing {env_file}. Copy .env.example to .env and adjust the paths.")
-    load_dotenv(env_file)
+    # .env is optional: in the container the paths come from environment variables.
+    load_dotenv(REPO_ROOT / ".env")
 
     netlogo_home = require_path("NETLOGO_HOME")
     jvm_path = require_path("JVM_PATH")
