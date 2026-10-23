@@ -1,3 +1,6 @@
 # Keep byte-exact content: the model and the regression fixtures are compared by hash.
 *.nlogo -text
 tests/fixtures/** -text
+# Files executed inside the Linux container must keep LF line endings.
+*.sh text eol=lf
+docker/Dockerfile text eol=lf
