@@ -3415,7 +3415,7 @@ CHOOSER
 286
 Reactivity.rule
 Reactivity.rule
-"Rule 1 - Random Machine" "Rule 2 - Nearest Machine" "Rule 3 - Potential Fields"
+"Rule 1 - Random Machine" "Rule 2 - Nearest Machine" "Rule 3 - Potential Fields" "Rule 4 - AI Agent"
 0
 
 MONITOR
@@ -3443,8 +3443,8 @@ TEXTBOX
 14
 293
 398
-358
-Reactivity rule: \nChosses next machine after an operation is completed\nRule 1 - Random posible machine\nRule 2 - Nearest posible machine \nRule 3 - Potential Fields (Attractivness and distance)
+369
+Reactivity rule: \nChosses next machine after an operation is completed\nRule 1 - Random posible machine\nRule 2 - Nearest posible machine \nRule 3 - Potential Fields (Attractivness and distance)\nRule 4 - AI Agent (chosen from Python, Rule 3 as fallback)
 10
 0.0
 1
