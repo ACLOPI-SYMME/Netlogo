@@ -25,7 +25,9 @@ from typing import Any
 
 from aclopi.sim.session import SimulationSession, netlogo_string
 
-DECISION_SOURCES = ("agent", "rule3-fallback")
+# agent: the machine chosen from Python; rule3-fallback: several capable machines and no valid
+# answer; single-option: only one capable machine (no request is made), assigned by the rule 3 code.
+DECISION_SOURCES = ("agent", "rule3-fallback", "single-option")
 
 
 @dataclass(frozen=True)
@@ -54,7 +56,7 @@ class DecisionRecord:
     operation: str
     origin: str  # machine that completed the previous operation
     chosen: str  # machine assigned (Heading.Workstation)
-    source: str  # "agent" or "rule3-fallback"
+    source: str  # one of DECISION_SOURCES
 
 
 # The session's private helpers are used on purpose: they hold the session lock and check that

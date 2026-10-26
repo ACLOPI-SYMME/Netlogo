@@ -35,7 +35,10 @@ def test_rule4_without_decider_matches_rule3(session: SimulationSession, seed: i
     # Requests are read and cleared every time one appears, but never answered.
     rule4 = run(session, 4, seed, 10000, poll=True)
     assert rule4.requests > 0 and rule4.answers == {}
-    assert set(rule4.sources) == {"rule3-fallback"}
+    # Without answers every multi-machine assignment is a rule 3 fallback; the step to O9 (only M1)
+    # is single-option, at least once per finished product.
+    assert set(rule4.sources) == {"rule3-fallback", "single-option"}
+    assert rule4.sources["single-option"] >= rule4.kpis["finished"] > 0
 
     eq = compare(reference, rule4)
     assert eq.kpi_differences == {}
@@ -82,7 +85,7 @@ def test_random_decider_short_run(session: SimulationSession) -> None:
     log = decision_log(session)
     for record in log:
         if record.operation in SINGLE_MACHINE_OPERATIONS:
-            assert record.source == "rule3-fallback" and (record.who, record.seq) not in answered
+            assert record.source == "single-option" and (record.who, record.seq) not in answered
         else:
             # Every multi-machine assignment was answered in time and applied as given.
             assert record.source == "agent"
@@ -90,7 +93,7 @@ def test_random_decider_short_run(session: SimulationSession) -> None:
     assert sum(r.source == "agent" for r in log) > 0
     # After the assignment the stored choice is consumed.
     for product in session.state()["products"]:
-        assert product["decision_source"] in {"", "agent", "rule3-fallback"}
+        assert product["decision_source"] in {"", "agent", "single-option"}
 
 
 def test_rejections(session: SimulationSession) -> None:

@@ -85,7 +85,7 @@ products-own [
   ProductCreationTime          ; Platform: Simulated.Time when the product was created
   AI.Next.Machine              ; Rule 4: machine chosen from Python for the next operation ("" = none)
   AI.Decision.Seq              ; Rule 4: index in ProductOperations of the operation AI.Next.Machine is for (-1 = none)
-  Decision.Source              ; Rule 4: who made the last assignment: "agent" or "rule3-fallback" ("" = none yet)
+  Decision.Source              ; Rule 4: who made the last assignment: "agent", "rule3-fallback" or "single-option" ("" = none yet)
 ]
 
 breed [machines machine]
@@ -2985,7 +2985,8 @@ to Rule4.Assign.Machine [Machine.which.completed]
               set counter counter + 1
             ]
             set Heading.Workstation item position max next2 next2 machines.possible
-    set Decision.Source "rule3-fallback"
+    ; Only one capable machine (today: the step to O9): there was no real decision to make.
+    set Decision.Source ifelse-value (length machines.possible > 1) ["rule3-fallback"] ["single-option"]
   ]
   set decision-log lput (list ticks who CurrentSequenceOrder Next.product.operation Machine.which.completed Heading.Workstation Decision.Source) decision-log
   set AI.Next.Machine ""

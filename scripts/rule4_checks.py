@@ -5,7 +5,7 @@
    (block 0, Reactivity.rule), which holds the rule name.
 2. Rule 4 with a decider that picks a capable machine at random (Python's random, not
    NetLogo's) must run to the end; the decision log tells how many assignments came from the
-   agent and how many from the rule 3 fallback.
+   agent, how many from the rule 3 fallback and how many had a single option.
 
 Usage (from the repository root):
     python scripts/rule4_checks.py --horizons 10000 100000 --seeds 42 7
@@ -53,7 +53,6 @@ class RunOutput:
     requests: int = 0
     answers: Counter = field(default_factory=Counter)  # set_next_machine result -> count
     sources: Counter = field(default_factory=Counter)  # decision log source -> count
-    fallback_with_request: int = 0  # fallbacks for operations that had a request (several machines)
 
 
 @dataclass
@@ -116,13 +115,11 @@ def run(
     if rule == 4:
         log = decision_log(session, clear=True)
         out.sources = Counter(d.source for d in log)
-        out.fallback_with_request = sum(
-            1 for d in log if d.source == "rule3-fallback" and d.operation not in SINGLE_MACHINE_OPERATIONS
-        )
     return out
 
 
-# Operations that only one machine can do (operations table in Set.operations): never requested.
+# Operations that only one machine can do (operations table in Set.operations): never requested,
+# assigned with Decision.Source = "single-option".
 SINGLE_MACHINE_OPERATIONS = {"O6", "O7", "O8", "O9"}
 
 
@@ -198,14 +195,14 @@ def main() -> int:
                   f"mean_flow={out.kpis['mean_flow_time']}")
             print(f"  requests: {out.requests}; answers: {dict(out.answers)}")
             print(f"  assignments: {total}; by source: {dict(out.sources)}; "
-                  f"fallbacks on operations with a request: {out.fallback_with_request}")
+                  f"rule 3 fallbacks (several machines, no valid answer): {out.sources['rule3-fallback']}")
             print(f"  wall: {out.wall_s:.1f} s", end="")
             if (seed, horizon) not in rule3_wall:
                 ref = run(session, 3, seed, horizon)
                 rule3_wall[(seed, horizon)] = ref.wall_s
             print(f" (rule 3, same seed and horizon: {rule3_wall[(seed, horizon)]:.1f} s)")
             ok &= out.kpis["ticks"] == horizon and out.answers.get("ok", 0) == out.requests
-            ok &= out.fallback_with_request == 0
+            ok &= out.sources["rule3-fallback"] == 0
 
     print(f"\nOverall: {'OK' if ok else 'FAILED'}")
     return 0 if ok else 1

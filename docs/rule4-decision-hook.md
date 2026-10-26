@@ -16,8 +16,10 @@ existe en `model/Paper.nlogo` (sección "Rule 4 - AI Agent" y "Rule 4 decision h
    - la máquina elegida por Python, si hay una respuesta para esa operación y la máquina sigue
      siendo viable → `Decision.Source = "agent"`;
    - si no, la regla 3 (Potential Fields) con el mismo código y el mismo consumo de azar →
-     `Decision.Source = "rule3-fallback"`.
-   En ambos casos se limpia la respuesta guardada y se agrega una línea a `decision-log`.
+     `Decision.Source = "rule3-fallback"` si la operación tiene varias máquinas capaces (no hubo
+     respuesta válida del decisor), o `Decision.Source = "single-option"` si solo una máquina
+     puede hacerla (no había nada que decidir; hoy, el paso a O9).
+   En todos los casos se limpia la respuesta guardada y se agrega una línea a `decision-log`.
    El producto nunca se queda sin destino.
 
 "Viable" hoy significa "capaz de la operación". El reporter `machine-available? [nombre]`
@@ -47,9 +49,11 @@ Tabla de máquinas capaces (`Set.operations`):
 Consecuencias:
 - La primera operación (O8 en M1) no se decide: el producto nace con destino M1.
 - El paso a O9 (M1, última operación) no genera petición; la regla 3 elige M1 y queda en el
-  registro como `rule3-fallback`. Por eso, aun con un decisor que responde todo, el registro
-  tiene un `rule3-fallback` por producto (el de O9). Las asignaciones a operaciones con varias
-  máquinas deberían ser todas `agent`.
+  registro como `single-option` (uno por producto). Con un decisor que responde a tiempo, todas
+  las asignaciones a operaciones con varias máquinas son `agent` y no hay ningún
+  `rule3-fallback`.
+- Si Python responde de todos modos para una operación de una sola máquina (se acepta, porque la
+  máquina es capaz), la asignación queda como `agent`.
 - Con las reglas 1–3 no se crea ninguna petición ni se escribe en el registro.
 
 ## Variables de producto
@@ -58,7 +62,7 @@ Consecuencias:
 |---|---|---|
 | `AI.Next.Machine` | `""` | máquina elegida por Python para la próxima operación |
 | `AI.Decision.Seq` | `-1` | índice en `ProductOperations` de la operación para la que se eligió |
-| `Decision.Source` | `""` | quién hizo la última asignación: `"agent"` o `"rule3-fallback"` |
+| `Decision.Source` | `""` | quién hizo la última asignación: `"agent"`, `"rule3-fallback"` o `"single-option"` |
 
 Aparecen en `platform-state` (cada producto vivo) como `ai_next_machine`, `ai_decision_seq` y
 `decision_source`.
@@ -157,7 +161,7 @@ Todas las asignaciones hechas por la regla 4 desde el último vaciado (con y sin
 - `seq`, `operation`: operación asignada.
 - `origin`: máquina que terminó la operación anterior.
 - `chosen`: máquina asignada (`Heading.Workstation`).
-- `source`: `"agent"` o `"rule3-fallback"`.
+- `source`: `"agent"`, `"rule3-fallback"` o `"single-option"` (ver Mecanismo).
 
 ### `platform-clear-decision-log` (comando)
 
