@@ -70,6 +70,12 @@ Tests (estructura de los reporters de plataforma, no interferencia de las lectur
 python -m pytest -v
 ```
 
+La regresión larga (regla 3, 100.000 ticks, semillas 42 y 7, contra `tests/fixtures/long/`) está marcada como lenta y queda fuera de la ejecución normal. Se corre aparte (unos 2 minutos):
+
+```powershell
+python -m pytest -m slow -v
+```
+
 `pytest.ini` desactiva `faulthandler`, que en Windows imprimiría como "access violation" excepciones que la JVM provoca y maneja internamente; no afecta el resultado de los tests.
 
 ## Interfaz de plataforma del modelo
