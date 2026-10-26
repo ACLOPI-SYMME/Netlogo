@@ -170,8 +170,9 @@ def collect_csvs(
             raise RuntimeError(f"Exported CSV was not rewritten by this run: {source}")
         destination = target_dir / kind / source.name
         destination.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(source, destination)
-        files[kind] = str(destination.relative_to(REPO_ROOT))
+        # copyfile, not copy2: copying timestamps fails on bind mounts (Docker on Windows).
+        shutil.copyfile(source, destination)
+        files[kind] = destination.relative_to(REPO_ROOT).as_posix()
         hashes[kind] = sha256(destination)
     return files, hashes
 
@@ -254,10 +255,8 @@ def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", datefmt="%H:%M:%S")
     args = parse_args()
 
-    env_file = REPO_ROOT / ".env"
-    if not env_file.exists():
-        raise SystemExit(f"ERROR: Missing {env_file}. Copy .env.example to .env and adjust the paths.")
-    load_dotenv(env_file)
+    # .env is optional: in the container the paths come from environment variables.
+    load_dotenv(REPO_ROOT / ".env")
     netlogo_home = require_path("NETLOGO_HOME")
     jvm_path = require_path("JVM_PATH")
     if not MODEL_PATH.exists():

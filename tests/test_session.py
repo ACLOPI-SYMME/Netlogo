@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 from pathlib import Path
 from typing import Any, Iterator
@@ -10,6 +9,7 @@ from typing import Any, Iterator
 import pytest
 
 from aclopi.sim import SimulationSession
+from compare_baseline import sha256 as content_sha256
 
 BASELINE = Path(__file__).resolve().parent / "fixtures" / "baseline"
 
@@ -195,4 +195,4 @@ def test_horizon_10000_matches_baseline(s1: SimulationSession, rule: int) -> Non
     assert kpis.utilization == baseline_run["utilization"]
     events_csv = s1.directory / "Results" / "Events" / f"Event_100_Sto_R {rule}_0.csv"
     baseline_events = BASELINE / f"rule{rule}" / f"Event_100_Sto_R {rule}_0.csv"
-    assert hashlib.sha256(events_csv.read_bytes()).digest() == hashlib.sha256(baseline_events.read_bytes()).digest()
+    assert content_sha256(events_csv) == content_sha256(baseline_events)  # line endings normalized

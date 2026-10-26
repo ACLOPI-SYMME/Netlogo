@@ -2939,6 +2939,17 @@ to platform-clear-events
   set event-buffer []
 end
 
+to-report platform-step [#n]
+  ; Advances up to #n ticks in one call and reports (list ticks advanced finished?) as numbers
+  ; (finished? is 1 or 0: pynetlogo cannot convert lists that mix booleans and numbers).
+  ; When the horizon is reached, the extra go that runs ExportData and sets terminado is made.
+  let start ticks
+  let target ticks + #n
+  while [terminado = "No" and ticks < target] [ go ]
+  if (terminado = "No" and ticks >= horizon-ticks) [ go ]
+  report (list ticks (ticks - start) (ifelse-value (terminado = "Si") [1] [0]))
+end
+
 to-report platform-local [#reporter]
   ; Evaluates an anonymous reporter without affecting the simulation's random numbers:
   ; inside, the RNG continues from its current state (same agentset order as an unwrapped call)

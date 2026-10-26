@@ -3,7 +3,9 @@
 Each session has its own NetLogo workspace and its own output folder
 (results/sessions/<session_id>/), set as NetLogo's current directory so that ExportData of
 different sessions never overwrite each other. Several sessions can live in the same Python
-process (one JVM, one workspace each); they must be driven from a single thread.
+process (one JVM, one workspace each). Every call into a session's workspace goes through that
+session's lock, so a session can be shared between threads (e.g. a live loop and a what-if
+export); different sessions run in parallel.
 
 Typical use:
 
@@ -27,6 +29,8 @@ from __future__ import annotations
 import json
 import logging
 import os
+import shlex
+import threading
 import time
 import uuid
 from dataclasses import dataclass
@@ -98,7 +102,10 @@ class SimulationSession:
         model_path: str | os.PathLike[str] = DEFAULT_MODEL_PATH,
         netlogo_home: str | os.PathLike[str] | None = None,
         jvm_path: str | os.PathLike[str] | None = None,
+        jvm_args: list[str] | None = None,
     ) -> None:
+        """jvm_args (default: ACLOPI_JVM_ARGS, space separated) only take effect for the first
+        session of the process, which starts the JVM; later sessions share that JVM."""
         self.session_id = session_id or uuid.uuid4().hex[:12]
         self.directory = Path(results_root).resolve() / self.session_id
         self.model_path = Path(model_path).resolve()
@@ -108,9 +115,19 @@ class SimulationSession:
             (self.directory / sub).mkdir(parents=True, exist_ok=True)
 
         home, jvm = resolve_netlogo_paths(netlogo_home, jvm_path)
+        if jvm_args is None:
+            jvm_args = shlex.split(os.environ.get("ACLOPI_JVM_ARGS", ""))
+        import jpype
         import pynetlogo  # imported late so configuration errors are reported before the JVM starts
 
-        self._link: Any = pynetlogo.NetLogoLink(gui=False, netlogo_home=str(home), jvm_path=str(jvm))
+        if jvm_args and jpype.isJVMStarted():
+            logger.warning("Session %s: JVM already running, jvm_args %s ignored", self.session_id, jvm_args)
+        self._link: Any = pynetlogo.NetLogoLink(
+            gui=False, netlogo_home=str(home), jvm_path=str(jvm), jvmargs=list(jvm_args)
+        )
+        # Serializes every call into this workspace: a session may be used from several threads
+        # (e.g. a live loop and a what-if export), but a workspace runs one job at a time.
+        self._lock = threading.RLock()
         self._closed = False
         self._params: RunParameters | None = None
         self._layout: dict[str, Any] | None = None
@@ -139,13 +156,14 @@ class SimulationSession:
 
     def close(self) -> None:
         """Dispose of the NetLogo workspace. Safe to call more than once."""
-        if self._closed:
-            return
-        self._closed = True
-        try:
-            self._link.kill_workspace()
-        except Exception:  # noqa: BLE001 - the workspace may already be unusable
-            logger.exception("Session %s: error while closing the workspace", self.session_id)
+        with self._lock:
+            if self._closed:
+                return
+            self._closed = True
+            try:
+                self._link.kill_workspace()
+            except Exception:  # noqa: BLE001 - the workspace may already be unusable
+                logger.exception("Session %s: error while closing the workspace", self.session_id)
 
     @property
     def closed(self) -> bool:
@@ -167,13 +185,14 @@ class SimulationSession:
             raise ValueError(f"modeling_type must be one of {MODELING_TYPES}, got {modeling_type!r}")
         if horizon_ticks < 1:
             raise ValueError("horizon_ticks must be >= 1")
-        self._command(f"random-seed {int(seed)}")
-        self._command(f"set Reactivity.rule {netlogo_string(RULES[rule])}")
-        self._command(f"set Modeling.Type {netlogo_string(modeling_type)}")
-        self._command("setup")
-        self._command(f"set horizon-ticks {int(horizon_ticks)}")
-        self._params = RunParameters(int(seed), rule, modeling_type, int(horizon_ticks))
-        self._layout = self._report_json("platform-layout")
+        with self._lock:
+            self._command(f"random-seed {int(seed)}")
+            self._command(f"set Reactivity.rule {netlogo_string(RULES[rule])}")
+            self._command(f"set Modeling.Type {netlogo_string(modeling_type)}")
+            self._command("setup")
+            self._command(f"set horizon-ticks {int(horizon_ticks)}")
+            self._params = RunParameters(int(seed), rule, modeling_type, int(horizon_ticks))
+            self._layout = self._report_json("platform-layout")
 
     def reset(self) -> None:
         """Run setup again with the parameters of the last setup()."""
@@ -183,31 +202,26 @@ class SimulationSession:
         self.setup(params.seed, params.rule, params.modeling_type, params.horizon_ticks)
 
     def step(self, n: int) -> StepResult:
-        """Advance up to n ticks in a single NetLogo call.
+        """Advance up to n ticks in a single NetLogo call (the model's platform-step reporter).
 
         Stops early when the run ends. When the horizon is reached, the extra go call that
         runs ExportData and sets terminado is made, so the run finishes cleanly.
         """
         if n < 0:
             raise ValueError("n must be >= 0")
-        self._require_params()
-        before = self.ticks
-        self._command(
-            f"let target ticks + {int(n)} "
-            'while [terminado = "No" and ticks < target] [ go ] '
-            'if (terminado = "No" and ticks >= horizon-ticks) [ go ]'
-        )
-        after = self.ticks
-        return StepResult(ticks=after, advanced=after - before, finished=self.finished)
+        with self._lock:
+            self._require_params()
+            ticks, advanced, finished = (int(v) for v in self._report(f"platform-step {int(n)}"))
+        return StepResult(ticks=ticks, advanced=advanced, finished=finished == 1)
 
     def run_to_end(self) -> StepResult:
         """Run until ExportData (tick = horizon_ticks)."""
         params = self._require_params()
-        start_ticks = self.ticks
-        result = self.step(max(self._horizon() - start_ticks, 0))
+        # step never goes past the horizon, so asking for horizon_ticks always reaches the end.
+        result = self.step(max(params.horizon_ticks, 1))
         if not result.finished:
             raise RuntimeError(f"Run did not finish (ticks={result.ticks}, horizon={params.horizon_ticks})")
-        return StepResult(ticks=result.ticks, advanced=result.ticks - start_ticks, finished=True)
+        return result
 
     @property
     def ticks(self) -> int:
@@ -230,9 +244,10 @@ class SimulationSession:
 
     def events(self) -> list[dict[str, Any]]:
         """Events recorded since the previous call (platform-events); the buffer is emptied."""
-        self._require_params()
-        payload = self._report_json("platform-events")
-        self._command("platform-clear-events")
+        with self._lock:
+            self._require_params()
+            payload = self._report_json("platform-events")
+            self._command("platform-clear-events")
         fields = payload["fields"]
         return [dict(zip(fields, event)) for event in payload["events"]]
 
@@ -244,8 +259,9 @@ class SimulationSession:
 
     def kpis(self) -> Kpis:
         """KPIs of the current state; does not alter the simulation."""
-        self._require_params()
-        return compute_kpis(self._link)
+        with self._lock:
+            self._require_params()
+            return compute_kpis(self._link)
 
     def exported_csvs(self) -> list[Path]:
         """CSV files written by ExportData into this session's folder."""
@@ -255,13 +271,14 @@ class SimulationSession:
 
     def export_world(self, path: str | os.PathLike[str] | None = None) -> Path:
         """Write the full world (agents, globals, RNG state) to a file and return its path."""
-        self._require_params()
-        if path is None:
-            self._world_counter += 1
-            path = self.directory / "worlds" / f"world_t{self.ticks}_{self._world_counter}.csv"
-        target = Path(path).resolve()
-        target.parent.mkdir(parents=True, exist_ok=True)
-        self._command(f"export-world {netlogo_string(target.as_posix())}")
+        with self._lock:
+            self._require_params()
+            if path is None:
+                self._world_counter += 1
+                path = self.directory / "worlds" / f"world_t{self.ticks}_{self._world_counter}.csv"
+            target = Path(path).resolve()
+            target.parent.mkdir(parents=True, exist_ok=True)
+            self._command(f"export-world {netlogo_string(target.as_posix())}")
         return target
 
     def import_world(self, path: str | os.PathLike[str], seed: int | None = None) -> None:
@@ -273,18 +290,19 @@ class SimulationSession:
         source = Path(path).resolve()
         if not source.exists():
             raise FileNotFoundError(f"World file not found: {source}")
-        self._command(f"import-world {netlogo_string(source.as_posix())}")
-        self._apply_directory()
-        self._command("platform-clear-events")
-        rule_name = str(self._report("Reactivity.rule"))
-        rule = next(k for k, v in RULES.items() if v == rule_name)
-        self._params = RunParameters(
-            seed=seed,
-            rule=rule,
-            modeling_type=str(self._report("Modeling.Type")),
-            horizon_ticks=self._horizon(),
-        )
-        self._layout = self._report_json("platform-layout")
+        with self._lock:
+            self._command(f"import-world {netlogo_string(source.as_posix())}")
+            self._apply_directory()
+            self._command("platform-clear-events")
+            rule_name = str(self._report("Reactivity.rule"))
+            rule = next(k for k, v in RULES.items() if v == rule_name)
+            self._params = RunParameters(
+                seed=seed,
+                rule=rule,
+                modeling_type=str(self._report("Modeling.Type")),
+                horizon_ticks=self._horizon(),
+            )
+            self._layout = self._report_json("platform-layout")
 
     def clone_to(self, other: SimulationSession) -> float:
         """Copy this session's current world into another session. Returns the seconds taken."""
@@ -323,12 +341,14 @@ class SimulationSession:
         return self._params
 
     def _command(self, command: str) -> None:
-        self._require_open()
-        self._link.command(command)
+        with self._lock:
+            self._require_open()
+            self._link.command(command)
 
     def _report(self, reporter: str) -> Any:
-        self._require_open()
-        return self._link.report(reporter)
+        with self._lock:
+            self._require_open()
+            return self._link.report(reporter)
 
     def _report_json(self, reporter: str) -> Any:
         # pynetlogo returns java.lang.String for NetLogo strings.

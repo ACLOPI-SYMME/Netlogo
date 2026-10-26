@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import statistics
 import sys
 import time
@@ -26,7 +27,7 @@ from aclopi.sim import SimulationSession
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 RESULTS_DIR = REPO_ROOT / "results"
-SESSIONS_ROOT = RESULTS_DIR / "sessions" / "benchmark"
+SESSIONS_ROOT = Path(os.environ.get("ACLOPI_SESSIONS_ROOT", RESULTS_DIR / "sessions" / "benchmark"))
 
 logger = logging.getLogger("benchmark_session")
 

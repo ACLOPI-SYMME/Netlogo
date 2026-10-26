@@ -54,7 +54,17 @@ class RuleComparison:
 
 
 def sha256(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+    """SHA-256 of the content with line endings normalized to LF.
+
+    NetLogo writes CSVs with the OS line separator (CRLF on Windows, LF on Linux); the baseline
+    was produced on Windows, so raw hashes would differ on Linux for identical content.
+    """
+    return hashlib.sha256(path.read_bytes().replace(b"\r\n", b"\n")).hexdigest()
+
+
+def repo_path(relative: str) -> Path:
+    """Path stored in a summary JSON, written with / or \\ depending on the OS that produced it."""
+    return REPO_ROOT / Path(*relative.replace("\\", "/").split("/"))
 
 
 def flatten_kpis(run: dict[str, Any]) -> dict[str, Any]:
@@ -109,8 +119,8 @@ def compare_run(
         k: (baseline_kpis.get(k), current_kpis.get(k)) for k in keys if baseline_kpis.get(k) != current_kpis.get(k)
     }
 
-    current_data = REPO_ROOT / current_run["csv_files"]["Data"]
-    current_events = REPO_ROOT / current_run["csv_files"]["Events"]
+    current_data = repo_path(current_run["csv_files"]["Data"])
+    current_events = repo_path(current_run["csv_files"]["Events"])
     baseline_data = base_dir / current_data.name
     baseline_events = base_dir / current_events.name
 
