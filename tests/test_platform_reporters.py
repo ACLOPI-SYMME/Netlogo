@@ -97,7 +97,10 @@ def test_platform_state_structure(netlogo: Any, rule: int) -> None:
         assert set(p) == {
             "id", "type", "state", "x", "y", "last_node", "next_node", "next_operation",
             "heading_workstation", "sequence_order", "operations", "created",
+            "ai_next_machine", "ai_decision_seq", "decision_source",
         }
+        # Rule 4 fields stay at their defaults with rules 1-3.
+        assert p["ai_next_machine"] == "" and p["ai_decision_seq"] == -1 and p["decision_source"] == ""
         assert p["id"] >= 200 and p["type"] in {"A", "I", "P", "B", "E", "L", "T"}
         assert p["state"] != "death"
         assert is_num(p["x"]) and is_num(p["y"]) and is_num(p["created"])

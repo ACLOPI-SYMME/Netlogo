@@ -45,6 +45,8 @@ globals [
 
   event-buffer      ; Platform: events recorded since the last platform-clear-events
   horizon-ticks     ; Platform: tick at which Go exports and stops (default 10000, set in Setup)
+  decision-queue    ; Rule 4: pending decision requests [who seq operation origin-machine tick]
+  decision-log      ; Rule 4: applied assignments [tick who seq operation origin-machine chosen-machine source]
 
 ]
 
@@ -81,6 +83,9 @@ products-own [
   priority
   Platoon-Position
   ProductCreationTime          ; Platform: Simulated.Time when the product was created
+  AI.Next.Machine              ; Rule 4: machine chosen from Python for the next operation ("" = none)
+  AI.Decision.Seq              ; Rule 4: index in ProductOperations of the operation AI.Next.Machine is for (-1 = none)
+  Decision.Source              ; Rule 4: who made the last assignment: "agent", "rule3-fallback" or "single-option" ("" = none yet)
 ]
 
 breed [machines machine]
@@ -118,6 +123,8 @@ to Setup
   set EventFrameTemp[]
   set event-buffer []
   set horizon-ticks 10000
+  set decision-queue []
+  set decision-log []
 
   set terminado "No"
 
@@ -185,6 +192,8 @@ to EventMachineEntry [#1 #2]
   set EventFrameInfo lput EventFrameTemp EventFrameInfo
   Platform.Record.Event EventFrameTemp (item 6 EventFrameTemp)
   set EventFrameTemp[]
+
+  if (Reactivity.rule = "Rule 4 - AI Agent") [Rule4.Request.Decision #1 #2]
 
 end
 
@@ -503,6 +512,9 @@ to Create.product [#1]
     set Heading.Workstation "M1"
     set NetlogoTurtle-ID (count products - 1)
     set ProductCreationTime Simulated.Time
+    set AI.Next.Machine ""
+    set AI.Decision.Seq -1
+    set Decision.Source ""
     set speed-factor 1
     set platoon-position 0 - 1
     set Machine.Used []
@@ -579,6 +591,7 @@ to Cheking.Machine.Completion
             set Heading.Workstation item position max next2 next2 machines.possible
           ]
 
+          if (Reactivity.Rule = "Rule 4 - AI Agent") [Rule4.Assign.Machine Machine.which.completed]
           ifelse (currentsequenceorder = length ProductOperations - 1) [set shape (word (conversion ProductType) ".f-product-" (minuscule producttype))][set shape (word (conversion ProductType) "." (currentsequenceorder - 1) "-product-" (minuscule producttype))]
         ][
 
@@ -637,6 +650,7 @@ to Cheking.Machine.Completion
             ]
             set Heading.Workstation item position max next2 next2 machines.possible
           ]
+        if (Reactivity.Rule = "Rule 4 - AI Agent") [Rule4.Assign.Machine Machine.which.completed]
         ifelse (currentsequenceorder = length ProductOperations - 1) [set shape (word (conversion ProductType) ".f-product-" (minuscule producttype))][set shape (word (conversion ProductType) "." (currentsequenceorder - 1) "-product-" (minuscule producttype))]
         EventMachineExit who [who] of machines with [Machine.Name = Machine.which.completed]
       ]
@@ -686,6 +700,7 @@ to Cheking.Machine.Completion
             ]
             set Heading.Workstation item position max next2 next2 machines.possible
           ]
+        if (Reactivity.Rule = "Rule 4 - AI Agent") [Rule4.Assign.Machine Machine.which.completed]
         ifelse (currentsequenceorder = length ProductOperations - 1) [set shape (word (conversion ProductType) ".f-product-" (minuscule producttype))][set shape (word (conversion ProductType) "." (currentsequenceorder - 1) "-product-" (minuscule producttype))]
         EventMachineExit who [who] of machines with [Machine.Name = Machine.which.completed]
       ]
@@ -735,6 +750,7 @@ to Cheking.Machine.Completion
             ]
             set Heading.Workstation item position max next2 next2 machines.possible
           ]
+        if (Reactivity.Rule = "Rule 4 - AI Agent") [Rule4.Assign.Machine Machine.which.completed]
         ifelse (currentsequenceorder = length ProductOperations - 1) [set shape (word (conversion ProductType) ".f-product-" (minuscule producttype))][set shape (word (conversion ProductType) "." (currentsequenceorder - 1) "-product-" (minuscule producttype))]
         EventMachineExit who [who] of machines with [Machine.Name = Machine.which.completed]
       ]
@@ -783,6 +799,7 @@ to Cheking.Machine.Completion
             ]
             set Heading.Workstation item position max next2 next2 machines.possible
           ]
+        if (Reactivity.Rule = "Rule 4 - AI Agent") [Rule4.Assign.Machine Machine.which.completed]
         ifelse (currentsequenceorder = length ProductOperations - 1) [set shape (word (conversion ProductType) ".f-product-" (minuscule producttype))][set shape (word (conversion ProductType) "." (currentsequenceorder - 1) "-product-" (minuscule producttype))]
         EventMachineExit who [who] of machines with [Machine.Name = Machine.which.completed]
       ]
@@ -831,6 +848,7 @@ to Cheking.Machine.Completion
             ]
             set Heading.Workstation item position max next2 next2 machines.possible
           ]
+        if (Reactivity.Rule = "Rule 4 - AI Agent") [Rule4.Assign.Machine Machine.which.completed]
         ifelse (currentsequenceorder = length ProductOperations - 1) [set shape (word (conversion ProductType) ".f-product-" (minuscule producttype))][set shape (word (conversion ProductType) "." (currentsequenceorder - 1) "-product-" (minuscule producttype))]
         EventMachineExit who [who] of machines with [Machine.Name = Machine.which.completed]
       ]
@@ -879,6 +897,7 @@ to Cheking.Machine.Completion
             ]
             set Heading.Workstation item position max next2 next2 machines.possible
           ]
+        if (Reactivity.Rule = "Rule 4 - AI Agent") [Rule4.Assign.Machine Machine.which.completed]
         ifelse (currentsequenceorder = length ProductOperations - 1) [set shape (word (conversion ProductType) ".f-product-" (minuscule producttype))][set shape (word (conversion ProductType) "." (currentsequenceorder - 1) "-product-" (minuscule producttype))]
       ]
     ][
@@ -2928,6 +2947,67 @@ to Node.Creation
 end
 
 ; =====================================================================================
+; Rule 4 - AI Agent: the next machine of a product is chosen from Python.
+; When a product enters a machine (operation k), a request for operation k+1 is queued if more
+; than one machine can do it. Python answers with platform-set-next-machine while the product is
+; being processed. When the operation completes, Rule4.Assign.Machine uses the chosen machine if it
+; is still valid; otherwise it runs the rule 3 code unchanged, so a product always gets a destination.
+; Nothing here uses random numbers except the rule 3 code itself, so with no answers from Python
+; rule 4 reproduces rule 3 exactly.
+; =====================================================================================
+
+to Rule4.Request.Decision [#product #machine]
+  ; Called from EventMachineEntry (rule 4 only). Single-agent `of` and list operations only.
+  let k [CurrentSequenceOrder] of turtle #product
+  let product-operations [ProductOperations] of turtle #product
+  if (k + 1 < length product-operations) [
+    let next-operation item (k + 1) product-operations
+    if (length Capable.Machines next-operation > 1) [
+      set decision-queue lput (list #product (k + 1) next-operation [Machine.Name] of turtle #machine ticks) decision-queue
+    ]
+  ]
+end
+
+to Rule4.Assign.Machine [Machine.which.completed]
+  ; Product context, in Cheking.Machine.Completion right after CurrentSequenceOrder was
+  ; incremented and Next.product.operation set.
+  ifelse (AI.Next.Machine != "" and AI.Decision.Seq = CurrentSequenceOrder and Machine.Viable? AI.Next.Machine Next.product.operation) [
+    set Heading.Workstation AI.Next.Machine
+    set Decision.Source "agent"
+  ][
+            ; Rule 3 - Potential Fields, same code as in Cheking.Machine.Completion.
+            let machines.possible (item ((read-from-string (last Next.product.operation)) - 1) operations)
+            let next map [i -> item 0 [machine.atractiveness] of machines with [label = i]] machines.possible
+            let next2[]
+            let counter 0
+            repeat length machines.possible [
+              set next2 lput (item counter next / (item ((read-from-string (last item counter machines.possible)) - 1) (item ((read-from-string (last Machine.which.completed)) - 1) distances))) next2
+              set counter counter + 1
+            ]
+            set Heading.Workstation item position max next2 next2 machines.possible
+    ; Only one capable machine (today: the step to O9): there was no real decision to make.
+    set Decision.Source ifelse-value (length machines.possible > 1) ["rule3-fallback"] ["single-option"]
+  ]
+  set decision-log lput (list ticks who CurrentSequenceOrder Next.product.operation Machine.which.completed Heading.Workstation Decision.Source) decision-log
+  set AI.Next.Machine ""
+  set AI.Decision.Seq -1
+end
+
+to-report Capable.Machines [#operation]
+  ; Machines that can do an operation ("O1".."O9"), from the operations table.
+  report item ((read-from-string (last #operation)) - 1) operations
+end
+
+to-report Machine.Viable? [#machine-name #operation]
+  report member? #machine-name Capable.Machines #operation and machine-available? #machine-name
+end
+
+to-report machine-available? [#machine-name]
+  ; Hook for future failure scenarios (a machine down or blocked). Today every machine is available.
+  report true
+end
+
+; =====================================================================================
 ; Platform interface: read-only access from Python.
 ; Nothing below consumes random numbers or changes the order of execution of the model:
 ; agents are iterated with `sort` (who order) and the reporters run inside
@@ -3080,7 +3160,83 @@ to-report platform-product-json [#product]
     (list "heading_workstation" json-any Heading.Workstation)
     (list "sequence_order" json-num CurrentSequenceOrder)
     (list "operations" json-any ProductOperations)
-    (list "created" json-any ProductCreationTime))] of #product
+    (list "created" json-any ProductCreationTime)
+    (list "ai_next_machine" json-any AI.Next.Machine)
+    (list "ai_decision_seq" json-any AI.Decision.Seq)
+    (list "decision_source" json-any Decision.Source))] of #product
+end
+
+; ----- Rule 4 decision hook (see docs/rule4-decision-hook.md) -----
+
+to-report platform-run-until-decision [#max-ticks]
+  ; Like platform-step, but also stops as soon as there is a pending decision request.
+  ; Reports (list ticks advanced finished? pending-requests). It does not advance while
+  ; requests are pending: Python must call platform-clear-decisions after reading them.
+  let start ticks
+  let target ticks + #max-ticks
+  while [terminado = "No" and empty? decision-queue and ticks < target] [ go ]
+  if (terminado = "No" and ticks >= horizon-ticks) [ go ]
+  report (list ticks (ticks - start) (ifelse-value (terminado = "Si") [1] [0]) length decision-queue)
+end
+
+to-report platform-pending-decisions
+  let result ""
+  with-local-randomness [
+    set result json-obj (list
+      (list "fields" json-list map [f -> json-str f] ["who" "seq" "operation" "origin" "tick" "candidates"])
+      (list "requests" json-list map [r -> json-any lput (Capable.Machines item 2 r) r] decision-queue))
+  ]
+  report result
+end
+
+to platform-clear-decisions
+  set decision-queue []
+end
+
+to-report platform-set-next-machine [#who #machine-name #seq]
+  ; Stores the choice of Python for operation #seq of product #who. Reports "ok" or the reason
+  ; for rejecting it (see docs/rule4-decision-hook.md).
+  let result ""
+  with-local-randomness [ set result platform-check-next-machine #who #machine-name #seq ]
+  if (result = "ok") [
+    ask turtle #who [
+      set AI.Next.Machine #machine-name
+      set AI.Decision.Seq #seq
+    ]
+  ]
+  report result
+end
+
+to-report platform-check-next-machine [#who #machine-name #seq]
+  if (Reactivity.rule != "Rule 4 - AI Agent") [report "rule4-not-active"]
+  if not (is-number? #who and is-number? #seq and is-string? #machine-name) [report "invalid-arguments"]
+  let p turtle #who
+  if not is-product? p [report "unknown-product"]
+  if ([Product.State] of p = "death") [report "product-finished"]
+  let k [CurrentSequenceOrder] of p
+  let n [length ProductOperations] of p
+  if (#seq < 0 or #seq >= n or #seq != int #seq) [report "invalid-seq"]
+  if (#seq <= k) [report "stale-seq"]
+  ; In a machine: the last operation started has not completed yet (as platform-product-in-process).
+  if not [length ProductRealStart > length ProductRealCompletion] of p [report "not-in-machine"]
+  if (#seq != k + 1) [report "seq-mismatch"]
+  if not member? #machine-name sort [Machine.Name] of machines [report "unknown-machine"]
+  if not member? #machine-name Capable.Machines (item #seq [ProductOperations] of p) [report "machine-not-capable"]
+  report "ok"
+end
+
+to-report platform-decision-log
+  let result ""
+  with-local-randomness [
+    set result json-obj (list
+      (list "fields" json-list map [f -> json-str f] ["tick" "who" "seq" "operation" "origin" "chosen" "source"])
+      (list "decisions" json-list map [d -> json-any d] decision-log))
+  ]
+  report result
+end
+
+to platform-clear-decision-log
+  set decision-log []
 end
 
 ; ----- JSON helpers: every value is encoded through one of these -----
@@ -3260,7 +3416,7 @@ CHOOSER
 286
 Reactivity.rule
 Reactivity.rule
-"Rule 1 - Random Machine" "Rule 2 - Nearest Machine" "Rule 3 - Potential Fields"
+"Rule 1 - Random Machine" "Rule 2 - Nearest Machine" "Rule 3 - Potential Fields" "Rule 4 - AI Agent"
 0
 
 MONITOR
@@ -3288,8 +3444,8 @@ TEXTBOX
 14
 293
 398
-358
-Reactivity rule: \nChosses next machine after an operation is completed\nRule 1 - Random posible machine\nRule 2 - Nearest posible machine \nRule 3 - Potential Fields (Attractivness and distance)
+369
+Reactivity rule: \nChosses next machine after an operation is completed\nRule 1 - Random posible machine\nRule 2 - Nearest posible machine \nRule 3 - Potential Fields (Attractivness and distance)\nRule 4 - AI Agent (chosen from Python, Rule 3 as fallback)
 10
 0.0
 1

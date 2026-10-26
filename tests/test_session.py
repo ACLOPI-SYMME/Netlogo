@@ -58,7 +58,7 @@ def test_requires_setup(sessions_root: Path, s1: SimulationSession) -> None:
         with pytest.raises(RuntimeError):
             session.step(1)
     with pytest.raises(ValueError):
-        s1.setup(seed=1, rule=4)
+        s1.setup(seed=1, rule=5)
 
 
 def test_step_stops_cleanly_at_horizon(s1: SimulationSession) -> None:

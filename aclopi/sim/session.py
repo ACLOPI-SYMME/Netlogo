@@ -52,6 +52,7 @@ RULES = {
     1: "Rule 1 - Random Machine",
     2: "Rule 2 - Nearest Machine",
     3: "Rule 3 - Potential Fields",
+    4: "Rule 4 - AI Agent",  # next machine chosen from Python, see aclopi.sim.decisions
 }
 MODELING_TYPES = ("Deterministic", "Stochastic")
 
