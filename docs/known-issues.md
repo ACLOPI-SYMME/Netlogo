@@ -32,12 +32,22 @@ Problemas detectados en `model/Paper.nlogo` que **no se corrigen** para no alter
 - **Problema:** en los eventos de salida, las columnas 6 (orden de secuencia) y 7 (operación) del CSV contienen los textos fijos `"XXX"` y `"YYY"`. El CSV no dice qué operación terminó.
 - **Mitigación en L2:** el `event-buffer` de la plataforma (`platform-events`) registra la operación que realmente terminó (`item (CurrentSequenceOrder - 1) ProductOperations`). El CSV no se cambió, para que siga siendo idéntico a la línea base.
 
-## 4. Ralentización en corridas largas (P6): coste cuadrático en los productos terminados
+## 4. ✅ RESUELTO (L4b, rama `model/l4b-p6-fix`). Ralentización en corridas largas (P6): coste cuadrático en los productos terminados
+
+- **Corrección aplicada:** en `Product.Movement`, `product.ahead` (`count products in-cone 10 50`) se calcula solo dentro de `if (product.state = "Movement") [...]`. El `ask products` no se filtra, así que se baraja el mismo agentset en el mismo orden.
+- **Verificación, en Windows y en el contenedor Linux:**
+  - `compare_baseline.py` con las 3 reglas: idéntico a la línea base;
+  - los 29 tests pasan;
+  - regresión larga (`pytest -m slow`): regla 3, 100.000 ticks, semillas 42 y 7, con KPIs y SHA-256 de Events y Data idénticos a `tests/fixtures/long/`, que se generaron antes del cambio;
+  - en todos los puntos de control del perfil (cada 5.000 ticks), los productos y las filas de `EventFrameInfo` y `DataFrameInfo` son los mismos.
+- **Resultado (contenedor con los límites de L4, regla 3, semilla 42):** la corrida de 100.000 ticks baja de 104,2 s a 46,0 s (2,27× más rápida). Con 83 productos terminados, el coste pasa de 1,47 a 0,33 ms/tick. El coste por tick ya no crece con los productos terminados.
+
+Descripción original del problema:
 
 - **Dónde:** `Product.Movement`, `ask products [ let product.ahead count products in-cone 10 50 ... if (product.state = "Movement" and product.ahead <= 1) [...] ]`.
 - **Problema:** los productos terminados no se eliminan; quedan todos apilados en (2,2), con estado `"death"`. En cada tick, cada producto, terminado o no, calcula `count products in-cone 10 50` **antes** de comprobar su estado. Entre productos apilados en el mismo punto, cada uno cuenta a todos los demás, así que el coste crece con el cuadrado de los terminados.
 - **Medición (L4, contenedor Linux, regla 3, semilla 42, 100.000 ticks):** de 0,72–0,85 ms/tick entre los ticks 15.000 y 40.000 a 1,47 ms/tick en el tick 100.000, con 83 productos terminados, todos en (2,2). Sin contar el calentamiento de la JVM, el ajuste `ms/tick = 0,755 + 1,21e-4 · death²` da R² = 0,96; el lineal da R² = 0,88. Las demás variables (productos totales, filas de `EventFrameInfo` y de `DataFrameInfo`) crecen a la vez y dan ajustes parecidos; lo que apunta a los terminados es el mecanismo, no la estadística.
-- **Corrección propuesta (no aplicada):** calcular `product.ahead` solo dentro de `if (product.state = "Movement") [...]`. El `ask products` sigue recorriendo los mismos agentes en el mismo orden aleatorio y `in-cone` no consume números aleatorios, así que la línea base no debería cambiar; hay que verificarlo con `compare_baseline.py`. En cambio, filtrar el `ask` (`ask products with [Product.State != "death"]`) cambiaría el tamaño del agentset que se baraja y **rompería** la igualdad con la línea base.
+- **Por qué no se filtró el `ask`:** con `ask products with [Product.State != "death"]` cambiaría el tamaño del agentset que se baraja y se **rompería** la igualdad con la línea base.
 
 ## 5. Plataforma: llamadas a NetLogo desde hilos de Python distintos del principal
 

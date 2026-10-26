@@ -967,19 +967,24 @@ to Product.Movement
   set simulated.time precision (simulated.time + 0.31) 2
 
    ask products [
-    let product.ahead count products  in-cone 10 50
-    if (product.state = "Movement" and product.ahead <= 1)[
-      let distance-location distance Next.Node
-      ifelse (distance-location > 0.4)[
-        if ([shape] of conveyor [who] of Last.Node [who] of Next.Node = "default") [jump (0.300 * speed-factor) setxy (precision xcor 3) (precision ycor 3)]
-        if ([shape] of conveyor [who] of Last.Node [who] of Next.Node = "curve1") [Curved.Move 2.400 4 "curve1" setxy (precision xcor 3) (precision ycor 3)]
-        if ([shape] of conveyor [who] of Last.Node [who] of Next.Node = "curve2") [Curved.Move 2.149 8 "curve2" setxy (precision xcor 3) (precision ycor 3)]
-        if ([shape] of conveyor [who] of Last.Node [who] of Next.Node = "curve3") [Curved.Move 2.149 8 "curve3" setxy (precision xcor 3) (precision ycor 3)]
-      ][
-        move-to Next.Node
-        set Last.Node Next.Node
-        set Next.Node [Addressed.To.Node] of Next.Node
-        face Next.Node
+    ; P6: only moving products need the count. Finished products stay stacked at (2,2), so counting
+    ; for them made each tick quadratic in the number of finished products. in-cone/count use no
+    ; random numbers and the ask itself is unchanged, so the simulation is identical.
+    if (product.state = "Movement") [
+      let product.ahead count products  in-cone 10 50
+      if (product.ahead <= 1)[
+        let distance-location distance Next.Node
+        ifelse (distance-location > 0.4)[
+          if ([shape] of conveyor [who] of Last.Node [who] of Next.Node = "default") [jump (0.300 * speed-factor) setxy (precision xcor 3) (precision ycor 3)]
+          if ([shape] of conveyor [who] of Last.Node [who] of Next.Node = "curve1") [Curved.Move 2.400 4 "curve1" setxy (precision xcor 3) (precision ycor 3)]
+          if ([shape] of conveyor [who] of Last.Node [who] of Next.Node = "curve2") [Curved.Move 2.149 8 "curve2" setxy (precision xcor 3) (precision ycor 3)]
+          if ([shape] of conveyor [who] of Last.Node [who] of Next.Node = "curve3") [Curved.Move 2.149 8 "curve3" setxy (precision xcor 3) (precision ycor 3)]
+        ][
+          move-to Next.Node
+          set Last.Node Next.Node
+          set Next.Node [Addressed.To.Node] of Next.Node
+          face Next.Node
+        ]
       ]
     ]
   ]
