@@ -291,7 +291,19 @@ class SimulationSession:
         if not source.exists():
             raise FileNotFoundError(f"World file not found: {source}")
         with self._lock:
+            # import-world clears the world first: until the import succeeds there is no usable run.
+            self._params = None
+            self._layout = None
             self._command(f"import-world {netlogo_string(source.as_posix())}")
+            # Headless NetLogo reports some malformed files only on stderr ("got a fatal error ...")
+            # and leaves an empty world, so check that a real run was loaded.
+            try:
+                nodes = int(self._report("count nodes"))
+                int(self._report("ticks"))
+            except Exception as exc:  # noqa: BLE001
+                raise RuntimeError(f"import-world did not load a valid world from {source}: {exc}") from exc
+            if nodes == 0:
+                raise RuntimeError(f"import-world did not load a valid world from {source}: no nodes")
             self._apply_directory()
             self._command("platform-clear-events")
             rule_name = str(self._report("Reactivity.rule"))

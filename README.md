@@ -119,6 +119,24 @@ python scripts\benchmark_session.py --part clone
 python scripts\benchmark_session.py --part blocks
 ```
 
+## Workers (`aclopi.workers`)
+
+Cada simulación corre en su propio proceso worker (NetLogo solo funciona desde el hilo principal de un proceso). `WorkerPool` arranca 5 workers de sesión y 2 de what-if, y se comunica con ellos por colas:
+
+```python
+from aclopi.workers import WorkerPool
+
+with WorkerPool() as pool:
+    h = pool.acquire_session("demo")
+    h.request("setup", seed=42, rule=3)
+    h.request("step", n=100)            # máximo 2000 ticks por pedido
+    with pool.whatif_from_session("demo") as w:
+        w.request("step", n=1000)
+    pool.release_session("demo")
+```
+
+El diseño, la regla de duración de los pedidos y el manejo de caídas están en `docs/workers.md`.
+
 ## Contenedor Linux (Docker)
 
 Imagen con Python 3.12, NetLogo 6.4.0 para Linux (descargado de `downloads.netlogo.org` con su checksum verificado) y el paquete `aclopi`:
