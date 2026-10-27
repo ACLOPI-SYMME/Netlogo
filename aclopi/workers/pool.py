@@ -109,11 +109,25 @@ class WorkerPool:
                 self._slots.append(slot)
                 slot.handle.start()
                 self.spawned_pids.add(slot.handle.pid)
+        # Workers start in parallel: one deadline for all of them.
+        deadline = time.monotonic() + self.start_timeout_s
+        current = None
         try:
             for slot in self._slots:
-                slot.handle.wait_ready(self.start_timeout_s)
+                current = slot
+                slot.handle.wait_ready(max(deadline - time.monotonic(), 0.1))
+            for slot in self._slots:
                 slot.state = "free"
-        except Exception:
+        except Exception as exc:
+            if self._stopping.is_set():  # shutdown() was called while starting
+                raise
+            name = current.handle.config.name if current is not None else "?"
+            logger.error("Pool %s: worker %s failed to start: %s", self.pool_id, name, exc,
+                         extra={"worker": name})
+            for slot in self._slots:
+                if slot is not current and not slot.handle.ready:
+                    logger.error("Pool %s: worker %s was not ready either", self.pool_id,
+                                 slot.handle.config.name, extra={"worker": slot.handle.config.name})
             self.shutdown()
             raise
         self._monitor = threading.Thread(target=self._monitor_loop, name="pool-monitor", daemon=True)
@@ -176,7 +190,9 @@ class WorkerPool:
             for slot in self._slots:
                 if slot.session_id == session_id:
                     slot.session_id = None
-                    if slot.state == "busy":
+                    # A worker that was just killed (timeout) stays "busy" until the monitor
+                    # restarts it, so nobody can acquire a dead worker in between.
+                    if slot.state == "busy" and slot.handle.alive:
                         slot.state = "free"
 
     def lost_sessions(self) -> dict[str, str]:
@@ -227,6 +243,7 @@ class WorkerPool:
             rows.append({
                 "slot": s.index,
                 "role": s.role,
+                "ready": s.handle.ready and alive,
                 "pid": pid,
                 "state": s.state,
                 "session_id": s.session_id,
@@ -267,7 +284,8 @@ class WorkerPool:
             reason = slot.kill_reason or f"worker process exited unexpectedly (exit code {old.process.exitcode})"
             if slot.session_id is not None:
                 self._lost[slot.session_id] = reason
-                logger.error("Session %s lost: %s", slot.session_id, reason)
+                logger.error("Session %s lost: %s", slot.session_id, reason,
+                             extra={"session_id": slot.session_id, "worker": old.config.name})
             slot.session_id = None
             slot.state = "restarting"
             slot.kill_reason = None

@@ -31,6 +31,7 @@ by the API.
 
 from __future__ import annotations
 
+import os
 from typing import Any
 
 # Operations available to every client.
@@ -63,14 +64,35 @@ STEP_BASE_TIMEOUT_S = 5.0
 STEP_TIMEOUT_PER_TICK_S = 0.005
 
 
+_timeout_scale: float | None = None
+
+
+def set_timeout_scale(scale: float | None) -> None:
+    """Override ACLOPI_TIMEOUT_SCALE for this process (None: read the variable again)."""
+    global _timeout_scale
+    _timeout_scale = scale if scale is None or scale > 0 else None
+
+
+def timeout_scale() -> float:
+    """ACLOPI_TIMEOUT_SCALE multiplies every timeout (default 1.0), e.g. for slower machines.
+    The rule above still holds: scaled timeouts must stay within a few seconds."""
+    if _timeout_scale is not None:
+        return _timeout_scale
+    try:
+        scale = float(os.environ.get("ACLOPI_TIMEOUT_SCALE", "") or 1.0)
+    except ValueError:
+        return 1.0
+    return scale if scale > 0 else 1.0
+
+
 def step_timeout_s(n: int) -> float:
-    return STEP_BASE_TIMEOUT_S + STEP_TIMEOUT_PER_TICK_S * max(int(n), 0)
+    return (STEP_BASE_TIMEOUT_S + STEP_TIMEOUT_PER_TICK_S * max(int(n), 0)) * timeout_scale()
 
 
 def default_timeout_s(op: str, args: dict[str, Any]) -> float:
     if op == "step":
         return step_timeout_s(args.get("n", 0))
-    return OP_TIMEOUTS_S.get(op, 10.0)
+    return OP_TIMEOUTS_S.get(op, 10.0) * timeout_scale()
 
 
 def request_message(request_id: int, op: str, args: dict[str, Any]) -> dict[str, Any]:

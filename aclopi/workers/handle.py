@@ -99,8 +99,14 @@ class WorkerHandle:
         return self._ready.is_set()
 
     def kill(self) -> None:
+        """Kill the process and wait until it is gone, so is_alive() is False on return."""
         if self.process is not None and self.process.is_alive():
             self.process.kill()
+            self.process.join(5)
+
+    @property
+    def alive(self) -> bool:
+        return self._dead is None and self.process is not None and self.process.is_alive()
 
     def send_shutdown(self) -> None:
         """Ask the worker to exit without waiting for the answer."""

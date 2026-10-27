@@ -16,7 +16,7 @@
 ## Convenciones
 - Código, nombres y comentarios en inglés; documentación en español.
 - Python con type hints, `pathlib`, `logging` (no `print` en librerías), `pytest` para tests.
-- Estructura: `model/`, `aclopi/sim/` (wrapper de NetLogo: `SimulationSession`, KPIs), `aclopi/workers/` (un proceso por simulación, colas; ver `docs/workers.md`), `aclopi/api/` (FastAPI, más adelante), `scripts/` (scripts de validación y benchmark), `tests/`, `results/` (salidas, en .gitignore).
+- Estructura: `model/`, `aclopi/sim/` (wrapper de NetLogo: `SimulationSession`, KPIs), `aclopi/workers/` (un proceso por simulación, colas; ver `docs/workers.md`), `aclopi/api/` (API REST FastAPI, un solo proceso; ver `docs/api.md`), `contracts/` (OpenAPI para la Línea A), `scripts/` (scripts de validación y benchmark), `tests/`, `results/` (salidas, en .gitignore).
 - El paquete Python se llama `aclopi` (no `platform`, que choca con el módulo estándar de Python) y se instala en el venv con `pip install -e .`.
 - No modificar `model/Paper.nlogo` salvo que el prompt lo pida explícitamente.
 - Antes de usar un nombre de variable o procedimiento de NetLogo, verificarlo leyendo `model/Paper.nlogo`; no inventar nombres.
