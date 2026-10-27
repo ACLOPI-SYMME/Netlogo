@@ -20,6 +20,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
+from aclopi import logjson
 from aclopi.workers import procinfo
 from aclopi.workers.protocol import (
     DEBUG_OPS, MAX_STEP_TICKS, OPS, error_response, ok_response, push_message,
@@ -128,9 +129,19 @@ class WorkerState:
             "ticks": ticks,
         }
 
-    def op_setup(self, seed: int, rule: int, modeling_type: str = "Stochastic", horizon_ticks: int = 10000) -> dict[str, Any]:
+    def op_setup(
+        self,
+        seed: int,
+        rule: int,
+        modeling_type: str = "Stochastic",
+        horizon_ticks: int = 10000,
+        session_id: str | None = None,
+    ) -> dict[str, Any]:
+        """session_id (optional) only tags this worker's log lines until the next setup."""
+        logjson.session_id_var.set(session_id)
         self.session.setup(seed=seed, rule=rule, modeling_type=modeling_type, horizon_ticks=horizon_ticks)
         self.configured = True
+        logger.info("setup seed=%s rule=%s modeling_type=%s horizon_ticks=%s", seed, rule, modeling_type, horizon_ticks)
         return self._params()
 
     def op_step(self, n: int) -> dict[str, Any]:
@@ -207,11 +218,7 @@ class WorkerState:
 
 
 def worker_main(config: WorkerConfig, requests: mp.Queue, outbox: mp.Queue) -> None:
-    logging.basicConfig(
-        level=logging.INFO,
-        format=f"%(asctime)s {config.name}[g{config.generation}] %(levelname)s %(message)s",
-        datefmt="%H:%M:%S",
-    )
+    logjson.configure(os.environ.get("ACLOPI_LOG_LEVEL", "INFO"), static={"worker": f"{config.name}[g{config.generation}]"})
     priority = procinfo.lower_own_priority() if config.role == "whatif" else "normal"
     t0 = time.perf_counter()
     try:
