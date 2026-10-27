@@ -72,6 +72,7 @@ class RunParameters:
     rule: int
     modeling_type: str
     horizon_ticks: int
+    fixed_product_sequence: bool = True  # docs/product-sequence.md
 
 
 def netlogo_string(value: str) -> str:
@@ -178,8 +179,14 @@ class SimulationSession:
         rule: int,
         modeling_type: str = "Stochastic",
         horizon_ticks: int = DEFAULT_HORIZON_TICKS,
+        fixed_product_sequence: bool = True,
     ) -> None:
-        """Seed the RNG, set the run parameters and run the model's setup."""
+        """Seed the RNG, set the run parameters and run the model's setup.
+
+        fixed_product_sequence (default True): type and priority of the n-th product depend only
+        on the seed and n, so every strategy gets the same products (docs/product-sequence.md).
+        False reproduces the original model; only the baseline regressions use it.
+        """
         if rule not in RULES:
             raise ValueError(f"rule must be one of {sorted(RULES)}, got {rule!r}")
         if modeling_type not in MODELING_TYPES:
@@ -192,7 +199,11 @@ class SimulationSession:
             self._command(f"set Modeling.Type {netlogo_string(modeling_type)}")
             self._command("setup")
             self._command(f"set horizon-ticks {int(horizon_ticks)}")
-            self._params = RunParameters(int(seed), rule, modeling_type, int(horizon_ticks))
+            # NetLogo cannot read the run seed, so the sequence seed is passed in (also when off,
+            # so that platform-product-sequence shows the sequence of this seed).
+            self._command(f"set fixed-product-sequence? {'true' if fixed_product_sequence else 'false'}")
+            self._command(f"set product-sequence-seed {int(seed)}")
+            self._params = RunParameters(int(seed), rule, modeling_type, int(horizon_ticks), bool(fixed_product_sequence))
             self._layout = self._report_json("platform-layout")
 
     def reset(self) -> None:
@@ -200,7 +211,7 @@ class SimulationSession:
         params = self._require_params()
         if params.seed is None:
             raise RuntimeError("reset() needs a seed; this session was loaded with import_world()")
-        self.setup(params.seed, params.rule, params.modeling_type, params.horizon_ticks)
+        self.setup(params.seed, params.rule, params.modeling_type, params.horizon_ticks, params.fixed_product_sequence)
 
     def step(self, n: int) -> StepResult:
         """Advance up to n ticks in a single NetLogo call (the model's platform-step reporter).
@@ -314,6 +325,7 @@ class SimulationSession:
                 rule=rule,
                 modeling_type=str(self._report("Modeling.Type")),
                 horizon_ticks=self._horizon(),
+                fixed_product_sequence=bool(self._report("fixed-product-sequence?")),
             )
             self._layout = self._report_json("platform-layout")
 
