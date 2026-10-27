@@ -357,6 +357,36 @@
         "title": "RunParameters",
         "type": "object"
       },
+      "RunRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "mode": {
+            "description": "live: paced (32 ticks/s x speed); fast: no speed limit",
+            "enum": [
+              "live",
+              "fast"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "speed": {
+            "default": 1,
+            "description": "Live speed factor (ignored in fast mode)",
+            "enum": [
+              0.5,
+              1,
+              2,
+              4
+            ],
+            "title": "Speed"
+          }
+        },
+        "required": [
+          "mode"
+        ],
+        "title": "RunRequest",
+        "type": "object"
+      },
       "SessionCounts": {
         "properties": {
           "active": {
@@ -448,12 +478,52 @@
             "description": "Why the session is lost or expired",
             "title": "Lost Reason"
           },
+          "mode": {
+            "anyOf": [
+              {
+                "enum": [
+                  "live",
+                  "fast"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Mode of the current or paused run",
+            "title": "Mode"
+          },
           "parameters": {
             "$ref": "#/components/schemas/RunParameters"
+          },
+          "run_state": {
+            "description": "idle | running_live | running_fast | paused | finished",
+            "enum": [
+              "idle",
+              "running_live",
+              "running_fast",
+              "paused",
+              "finished"
+            ],
+            "title": "Run State",
+            "type": "string"
           },
           "session_id": {
             "title": "Session Id",
             "type": "string"
+          },
+          "speed": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Live speed factor of the current or paused run",
+            "title": "Speed"
           },
           "status": {
             "enum": [
@@ -465,8 +535,13 @@
             "type": "string"
           },
           "ticks": {
-            "description": "Last known tick (every advance goes through the API)",
+            "description": "Last known tick (from requests and from the run's pushes)",
             "title": "Ticks",
+            "type": "integer"
+          },
+          "watchers": {
+            "description": "WebSocket clients connected to /ws/sessions/{id}",
+            "title": "Watchers",
             "type": "integer"
           },
           "worker_slot": {
@@ -487,6 +562,10 @@
           "parameters",
           "ticks",
           "finished",
+          "run_state",
+          "mode",
+          "speed",
+          "watchers",
           "worker_slot",
           "created_at",
           "last_activity"
@@ -789,7 +868,7 @@
                 }
               }
             },
-            "description": "Platform starting (platform_starting), no free worker (no_free_worker) or worker unavailable (worker_unavailable)"
+            "description": "Platform starting (platform_starting), no free worker (no_free_worker), worker unavailable (worker_unavailable) or too many fast runs (fast_run_limit)"
           },
           "504": {
             "content": {
@@ -909,7 +988,7 @@
     },
     "/sessions/{session_id}/events": {
       "get": {
-        "description": "Not idempotent: each call returns the events recorded since the previous call and empties the session's event buffer.",
+        "description": "Not idempotent: each call returns the events recorded since the previous call and empties the session's event buffer. 409 while running: then the events travel over the WebSocket (/ws/sessions/{id}).",
         "operationId": "events_sessions__session_id__events_get",
         "parameters": [
           {
@@ -948,6 +1027,16 @@
               }
             },
             "description": "Unknown session (session_not_found)"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not allowed in the session's run state (invalid_run_state), e.g. step while running"
           },
           "410": {
             "content": {
@@ -1164,6 +1253,100 @@
         ]
       }
     },
+    "/sessions/{session_id}/pause": {
+      "post": {
+        "operationId": "pause_sessions__session_id__pause_post",
+        "parameters": [
+          {
+            "description": "Session id returned by POST /sessions",
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "description": "Session id returned by POST /sessions",
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionInfo"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Unknown session (session_not_found)"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not allowed in the session's run state (invalid_run_state), e.g. step while running"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Session lost because its worker crashed or hung (session_lost), or closed for inactivity (session_expired)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Error inside NetLogo or the worker (simulation_error)"
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The worker did not answer in time (worker_timeout); it is restarted and the session is lost"
+          }
+        },
+        "summary": "Pause a running session (409 if it is not running)",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
     "/sessions/{session_id}/reset": {
       "post": {
         "operationId": "reset_sessions__session_id__reset_post",
@@ -1242,9 +1425,228 @@
             "description": "The worker did not answer in time (worker_timeout); it is restarted and the session is lost"
           }
         },
-        "summary": "Run setup again with the same parameters",
+        "summary": "Stop any run and run setup again with the same parameters",
         "tags": [
           "sessions"
+        ]
+      }
+    },
+    "/sessions/{session_id}/resume": {
+      "post": {
+        "operationId": "resume_sessions__session_id__resume_post",
+        "parameters": [
+          {
+            "description": "Session id returned by POST /sessions",
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "description": "Session id returned by POST /sessions",
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionInfo"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Unknown session (session_not_found)"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not allowed in the session's run state (invalid_run_state), e.g. step while running"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Session lost because its worker crashed or hung (session_lost), or closed for inactivity (session_expired)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Error inside NetLogo or the worker (simulation_error)"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Platform starting (platform_starting), no free worker (no_free_worker), worker unavailable (worker_unavailable) or too many fast runs (fast_run_limit)"
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The worker did not answer in time (worker_timeout); it is restarted and the session is lost"
+          }
+        },
+        "summary": "Resume a paused run with its mode and speed (409 if it is not paused)",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/sessions/{session_id}/run": {
+      "post": {
+        "description": "Allowed in idle, paused and while running (changes mode or speed). 409 when finished. 503 fast_run_limit when ACLOPI_MAX_FAST_RUNS fast runs are already in progress.",
+        "operationId": "run_sessions__session_id__run_post",
+        "parameters": [
+          {
+            "description": "Session id returned by POST /sessions",
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "description": "Session id returned by POST /sessions",
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionInfo"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Unknown session (session_not_found)"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not allowed in the session's run state (invalid_run_state), e.g. step while running"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Session lost because its worker crashed or hung (session_lost), or closed for inactivity (session_expired)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Error inside NetLogo or the worker (simulation_error)"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Platform starting (platform_starting), no free worker (no_free_worker), worker unavailable (worker_unavailable) or too many fast runs (fast_run_limit)"
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The worker did not answer in time (worker_timeout); it is restarted and the session is lost"
+          }
+        },
+        "summary": "Run continuously: live (paced, streamed over WebSocket) or fast (no speed limit)",
+        "tags": [
+          "runs"
         ]
       }
     },
@@ -1382,6 +1784,16 @@
             },
             "description": "Unknown session (session_not_found)"
           },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not allowed in the session's run state (invalid_run_state), e.g. step while running"
+          },
           "410": {
             "content": {
               "application/json": {
@@ -1423,7 +1835,7 @@
             "description": "The worker did not answer in time (worker_timeout); it is restarted and the session is lost"
           }
         },
-        "summary": "Advance up to n ticks (stops at the horizon)",
+        "summary": "Advance up to n ticks (stops at the horizon); 409 while running",
         "tags": [
           "sessions"
         ]

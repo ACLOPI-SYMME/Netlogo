@@ -162,6 +162,10 @@ Invoke-RestMethod "http://localhost:8000/sessions/$($s.session_id)/kpis"
 Invoke-RestMethod -Method Delete "http://localhost:8000/sessions/$($s.session_id)"
 ```
 
+**Corridas continuas y tiempo real (L5.3).** `POST /sessions/{id}/run` con `{"mode": "live", "speed": 1}` (ritmo de 32 ticks/s × velocidad) o con `{"mode": "fast"}` (sin límite de velocidad). Luego, `/pause` y `/resume`. El estado, los eventos y los KPIs llegan por WebSocket en `ws://localhost:8000/ws/sessions/{id}`; el formato está en `docs/websocket.md`.
+
+Para probarlo a mano, la página **`http://localhost:8000/ui`** permite crear una sesión, correrla en vivo o en rápido, pausarla, reanudarla, reiniciarla y cerrarla. Dibuja la planta y los productos.
+
 Para regenerar el contrato después de cambiar la API (un test falla si quedó desactualizado):
 
 ```powershell

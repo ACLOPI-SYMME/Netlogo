@@ -243,6 +243,16 @@ class SimulationSession:
         self._require_params()
         return self._report_json("platform-state")
 
+    def finished_products(self) -> int:
+        """Products with Product.State = "death" (cheap; for progress reports)."""
+        self._require_params()
+        return int(self._report('count products with [Product.State = "death"]'))
+
+    def state_json(self) -> str:
+        """platform-state as the JSON text NetLogo produces (no parsing): for streaming it as is."""
+        self._require_params()
+        return str(self._report("platform-state"))
+
     def events(self) -> list[dict[str, Any]]:
         """Events recorded since the previous call (platform-events); the buffer is emptied."""
         with self._lock:

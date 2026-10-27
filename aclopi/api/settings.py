@@ -33,6 +33,16 @@ class Settings:
     work_dir: Path = field(default_factory=default_work_dir)
     jvm_args: tuple[str, ...] = DEFAULT_JVM_ARGS
     log_level: str = "INFO"
+    # Continuous runs and WebSocket (L5.3)
+    max_fast_runs: int = 1
+    live_update_ms: float = 100.0
+    fast_block_ticks: int = 1000
+    fast_yield: float = 0.0
+    ws_queue: int = 32
+
+    def run_options(self) -> dict[str, float | int]:
+        return {"live_update_s": self.live_update_ms / 1000.0, "fast_block_ticks": self.fast_block_ticks,
+                "fast_yield": self.fast_yield}
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> Settings:
@@ -50,4 +60,9 @@ class Settings:
             work_dir=Path(work_dir) if work_dir else default_work_dir(),
             jvm_args=jvm_args,
             log_level=env.get("ACLOPI_LOG_LEVEL", "").strip().upper() or "INFO",
+            max_fast_runs=_int(env, "ACLOPI_MAX_FAST_RUNS", 1),
+            live_update_ms=_float(env, "ACLOPI_LIVE_UPDATE_MS", 100.0),
+            fast_block_ticks=_int(env, "ACLOPI_FAST_BLOCK_TICKS", 1000),
+            fast_yield=_float(env, "ACLOPI_FAST_YIELD", 0.0),
+            ws_queue=_int(env, "ACLOPI_WS_QUEUE", 32),
         )
