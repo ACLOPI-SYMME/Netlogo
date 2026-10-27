@@ -48,7 +48,41 @@ Si el arranque falla, el log JSON indica qué worker falló y por qué. Luego el
 | `GET /sessions/{id}/events` | Eventos desde la llamada anterior. **No es idempotente**: leerlos vacía el buffer |
 | `GET /sessions/{id}/layout` | `platform-layout` |
 | `GET /sessions/{id}/kpis` | KPIs del estado actual; no altera la simulación |
-| `DELETE /sessions/{id}` | Cierra la sesión y libera su worker (204) |
+| `DELETE /sessions/{id}` | Cierra la sesión, detiene su corrida y libera su worker (204) |
+| `POST /sessions/{id}/run` | Corrida continua: `{"mode": "live", "speed": 0.5\|1\|2\|4}` o `{"mode": "fast"}` (L5.3) |
+| `POST /sessions/{id}/pause` | Pausa una corrida (409 si no está corriendo) |
+| `POST /sessions/{id}/resume` | Reanuda con el mismo modo y velocidad (409 si no está en pausa) |
+| `WS /ws/sessions/{id}` | Transmisión en tiempo real (formato en `docs/websocket.md`) |
+| `GET /ui` | Página HTML mínima de prueba (fuera del contrato OpenAPI) |
+
+## Corridas continuas (L5.3)
+
+La corrida la ejecuta el worker dentro de su propio bucle, en bloques cortos: nunca es un pedido largo. Entre bloques el worker sigue atendiendo `state`, `kpis`, pausa y export para what-if.
+
+- **En vivo:** el ritmo objetivo es 32 ticks/s × velocidad. Hay un bloque cada ~100 ms (`ACLOPI_LIVE_UPDATE_MS`) y, después de cada bloque, un mensaje con el estado y los eventos nuevos. El ritmo lo marca el worker, no el cliente.
+- **Rápido:** sin límite de velocidad, en bloques de `ACLOPI_FAST_BLOCK_TICKS` ticks (1000 por defecto). Por cada bloque se envían el progreso y los eventos del bloque, sin el estado completo.
+- **Resultados:** no dependen de la velocidad ni del tamaño de bloque. Una corrida hasta el final da los mismos KPIs que `SimulationSession` directo con la misma semilla (lo verifica `tests/test_live.py`).
+
+Estados (`run_state` en `SessionInfo`, junto con `mode` y `speed`):
+
+```
+idle ──run──► running_live / running_fast ──pause──► paused ──resume──► (mismo modo y velocidad)
+  ▲              │  run con otro modo o velocidad: cambia sin detenerse
+  │ reset        ▼ horizonte (también por un step manual)
+  └─────────── finished
+```
+
+| Pedido | idle | running_* | paused | finished |
+|---|---|---|---|---|
+| `step` | ✔ | 409 | ✔ | 200 con `advanced: 0` |
+| `run` | ✔ | ✔ (cambia modo o velocidad) | ✔ | 409 |
+| `pause` / `resume` | 409 / 409 | ✔ / 409 | 409 / ✔ | 409 / 409 |
+| `events` (HTTP) | ✔ | 409 (los eventos van por WebSocket) | ✔ | ✔ |
+| `reset`, `state`, `kpis`, `layout`, `DELETE` | ✔ | ✔ | ✔ | ✔ |
+
+**Corridas rápidas simultáneas.** Como mucho `ACLOPI_MAX_FAST_RUNS` (1 por defecto). Pasado el límite, `run` (o `resume` de una corrida rápida pausada) responde 503 `fast_run_limit`. Las corridas en vivo no tienen este límite. El objetivo es que una corrida rápida, que ocupa un núcleo entero, no frene a las sesiones en vivo. **Para corridas de experimentos sin usuarios en vivo** (por ejemplo, la Línea A con regla 4) se puede subir, por ejemplo a 4.
+
+**Vigilante.** Si una sesión corriendo no envía ningún mensaje durante 15 s (`RUN_WATCHDOG_S` × `ACLOPI_TIMEOUT_SCALE`), la API trata al worker como colgado: lo mata y la sesión queda perdida (410). Los bloques duran mucho menos de 1 s. En L5.5, el estado `waiting_decision` (esperando al agente) deberá enviar un latido para no caer en este límite.
 
 Notas:
 - `ticks` y `finished` de `SessionInfo` son el último valor conocido. Todo avance pasa por la API, así que el valor es exacto, y leerlo no consulta al worker.
@@ -62,12 +96,14 @@ El cuerpo es `{"code": ..., "detail": ..., "session_id": ...}`. La excepción es
 | HTTP | `code` | Cuándo |
 |---|---|---|
 | 404 | `session_not_found` | Id desconocido o sesión ya borrada |
+| 409 | `invalid_run_state` | El pedido no está permitido en el estado de la corrida (p. ej. `step` mientras corre) |
 | 410 | `session_lost` | El worker de la sesión se cayó o se colgó. `detail` dice el motivo |
 | 410 | `session_expired` | La sesión se cerró por inactividad |
 | 422 | – | Parámetros inválidos (`n` fuera de 1–2000, regla, tipo de modelado, campos de más) |
 | 500 | `simulation_error` | Error de NetLogo o del worker, con su mensaje. El worker sigue vivo |
 | 503 | `platform_starting` | La plataforma está iniciando |
 | 503 | `no_free_worker` | Todos los workers de sesión están ocupados |
+| 503 | `fast_run_limit` | Ya hay `ACLOPI_MAX_FAST_RUNS` corridas rápidas en curso |
 | 503 | `worker_unavailable` | El worker se cayó durante la creación, o la plataforma no está lista (`failed` o `stopping`) |
 | 504 | `worker_timeout` | El worker no respondió a tiempo. El pool lo reinicia y la sesión queda perdida, así que el siguiente pedido da 410 |
 
@@ -82,7 +118,14 @@ Las sesiones perdidas o expiradas siguen apareciendo en `GET /sessions` y respon
 
 ## Inactividad
 
-Una sesión sin pedidos durante `ACLOPI_SESSION_IDLE_TIMEOUT_S` segundos (1800 por defecto) se cierra sola y su worker queda libre. Cualquier pedido a la sesión cuenta como actividad, incluido `GET /sessions/{id}`. `GET /sessions` no cuenta. Una sesión con un pedido en curso nunca se cierra.
+Una sesión sin actividad durante `ACLOPI_SESSION_IDLE_TIMEOUT_S` segundos (1800 por defecto) se cierra sola: su corrida se detiene y su worker queda libre.
+
+Qué cuenta como actividad:
+- **Pedidos HTTP:** cualquier pedido a la sesión, incluido `GET /sessions/{id}`. `GET /sessions` no cuenta.
+- **Clientes WebSocket:** cuentan **solo mientras la sesión está en `running_live` o `running_fast`**. En `idle`, `paused` o `finished` solo cuentan los pedidos HTTP, así una pestaña olvidada no retiene un worker para siempre.
+- **Corrida sin nadie:** una sesión que corre sin nadie mirando ni pidiendo nada se cierra igual cuando vence el plazo.
+
+Una sesión con un pedido en curso nunca se cierra.
 
 ## Configuración (variables de entorno)
 
@@ -98,6 +141,11 @@ Una sesión sin pedidos durante `ACLOPI_SESSION_IDLE_TIMEOUT_S` segundos (1800 p
 | `ACLOPI_JVM_ARGS` | `-Xmx768m` | Argumentos de la JVM de cada worker |
 | `ACLOPI_WORK_DIR` | `results/workers` | Carpeta de trabajo del pool y del lock |
 | `ACLOPI_LOG_LEVEL` | `INFO` | Nivel de log |
+| `ACLOPI_MAX_FAST_RUNS` | `1` | Corridas rápidas simultáneas (subirlo, p. ej. a 4, para experimentos sin usuarios en vivo) |
+| `ACLOPI_LIVE_UPDATE_MS` | `100` | Intervalo objetivo entre bloques del modo en vivo |
+| `ACLOPI_FAST_BLOCK_TICKS` | `1000` | Ticks por bloque del modo rápido |
+| `ACLOPI_FAST_YIELD` | `0` | Pausa entre bloques rápidos, como fracción del tiempo del bloque |
+| `ACLOPI_WS_QUEUE` | `32` | Mensajes en cola por cliente WebSocket antes de resincronizarlo |
 
 ## Logs
 

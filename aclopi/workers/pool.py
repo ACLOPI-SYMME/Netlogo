@@ -26,7 +26,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from multiprocessing.connection import wait
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Callable, Iterator
 
 from aclopi.workers import procinfo
 from aclopi.workers.handle import PushCallback, WorkerHandle
@@ -67,10 +67,18 @@ class WorkerPool:
         warm: bool = True,
         start_timeout_s: float = 300.0,
         on_push: PushCallback | None = None,
+        on_session_push: Callable[[str, str, Any], None] | None = None,
+        on_session_lost: Callable[[str, str], None] | None = None,
+        run_options: dict[str, Any] | None = None,
     ) -> None:
         """debug=True enables the diagnostic operations "command" and "report" (arbitrary NetLogo
         code). Only for tests and diagnostics: the API must never create a pool with debug=True
-        nor expose those operations."""
+        nor expose those operations.
+
+        on_session_push(session_id, event, data): pushes of the worker that currently holds a
+        session (continuous runs, L5.3); pushes of an old worker generation are dropped.
+        on_session_lost(session_id, reason): called (from the monitor thread) when a session's
+        worker dies. run_options: live_update_s, fast_block_ticks, fast_yield for every worker."""
         self.pool_id = uuid.uuid4().hex[:8]
         self.work_dir = (Path(work_dir) if work_dir else default_work_dir()) / f"pool_{self.pool_id}"
         self.n_session, self.n_whatif = n_session, n_whatif
@@ -78,6 +86,9 @@ class WorkerPool:
         self.debug, self.warm = debug, warm
         self.start_timeout_s = start_timeout_s
         self._on_push = on_push
+        self._on_session_push = on_session_push
+        self._on_session_lost = on_session_lost
+        self.run_options = dict(run_options or {})
         self._ctx = mp.get_context("spawn")
         self._lock = threading.RLock()
         self._slots: list[Slot] = []
@@ -157,9 +168,30 @@ class WorkerPool:
     def _new_handle(self, index: int, role: str, generation: int) -> WorkerHandle:
         config = WorkerConfig(
             slot=index, role=role, generation=generation, work_dir=str(self.work_dir),
-            jvm_args=self.jvm_args, debug=self.debug, warm=self.warm,
+            jvm_args=self.jvm_args, debug=self.debug, warm=self.warm, **self.run_options,
         )
-        return WorkerHandle(config, ctx=self._ctx, on_push=self._on_push, on_timeout=self._on_request_timeout)
+        return WorkerHandle(config, ctx=self._ctx, on_push=self._dispatch_push, on_timeout=self._on_request_timeout)
+
+    def set_session_callbacks(
+        self,
+        on_session_push: Callable[[str, str, Any], None] | None,
+        on_session_lost: Callable[[str, str], None] | None,
+    ) -> None:
+        """Set the callbacks before start() (see __init__)."""
+        self._on_session_push = on_session_push
+        self._on_session_lost = on_session_lost
+
+    def _dispatch_push(self, handle: WorkerHandle, event: str, data: Any) -> None:
+        """Reader thread: route a worker's push to the session it currently holds."""
+        if self._on_push is not None:
+            self._on_push(handle, event, data)
+        if self._on_session_push is None or event in ("ready", "fatal"):
+            return
+        with self._lock:
+            slot = next((s for s in self._slots if s.handle is handle), None)
+            session_id = slot.session_id if slot is not None else None
+        if session_id is not None:
+            self._on_session_push(session_id, event, data)
 
     # ----- sessions -----
 
@@ -278,11 +310,26 @@ class WorkerPool:
                 if not self._stopping.is_set():
                     self._handle_death(watched[sentinel])
 
+    def kill_session_worker(self, session_id: str, reason: str) -> bool:
+        """Kill the worker that holds a session (e.g. the API watchdog saw no progress while it
+        was running); the monitor marks the session as lost and restarts the worker."""
+        with self._lock:
+            slot = next((s for s in self._slots if s.session_id == session_id), None)
+            if slot is None or self._stopping.is_set():
+                return False
+            slot.kill_reason = reason
+            handle = slot.handle
+        logger.error("%s: %s; killing it", handle.config.name, reason, extra={"session_id": session_id})
+        handle.kill()
+        return True
+
     def _handle_death(self, slot: Slot) -> None:
+        lost: str | None = None
         with self._lock:
             old = slot.handle
             reason = slot.kill_reason or f"worker process exited unexpectedly (exit code {old.process.exitcode})"
             if slot.session_id is not None:
+                lost = slot.session_id
                 self._lost[slot.session_id] = reason
                 logger.error("Session %s lost: %s", slot.session_id, reason,
                              extra={"session_id": slot.session_id, "worker": old.config.name})
@@ -290,6 +337,11 @@ class WorkerPool:
             slot.state = "restarting"
             slot.kill_reason = None
         old.mark_dead(reason)
+        if lost is not None and self._on_session_lost is not None:
+            try:
+                self._on_session_lost(lost, reason)
+            except Exception:  # noqa: BLE001 - the monitor must survive a failing callback
+                logger.exception("on_session_lost callback failed")
         threading.Thread(target=self._restart, args=(slot, old), name=f"restart-{slot.index}", daemon=True).start()
 
     def _restart(self, slot: Slot, old: WorkerHandle) -> None:

@@ -23,6 +23,15 @@ and restarted, and its session is marked as lost.
 - step accepts at most MAX_STEP_TICKS ticks per request; larger values are rejected.
 - Long runs (fast mode, L5.3) are executed by the worker itself, in blocks inside its own loop,
   reporting progress through the outbox as "push" messages, never as one long request.
+  ("run" only starts the run and answers at once; see runner.py.) A request that arrives during
+  a run waits at most for the block in progress (live: a few ticks; fast: fast_block_ticks).
+
+Pushes of a continuous run (data are plain dicts; "state" is platform-state as JSON text):
+    run_state {run_state, mode, speed, tick}         on every run-state change
+    tick      {tick, advanced, speed, rate, lag_ms, events, state, [kpis]}   live block
+    progress  {tick, advanced, finished_products, ticks_per_s, block_ms, events, [kpis]}   fast block
+    finished  {tick, kpis}                           the run reached the horizon
+    run_error {error}                                a block failed; the run stops (idle)
 
 Diagnostic operations ("command", "report") run arbitrary NetLogo code. They exist only for tests
 and diagnostics, are refused unless the pool is created with debug=True, and must NEVER be exposed
@@ -38,6 +47,8 @@ from typing import Any
 OPS = (
     "ping", "setup", "step", "state", "events", "layout", "kpis", "reset",
     "export_world", "import_world", "shutdown",
+    # Continuous runs (L5.3, runner.py)
+    "run", "pause", "resume", "stop", "snapshot",
 )
 # Diagnostic operations: only with debug=True; never exposed by the API.
 DEBUG_OPS = ("command", "report")
@@ -58,7 +69,17 @@ OP_TIMEOUTS_S: dict[str, float] = {
     "shutdown": 15.0,
     "command": 10.0,
     "report": 10.0,
+    "run": 10.0,
+    "pause": 10.0,
+    "resume": 10.0,
+    "stop": 10.0,
+    "snapshot": 10.0,
 }
+
+# Continuous runs: the API's watchdog treats a running session that sends no push for this long
+# as hung (blocks last well under a second). In the L5.5 state "waiting_decision" the simulation
+# does not advance, so the worker must push a heartbeat there to stay under this limit.
+RUN_WATCHDOG_S = 15.0
 STEP_BASE_TIMEOUT_S = 5.0
 # ~0.3-0.5 ms/tick measured in L4b; x10 margin for 7 workers sharing 4 vCPUs.
 STEP_TIMEOUT_PER_TICK_S = 0.005
