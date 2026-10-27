@@ -48,6 +48,11 @@ globals [
   decision-queue    ; Rule 4: pending decision requests [who seq operation origin-machine tick]
   decision-log      ; Rule 4: applied assignments [tick who seq operation origin-machine chosen-machine source]
 
+  ; Fixed product sequence (docs/product-sequence.md)
+  fixed-product-sequence?   ; true: type and priority of product n come from product-sequence-seed and n (Setup: false)
+  product-sequence-seed     ; seed of the fixed sequence, set from Python after setup (NetLogo cannot read the run seed)
+  products-created          ; products created in this run; product n is the n-th created (n starts at 1)
+
 ]
 
 breed [nodes node]
@@ -125,6 +130,9 @@ to Setup
   set horizon-ticks 10000
   set decision-queue []
   set decision-log []
+  set fixed-product-sequence? false
+  set product-sequence-seed 0
+  set products-created 0
 
   set terminado "No"
 
@@ -141,7 +149,8 @@ to Go
   if(Orden.test = true)[
     let counter count products with [xcor >= 90 and xcor <= 115 and ycor >= 80 and ycor <= 110]
     if (simulated.time mod 100 <= 0.2 and count products with [Product.State != "death"] < 10 and counter = 0) [
-      create.product one-of PosibleProducts
+      ; With the fixed sequence the type of product n does not come from the model's random numbers.
+      ifelse (fixed-product-sequence?) [create.product first Product.Sequence.Item (products-created + 1)] [create.product one-of PosibleProducts]
     ]
   ]
 
@@ -487,6 +496,7 @@ end
 
 to Create.product [#1]
 
+  set products-created products-created + 1
   create-products 1 [
     move-to turtle 151
     set xcor xcor - 5
@@ -518,9 +528,33 @@ to Create.product [#1]
     set speed-factor 1
     set platoon-position 0 - 1
     set Machine.Used []
-    set priority random (100 - 60 + 1) + 60
+    ifelse (fixed-product-sequence?) [set priority last Product.Sequence.Item products-created] [set priority random (100 - 60 + 1) + 60]
   ]
 
+end
+
+; ----- Fixed product sequence (fixed-product-sequence? = true; docs/product-sequence.md) -----
+; Product n (the n-th created, n = 1, 2, ...) draws its type and priority from its own generator,
+; seeded with Product.Sequence.Seed n, inside with-local-randomness: the model's random numbers are
+; neither used nor changed, so product n is the same whatever happens in the plant. Computed when
+; needed (no precomputed list), so it never runs out. Same draws as the default code:
+; one-of PosibleProducts, then random (100 - 60 + 1) + 60.
+
+to-report Product.Sequence.Seed [#n]
+  ; (product-sequence-seed * 1000003 + n) mod 2^31: a different seed for every n < 2^31 with the
+  ; same sequence seed, always a valid NetLogo seed.
+  report (product-sequence-seed * 1000003 + #n) mod 2147483648
+end
+
+to-report Product.Sequence.Item [#n]
+  ; [type priority] of product n of the fixed sequence.
+  let result []
+  with-local-randomness [
+    random-seed Product.Sequence.Seed #n
+    let product-type one-of PosibleProducts
+    set result (list product-type (random (100 - 60 + 1) + 60))
+  ]
+  report result
 end
 
 to-report minuscule [#1]
@@ -3062,6 +3096,9 @@ to-report platform-state
       (list "time" json-num Simulated.Time)
       (list "terminado" json-str terminado)
       (list "finished" json-num count products with [Product.State = "death"])
+      (list "fixed_product_sequence" json-bool fixed-product-sequence?)
+      (list "product_sequence_seed" json-num product-sequence-seed)
+      (list "products_created" json-num products-created)
       (list "segments" platform-segments-json)
       (list "gates" json-list map [n -> platform-gate-json n] sort nodes with [not hidden? and (count my-out-conveyors = 2 or count my-in-conveyors = 2)])
       (list "machines" json-list map [m -> platform-machine-json m] sort machines)
@@ -3237,6 +3274,23 @@ end
 
 to platform-clear-decision-log
   set decision-log []
+end
+
+; ----- Fixed product sequence (see docs/product-sequence.md) -----
+
+to-report platform-product-sequence [#from #to]
+  ; Products n = #from..#to of the fixed sequence of product-sequence-seed, as computed by
+  ; Product.Sequence.Item (whether or not fixed-product-sequence? is on):
+  ; [{"n": n, "type": "A", "priority": 75}, ...]
+  let result ""
+  with-local-randomness [
+    set result json-list map [n -> json-obj (list
+        (list "n" json-num n)
+        (list "type" json-str first Product.Sequence.Item n)
+        (list "priority" json-num last Product.Sequence.Item n))]
+      (range #from (#to + 1))
+  ]
+  report result
 end
 
 ; ----- JSON helpers: every value is encoded through one of these -----
