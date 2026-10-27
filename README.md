@@ -137,6 +137,57 @@ with WorkerPool() as pool:
 
 El diseño, la regla de duración de los pedidos y el manejo de caídas están en `docs/workers.md`.
 
+## API REST (`aclopi.api`)
+
+API HTTP (FastAPI) sobre el pool de workers. El contrato para la Línea A está en `contracts/openapi.json`, y el diseño, los errores y la configuración en `docs/api.md`.
+
+**Siempre un solo proceso con un solo worker de uvicorn.** Cada proceso de API arranca su propio pool (7 JVM, ~3,3 GB). Por eso no hay que usar `uvicorn --workers N`: varios workers de uvicorn o varias APIs sobre la misma carpeta multiplicarían las JVM y la memoria. Un archivo de bloqueo (`results/workers/api.lock`) impide arrancar una segunda instancia.
+
+### En Windows
+
+```powershell
+python -m aclopi.api
+```
+
+- Escucha en `http://localhost:8000`, y la documentación interactiva está en `http://localhost:8000/docs`.
+- `GET /health/ready` responde 503 mientras arranca el pool (alrededor de 1–1,5 min) y 200 cuando está lista. `GET /health` muestra el detalle por worker.
+- La configuración va por variables de entorno (`ACLOPI_API_PORT`, `ACLOPI_N_SESSION_WORKERS`, `ACLOPI_SESSION_IDLE_TIMEOUT_S`, …; ver `docs/api.md`).
+
+Ejemplo:
+
+```powershell
+$s = Invoke-RestMethod -Method Post http://localhost:8000/sessions -ContentType application/json -Body '{"seed": 42, "rule": 3}'
+Invoke-RestMethod -Method Post "http://localhost:8000/sessions/$($s.session_id)/step?n=2000"
+Invoke-RestMethod "http://localhost:8000/sessions/$($s.session_id)/kpis"
+Invoke-RestMethod -Method Delete "http://localhost:8000/sessions/$($s.session_id)"
+```
+
+Para regenerar el contrato después de cambiar la API (un test falla si quedó desactualizado):
+
+```powershell
+python scripts\export_openapi.py
+```
+
+### En el contenedor
+
+Con los mismos límites de L4 (`--cpus=4 --cpuset-cpus=0-3 --memory=6g --memory-swap=6g`) y el puerto 8000 publicado:
+
+```powershell
+docker build -f docker/Dockerfile -t aclopi-sim .
+.\docker\run_api.ps1                                      # en primer plano; Ctrl+C la detiene
+.\docker\run_api.ps1 -Detach -Restart unless-stopped      # en segundo plano, con reinicio automático
+```
+
+- **Logs:** se ven con `docker logs aclopi-api`; cada línea es un objeto JSON con `session_id`.
+- **Healthcheck:** el `HEALTHCHECK` de la imagen usa `/health/live`. El balanceador de la nube debe usar `/health/ready`.
+
+**Política de reinicio recomendada.** Si algún worker no arranca dentro de `ACLOPI_STARTUP_TIMEOUT_S`, la API apaga el pool y termina con código 3.
+
+| Política | Cuándo usarla |
+|---|---|
+| `restart: on-failure` (o `--restart=on-failure`) | Reintenta solo cuando la API termina con error. Es la opción conservadora |
+| `restart: unless-stopped` | Además, la levanta de nuevo cuando se reinicia Docker o la máquina, salvo que se haya detenido a mano. Es la recomendada para la nube, donde la plataforma se enciende antes del horario laboral |
+
 ## Contenedor Linux (Docker)
 
 Imagen con Python 3.12, NetLogo 6.4.0 para Linux (descargado de `downloads.netlogo.org` con su checksum verificado) y el paquete `aclopi`:

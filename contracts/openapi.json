@@ -1,0 +1,1433 @@
+{
+  "components": {
+    "schemas": {
+      "ErrorBody": {
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          },
+          "session_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Id"
+          }
+        },
+        "required": [
+          "code",
+          "detail"
+        ],
+        "title": "ErrorBody",
+        "type": "object"
+      },
+      "Event": {
+        "additionalProperties": true,
+        "properties": {
+          "destination": {
+            "title": "Destination"
+          },
+          "event": {
+            "title": "Event",
+            "type": "string"
+          },
+          "location": {
+            "title": "Location"
+          },
+          "next_operation": {
+            "title": "Next Operation"
+          },
+          "operation": {
+            "title": "Operation"
+          },
+          "product_type": {
+            "title": "Product Type"
+          },
+          "tick": {
+            "title": "Tick",
+            "type": "integer"
+          },
+          "time": {
+            "title": "Time"
+          },
+          "who": {
+            "title": "Who"
+          }
+        },
+        "required": [
+          "tick",
+          "event"
+        ],
+        "title": "Event",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "Health": {
+        "properties": {
+          "sessions": {
+            "$ref": "#/components/schemas/SessionCounts"
+          },
+          "startup_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Startup S"
+          },
+          "status": {
+            "enum": [
+              "starting",
+              "ready",
+              "degraded",
+              "failed",
+              "stopping"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "uptime_s": {
+            "title": "Uptime S",
+            "type": "number"
+          },
+          "workers": {
+            "items": {
+              "$ref": "#/components/schemas/WorkerInfo"
+            },
+            "title": "Workers",
+            "type": "array"
+          }
+        },
+        "required": [
+          "status",
+          "uptime_s",
+          "startup_s",
+          "sessions",
+          "workers"
+        ],
+        "title": "Health",
+        "type": "object"
+      },
+      "Kpis": {
+        "properties": {
+          "finished": {
+            "title": "Finished",
+            "type": "integer"
+          },
+          "mean_flow_time": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mean Flow Time"
+          },
+          "simulated_time": {
+            "title": "Simulated Time",
+            "type": "number"
+          },
+          "throughput": {
+            "title": "Throughput",
+            "type": "number"
+          },
+          "ticks": {
+            "title": "Ticks",
+            "type": "integer"
+          },
+          "utilization": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "title": "Utilization",
+            "type": "object"
+          },
+          "wip": {
+            "title": "Wip",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "ticks",
+          "simulated_time",
+          "finished",
+          "wip",
+          "throughput",
+          "mean_flow_time",
+          "utilization"
+        ],
+        "title": "Kpis",
+        "type": "object"
+      },
+      "PlantLayout": {
+        "additionalProperties": true,
+        "description": "platform-layout: static geometry of the plant.",
+        "properties": {
+          "conveyors": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Conveyors",
+            "type": "array"
+          },
+          "curves": {
+            "additionalProperties": true,
+            "title": "Curves",
+            "type": "object"
+          },
+          "machines": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Machines",
+            "type": "array"
+          },
+          "nodes": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Nodes",
+            "type": "array"
+          },
+          "sensors": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Sensors",
+            "type": "array"
+          },
+          "switches": {
+            "additionalProperties": {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            "title": "Switches",
+            "type": "object"
+          }
+        },
+        "required": [
+          "nodes",
+          "conveyors",
+          "curves",
+          "machines",
+          "sensors",
+          "switches"
+        ],
+        "title": "PlantLayout",
+        "type": "object"
+      },
+      "PlantState": {
+        "additionalProperties": true,
+        "description": "platform-state: compact state of the plant at the current tick.",
+        "properties": {
+          "finished": {
+            "description": "Finished products",
+            "title": "Finished",
+            "type": "integer"
+          },
+          "gates": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Gates",
+            "type": "array"
+          },
+          "machines": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Machines",
+            "type": "array"
+          },
+          "products": {
+            "description": "Products not finished",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Products",
+            "type": "array"
+          },
+          "segments": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "title": "Segments",
+            "type": "object"
+          },
+          "terminado": {
+            "title": "Terminado",
+            "type": "string"
+          },
+          "tick": {
+            "title": "Tick",
+            "type": "integer"
+          },
+          "time": {
+            "description": "Simulated.Time",
+            "title": "Time",
+            "type": "number"
+          }
+        },
+        "required": [
+          "tick",
+          "time",
+          "terminado",
+          "finished",
+          "segments",
+          "gates",
+          "machines",
+          "products"
+        ],
+        "title": "PlantState",
+        "type": "object"
+      },
+      "Probe": {
+        "properties": {
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "Probe",
+        "type": "object"
+      },
+      "RunParameters": {
+        "properties": {
+          "horizon_ticks": {
+            "title": "Horizon Ticks",
+            "type": "integer"
+          },
+          "modeling_type": {
+            "title": "Modeling Type",
+            "type": "string"
+          },
+          "rule": {
+            "title": "Rule",
+            "type": "integer"
+          },
+          "seed": {
+            "title": "Seed",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "seed",
+          "rule",
+          "modeling_type",
+          "horizon_ticks"
+        ],
+        "title": "RunParameters",
+        "type": "object"
+      },
+      "SessionCounts": {
+        "properties": {
+          "active": {
+            "title": "Active",
+            "type": "integer"
+          },
+          "max": {
+            "title": "Max",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "active",
+          "max"
+        ],
+        "title": "SessionCounts",
+        "type": "object"
+      },
+      "SessionCreate": {
+        "additionalProperties": false,
+        "properties": {
+          "horizon_ticks": {
+            "default": 10000,
+            "description": "The run ends (ExportData) at this tick",
+            "maximum": 1000000.0,
+            "minimum": 1.0,
+            "title": "Horizon Ticks",
+            "type": "integer"
+          },
+          "modeling_type": {
+            "default": "Stochastic",
+            "enum": [
+              "Stochastic",
+              "Deterministic"
+            ],
+            "title": "Modeling Type",
+            "type": "string"
+          },
+          "rule": {
+            "description": "1 Random Machine, 2 Nearest Machine, 3 Potential Fields",
+            "enum": [
+              1,
+              2,
+              3
+            ],
+            "title": "Rule",
+            "type": "integer"
+          },
+          "seed": {
+            "description": "NetLogo random-seed",
+            "maximum": 2147483647.0,
+            "minimum": -2147483648.0,
+            "title": "Seed",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "seed",
+          "rule"
+        ],
+        "title": "SessionCreate",
+        "type": "object"
+      },
+      "SessionInfo": {
+        "properties": {
+          "created_at": {
+            "description": "Unix time (s)",
+            "title": "Created At",
+            "type": "number"
+          },
+          "finished": {
+            "title": "Finished",
+            "type": "boolean"
+          },
+          "last_activity": {
+            "description": "Unix time (s) of the last request to this session",
+            "title": "Last Activity",
+            "type": "number"
+          },
+          "lost_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why the session is lost or expired",
+            "title": "Lost Reason"
+          },
+          "parameters": {
+            "$ref": "#/components/schemas/RunParameters"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "active",
+              "lost",
+              "expired"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "ticks": {
+            "description": "Last known tick (every advance goes through the API)",
+            "title": "Ticks",
+            "type": "integer"
+          },
+          "worker_slot": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Worker Slot"
+          }
+        },
+        "required": [
+          "session_id",
+          "status",
+          "parameters",
+          "ticks",
+          "finished",
+          "worker_slot",
+          "created_at",
+          "last_activity"
+        ],
+        "title": "SessionInfo",
+        "type": "object"
+      },
+      "StepResult": {
+        "properties": {
+          "advanced": {
+            "description": "Ticks actually advanced (fewer when the run ends)",
+            "title": "Advanced",
+            "type": "integer"
+          },
+          "finished": {
+            "title": "Finished",
+            "type": "boolean"
+          },
+          "ticks": {
+            "title": "Ticks",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "ticks",
+          "advanced",
+          "finished"
+        ],
+        "title": "StepResult",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      },
+      "WorkerInfo": {
+        "properties": {
+          "pid": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pid"
+          },
+          "ready": {
+            "title": "Ready",
+            "type": "boolean"
+          },
+          "restarts": {
+            "title": "Restarts",
+            "type": "integer"
+          },
+          "role": {
+            "enum": [
+              "session",
+              "whatif"
+            ],
+            "title": "Role",
+            "type": "string"
+          },
+          "rss_mib": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rss Mib"
+          },
+          "session_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Id"
+          },
+          "slot": {
+            "title": "Slot",
+            "type": "integer"
+          },
+          "state": {
+            "description": "starting | free | busy | restarting | failed | stopped",
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "slot",
+          "role",
+          "ready",
+          "state",
+          "pid",
+          "rss_mib",
+          "restarts",
+          "session_id"
+        ],
+        "title": "WorkerInfo",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "description": "Sessions of the Paper.nlogo plant simulation, each one in its own worker process. A step advances at most 2000 ticks per request.",
+    "title": "ACLOPI simulation platform",
+    "version": "0.2.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/health": {
+      "get": {
+        "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Health"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Platform phase, workers and sessions",
+        "tags": [
+          "health"
+        ]
+      }
+    },
+    "/health/live": {
+      "get": {
+        "operationId": "health_live_health_live_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Probe"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Liveness: 200 while the process answers, also during startup",
+        "tags": [
+          "health"
+        ]
+      }
+    },
+    "/health/ready": {
+      "get": {
+        "operationId": "health_ready_health_ready_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Probe"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Probe"
+                }
+              }
+            },
+            "description": "starting, failed or stopping"
+          }
+        },
+        "summary": "Readiness: 200 when ready or degraded, 503 otherwise",
+        "tags": [
+          "health"
+        ]
+      }
+    },
+    "/sessions": {
+      "get": {
+        "operationId": "list_sessions_sessions_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SessionInfo"
+                  },
+                  "title": "Response List Sessions Sessions Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Every session: active, lost and expired",
+        "tags": [
+          "sessions"
+        ]
+      },
+      "post": {
+        "operationId": "create_session_sessions_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SessionCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionInfo"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Error inside NetLogo or the worker (simulation_error)"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Platform starting (platform_starting), no free worker (no_free_worker) or worker unavailable (worker_unavailable)"
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The worker did not answer in time (worker_timeout); it is restarted and the session is lost"
+          }
+        },
+        "summary": "Create a session on a free worker and run setup",
+        "tags": [
+          "sessions"
+        ]
+      }
+    },
+    "/sessions/{session_id}": {
+      "delete": {
+        "operationId": "delete_session_sessions__session_id__delete",
+        "parameters": [
+          {
+            "description": "Session id returned by POST /sessions",
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "description": "Session id returned by POST /sessions",
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Unknown session (session_not_found)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Close the session and free its worker",
+        "tags": [
+          "sessions"
+        ]
+      },
+      "get": {
+        "operationId": "get_session_sessions__session_id__get",
+        "parameters": [
+          {
+            "description": "Session id returned by POST /sessions",
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "description": "Session id returned by POST /sessions",
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionInfo"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Unknown session (session_not_found)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Session parameters and last known tick",
+        "tags": [
+          "sessions"
+        ]
+      }
+    },
+    "/sessions/{session_id}/events": {
+      "get": {
+        "description": "Not idempotent: each call returns the events recorded since the previous call and empties the session's event buffer.",
+        "operationId": "events_sessions__session_id__events_get",
+        "parameters": [
+          {
+            "description": "Session id returned by POST /sessions",
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "description": "Session id returned by POST /sessions",
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Event"
+                  },
+                  "title": "Response Events Sessions  Session Id  Events Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Unknown session (session_not_found)"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Session lost because its worker crashed or hung (session_lost), or closed for inactivity (session_expired)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Error inside NetLogo or the worker (simulation_error)"
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The worker did not answer in time (worker_timeout); it is restarted and the session is lost"
+          }
+        },
+        "summary": "Events since the previous call; reading them empties the buffer",
+        "tags": [
+          "sessions"
+        ]
+      }
+    },
+    "/sessions/{session_id}/kpis": {
+      "get": {
+        "operationId": "kpis_sessions__session_id__kpis_get",
+        "parameters": [
+          {
+            "description": "Session id returned by POST /sessions",
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "description": "Session id returned by POST /sessions",
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Kpis"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Unknown session (session_not_found)"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Session lost because its worker crashed or hung (session_lost), or closed for inactivity (session_expired)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Error inside NetLogo or the worker (simulation_error)"
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The worker did not answer in time (worker_timeout); it is restarted and the session is lost"
+          }
+        },
+        "summary": "KPIs of the current state (does not alter the simulation)",
+        "tags": [
+          "sessions"
+        ]
+      }
+    },
+    "/sessions/{session_id}/layout": {
+      "get": {
+        "operationId": "layout_sessions__session_id__layout_get",
+        "parameters": [
+          {
+            "description": "Session id returned by POST /sessions",
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "description": "Session id returned by POST /sessions",
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlantLayout"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Unknown session (session_not_found)"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Session lost because its worker crashed or hung (session_lost), or closed for inactivity (session_expired)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Error inside NetLogo or the worker (simulation_error)"
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The worker did not answer in time (worker_timeout); it is restarted and the session is lost"
+          }
+        },
+        "summary": "Static plant geometry (platform-layout)",
+        "tags": [
+          "sessions"
+        ]
+      }
+    },
+    "/sessions/{session_id}/reset": {
+      "post": {
+        "operationId": "reset_sessions__session_id__reset_post",
+        "parameters": [
+          {
+            "description": "Session id returned by POST /sessions",
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "description": "Session id returned by POST /sessions",
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionInfo"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Unknown session (session_not_found)"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Session lost because its worker crashed or hung (session_lost), or closed for inactivity (session_expired)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Error inside NetLogo or the worker (simulation_error)"
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The worker did not answer in time (worker_timeout); it is restarted and the session is lost"
+          }
+        },
+        "summary": "Run setup again with the same parameters",
+        "tags": [
+          "sessions"
+        ]
+      }
+    },
+    "/sessions/{session_id}/state": {
+      "get": {
+        "operationId": "state_sessions__session_id__state_get",
+        "parameters": [
+          {
+            "description": "Session id returned by POST /sessions",
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "description": "Session id returned by POST /sessions",
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlantState"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Unknown session (session_not_found)"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Session lost because its worker crashed or hung (session_lost), or closed for inactivity (session_expired)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Error inside NetLogo or the worker (simulation_error)"
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The worker did not answer in time (worker_timeout); it is restarted and the session is lost"
+          }
+        },
+        "summary": "Compact plant state (platform-state)",
+        "tags": [
+          "sessions"
+        ]
+      }
+    },
+    "/sessions/{session_id}/step": {
+      "post": {
+        "operationId": "step_sessions__session_id__step_post",
+        "parameters": [
+          {
+            "description": "Session id returned by POST /sessions",
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "description": "Session id returned by POST /sessions",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Ticks to advance, 1..2000",
+            "in": "query",
+            "name": "n",
+            "required": true,
+            "schema": {
+              "description": "Ticks to advance, 1..2000",
+              "maximum": 2000,
+              "minimum": 1,
+              "title": "N",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StepResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Unknown session (session_not_found)"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Session lost because its worker crashed or hung (session_lost), or closed for inactivity (session_expired)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Error inside NetLogo or the worker (simulation_error)"
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The worker did not answer in time (worker_timeout); it is restarted and the session is lost"
+          }
+        },
+        "summary": "Advance up to n ticks (stops at the horizon)",
+        "tags": [
+          "sessions"
+        ]
+      }
+    }
+  }
+}
