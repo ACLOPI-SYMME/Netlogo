@@ -123,6 +123,8 @@ def run_once(netlogo: Any, args: argparse.Namespace, run_index: int) -> RunResul
     netlogo.command(f'set Reactivity.rule "{rule_name}"')
     netlogo.command(f'set Modeling.Type "{args.modeling_type}"')
     netlogo.command("setup")
+    # Original model: no fixed product sequence (already the Setup default; explicit for the baseline).
+    netlogo.command("set fixed-product-sequence? false")
 
     started_at = time.time()
     start = time.perf_counter()

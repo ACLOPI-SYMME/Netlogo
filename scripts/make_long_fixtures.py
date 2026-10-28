@@ -31,7 +31,8 @@ SEEDS = (42, 7)
 
 def long_run(session: SimulationSession, seed: int) -> dict:
     """Run rule 3 to HORIZON ticks and return the KPIs and the exported CSV hashes."""
-    session.setup(seed=seed, rule=RULE, horizon_ticks=HORIZON)
+    # Original model: the fixtures are the baseline, without the fixed product sequence.
+    session.setup(seed=seed, rule=RULE, horizon_ticks=HORIZON, fixed_product_sequence=False)
     start = time.perf_counter()
     session.run_to_end()
     wall = time.perf_counter() - start

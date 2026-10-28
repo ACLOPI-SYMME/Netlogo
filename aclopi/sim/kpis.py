@@ -8,6 +8,13 @@ Definitions (agreed for the headless validation):
 - utilization per machine: busy time / Simulated.Time. Busy time pairs ProductRealStart[i],
   ProductRealCompletion[i] and Machine.Used[i]; an operation still in progress counts until
   Simulated.Time on the product's Heading.Workstation.
+- created: products created so far (finished + wip).
+- work_completed: processing work done, in time units of NOMINAL processing time
+  (OperationDuration: 200 for O1-O7, 100 for O8 and O9). Each completed operation adds its nominal
+  time; an operation in progress adds the processed fraction of it,
+  (Simulated.Time - start) / (Next.Completion - start) x nominal, clipped to [0, 1]. The nominal
+  time is used instead of the drawn one so that the random part of processing times neither
+  rewards nor penalizes a strategy.
 
 The reporters iterate agentsets with `of`, which shuffles agents with the model's RNG. They are
 evaluated in a single platform-local call, so the RNG is restored afterwards (KPIs can be read
@@ -41,11 +48,29 @@ map [m -> sum [
   (sort [Machine.Name] of machines)
 """
 
+# Nominal time of the operation at index #i of a product's ProductOperations ("O1".."O9").
+_NOMINAL = "item ((read-from-string (last item {i} ProductOperations)) - 1) OperationDuration"
+
+# Iterates products with `sort` (no random numbers). The machine of an operation in progress is
+# the product's Heading.Workstation (it changes only when the operation completes).
+WORK_COMPLETED_REPORTER = f"""
+sum map [p -> [
+    sum map [i -> {_NOMINAL.format(i="i")}] (range length ProductRealCompletion)
+    + ifelse-value (length ProductRealStart > length ProductRealCompletion) [
+        {_NOMINAL.format(i="(length ProductRealCompletion)")}
+        * max (list 0 min (list 1
+            ((Simulated.Time - last ProductRealStart)
+             / ([Next.Completion] of first sort machines with [Machine.Name = [Heading.Workstation] of myself] - last ProductRealStart))))
+      ] [0]
+  ] of p] sort products
+"""
+
 # One evaluation, in this order, inside with-local-randomness. Encoded as JSON because
-# pynetlogo cannot convert lists that mix numbers and strings.
+# pynetlogo cannot convert lists that mix numbers and strings. The work reporter goes last and
+# uses no random numbers, so the first three values are exactly as before it was added.
 KPI_REPORTER = (
     "platform-local [ -> json-any (list "
-    f"({FLOW_TIME_REPORTER}) ({MACHINE_NAMES_REPORTER}) ({BUSY_TIME_REPORTER})"
+    f"({FLOW_TIME_REPORTER}) ({MACHINE_NAMES_REPORTER}) ({BUSY_TIME_REPORTER}) ({WORK_COMPLETED_REPORTER})"
     ") ]"
 )
 
@@ -59,6 +84,8 @@ class Kpis:
     throughput: float
     mean_flow_time: float | None
     utilization: dict[str, float]
+    created: int
+    work_completed: float  # time units of nominal processing time (see module docstring)
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -70,7 +97,7 @@ def compute_kpis(netlogo: Any) -> Kpis:
     simulated_time = float(netlogo.report("Simulated.Time"))
     finished = int(netlogo.report('count products with [Product.State = "death"]'))
     wip = int(netlogo.report('count products with [Product.State != "death"]'))
-    flow, machine_names, busy = json.loads(str(netlogo.report(KPI_REPORTER)))
+    flow, machine_names, busy, work = json.loads(str(netlogo.report(KPI_REPORTER)))
 
     if simulated_time > 0:
         throughput = finished / simulated_time
@@ -87,4 +114,6 @@ def compute_kpis(netlogo: Any) -> Kpis:
         throughput=throughput,
         mean_flow_time=None if flow < 0 else float(flow),
         utilization=utilization,
+        created=finished + wip,
+        work_completed=float(work),
     )

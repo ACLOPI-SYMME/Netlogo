@@ -85,14 +85,16 @@ def run(
     horizon: int,
     decider: Decider | None = None,
     poll: bool = True,
+    fixed_product_sequence: bool = False,
 ) -> RunOutput:
     """Run to the horizon.
 
     Rule 4: with poll, advance with run_until_decision, read every request, answer it with
     decider (if any) and clear the queue; without poll, run straight to the end (requests pile
     up unanswered). Rules 1-3 always run straight to the end.
+    fixed_product_sequence is off by default here: these checks compare against the baseline.
     """
-    session.setup(seed=seed, rule=rule, horizon_ticks=horizon)
+    session.setup(seed=seed, rule=rule, horizon_ticks=horizon, fixed_product_sequence=fixed_product_sequence)
     start = time.perf_counter()
     requests, answers = 0, Counter()
     if rule == 4 and poll:

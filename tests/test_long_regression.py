@@ -28,6 +28,7 @@ def session(tmp_path_factory: pytest.TempPathFactory) -> Iterator[SimulationSess
 def test_long_run_matches_fixture(session: SimulationSession, seed: int) -> None:
     expected = json.loads((Path(FIXTURES) / f"rule3_seed{seed}.json").read_text(encoding="utf-8"))
     result = long_run(session, seed)
-    assert result["kpis"] == expected["kpis"]
+    # KPIs added after the fixtures were made (created, work_completed) are not compared.
+    assert {k: result["kpis"][k] for k in expected["kpis"]} == expected["kpis"]
     assert result["events_sha256"] == expected["events_sha256"]
     assert result["data_sha256"] == expected["data_sha256"]
