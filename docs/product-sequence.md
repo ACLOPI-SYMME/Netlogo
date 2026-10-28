@@ -87,9 +87,14 @@ tocado un tiempo largo.
 
 También se agrega `created` (productos creados = terminados + en curso).
 
-**Tiempo medio de flujo:** el KPI existente `mean_flow_time` se mide desde el inicio de la
-primera operación (`first ProductRealStart`) hasta la última finalización, solo sobre productos
-terminados; **no** desde `ProductCreationTime`. No se cambió.
+**Tiempo medio de flujo (`mean_flow_time`), decisión tomada:** se mide desde el inicio de la
+primera operación (`first ProductRealStart`, cuando el producto entra a M1 para O8) hasta la
+última finalización (`last ProductRealCompletion`, fin de O9), y solo sobre productos
+terminados. **No** se mide desde `ProductCreationTime` y se mantiene así a propósito: es la
+definición acordada en la validación headless y la que usan la línea base y las regresiones.
+La diferencia con medirlo desde la creación es pequeña y casi constante (~13,6 u.t., el viaje
+desde el punto de creación hasta M1 en las corridas medidas; ver
+`scripts/a2/measure_fixed_sequence.py`).
 
 ## Lo que el set fijo NO iguala (riesgo asumido P9)
 
