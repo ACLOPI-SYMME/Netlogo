@@ -25,6 +25,7 @@ from aclopi.workers import procinfo
 from aclopi.workers.protocol import (
     DEBUG_OPS, MAX_STEP_TICKS, OPS, error_response, ok_response, push_message,
 )
+from aclopi.workers.runner import RunController, RunStateError
 
 IDLE_POLL_S = 0.2
 MAX_REQUESTS_PER_TURN = 16
@@ -44,6 +45,10 @@ class WorkerConfig:
     jvm_args: tuple[str, ...] = ()
     debug: bool = False
     warm: bool = True
+    # Continuous runs (L5.3, see runner.py)
+    live_update_s: float = 0.1
+    fast_block_ticks: int = 1000
+    fast_yield: float = 0.0
 
     @property
     def name(self) -> str:
@@ -92,6 +97,11 @@ class WorkerState:
         )
         self.configured = False  # True after a client setup() or import_world()
         self.warm_info: dict[str, float] = {}
+        self.runner = RunController(
+            self.session, update_s=config.live_update_s, fast_block_ticks=config.fast_block_ticks,
+            fast_yield=config.fast_yield,
+        )
+        self.pushes: list[tuple[str, Any]] = []  # sent after the current response
 
     def warm_up(self) -> None:
         """Exercise the code paths a client will use (JIT warm-up) before accepting work."""
@@ -100,6 +110,8 @@ class WorkerState:
         s.setup(seed=WARM_SEED, rule=WARM_RULE)
         s.step(WARM_TICKS)
         s.state()
+        s.state_json()
+        s.finished_products()
         s.events()
         s.kpis()
         t1 = time.perf_counter()
@@ -127,6 +139,7 @@ class WorkerState:
             "generation": self.config.generation,
             "configured": self.configured,
             "ticks": ticks,
+            **self.runner.info(),
         }
 
     def op_setup(
@@ -139,20 +152,29 @@ class WorkerState:
     ) -> dict[str, Any]:
         """session_id (optional) only tags this worker's log lines until the next setup."""
         logjson.session_id_var.set(session_id)
-        self.session.setup(seed=seed, rule=rule, modeling_type=modeling_type, horizon_ticks=horizon_ticks)
+        try:
+            self.session.setup(seed=seed, rule=rule, modeling_type=modeling_type, horizon_ticks=horizon_ticks)
+        finally:
+            self.pushes += self.runner.reset()  # any run stops, also if setup fails
         self.configured = True
         logger.info("setup seed=%s rule=%s modeling_type=%s horizon_ticks=%s", seed, rule, modeling_type, horizon_ticks)
         return self._params()
 
-    def op_step(self, n: int) -> dict[str, Any]:
+    def op_step(self, n: int, with_state: bool = False) -> dict[str, Any]:
+        """with_state: also return platform-state (JSON text), for clients watching the session."""
         if not isinstance(n, int) or isinstance(n, bool) or n < 1 or n > MAX_STEP_TICKS:
             raise ValueError(
                 f"step n must be an integer between 1 and {MAX_STEP_TICKS} (got {n!r}); "
                 "long runs are done by the worker in blocks (fast mode), not in one request"
             )
         self._require_configured()
+        self._require_not_running("step")
         r = self.session.step(n)
-        return {"ticks": r.ticks, "advanced": r.advanced, "finished": r.finished}
+        self.pushes += self.runner.mark_finished_after_step(r.finished)
+        result: dict[str, Any] = {"ticks": r.ticks, "advanced": r.advanced, "finished": r.finished}
+        if with_state:
+            result["state"] = self.session.state_json()
+        return result
 
     def op_state(self) -> dict[str, Any]:
         self._require_configured()
@@ -160,7 +182,39 @@ class WorkerState:
 
     def op_events(self) -> list[dict[str, Any]]:
         self._require_configured()
+        self._require_not_running("events")  # while running, events travel in the run's pushes
         return self.session.events()
+
+    # ----- continuous runs (runner.py) -----
+
+    def op_run(self, mode: str, speed: float | None = None) -> dict[str, Any]:
+        self._require_configured()
+        self.pushes += self.runner.start(mode, speed)
+        return self._params()
+
+    def op_pause(self) -> dict[str, Any]:
+        self._require_configured()
+        self.pushes += self.runner.pause()
+        return self._params()
+
+    def op_resume(self) -> dict[str, Any]:
+        self._require_configured()
+        self.pushes += self.runner.resume()
+        return self._params()
+
+    def op_stop(self) -> dict[str, Any]:
+        """Stop any run (idle); used before the worker is released. Never fails."""
+        self.pushes += self.runner.stop()
+        return self.runner.info()
+
+    def op_snapshot(self) -> dict[str, Any]:
+        """Run state, tick, platform-state (JSON text) and KPIs, read between two blocks."""
+        self._require_configured()
+        return self.runner.snapshot()
+
+    def _require_not_running(self, op: str) -> None:
+        if self.runner.running:
+            raise RunStateError(f"{op} is not allowed while the session is {self.runner.state}; pause it first")
 
     def op_layout(self) -> dict[str, Any]:
         self._require_configured()
@@ -172,7 +226,10 @@ class WorkerState:
 
     def op_reset(self) -> dict[str, Any]:
         self._require_configured()
-        self.session.reset()
+        try:
+            self.session.reset()
+        finally:
+            self.pushes += self.runner.reset()
         return self._params()
 
     def op_export_world(self) -> dict[str, Any]:
@@ -189,6 +246,7 @@ class WorkerState:
         try:
             self.session.import_world(source, seed=seed)
         finally:
+            self.pushes += self.runner.reset()
             if delete_after:
                 source.unlink(missing_ok=True)
         self.configured = True
@@ -203,7 +261,7 @@ class WorkerState:
     def _params(self) -> dict[str, Any]:
         p = self.session.parameters
         return {"seed": p.seed, "rule": p.rule, "modeling_type": p.modeling_type,
-                "horizon_ticks": p.horizon_ticks, "ticks": self.session.ticks}
+                "horizon_ticks": p.horizon_ticks, "ticks": self.session.ticks, **self.runner.info()}
 
     def _require_configured(self) -> None:
         if not self.configured:
@@ -237,12 +295,15 @@ def worker_main(config: WorkerConfig, requests: mp.Queue, outbox: mp.Queue) -> N
     }))
     parent = mp.parent_process()
     running = True
+    last_parent_check = time.monotonic()
     try:
         while running:
-            # L5.3: when live mode is active the first get() will not wait (timeout 0) and one live
-            # block will run after the requests of this turn; here the worker only serves requests.
+            # Wait for a request only until the next block of a continuous run is due (runner.py);
+            # without a run the loop just serves requests.
+            wait = state.runner.time_to_next()
+            timeout = IDLE_POLL_S if wait is None else min(wait, IDLE_POLL_S)
             try:
-                msg = requests.get(timeout=IDLE_POLL_S)
+                msg = requests.get(timeout=timeout) if timeout > 0 else requests.get_nowait()
             except queue.Empty:
                 msg = None
             served = 0
@@ -255,11 +316,27 @@ def worker_main(config: WorkerConfig, requests: mp.Queue, outbox: mp.Queue) -> N
                     msg = requests.get_nowait()
                 except queue.Empty:
                     msg = None
-            if parent is not None and not parent.is_alive():
-                logger.warning("Parent process is gone; exiting")
-                break
+            if running:
+                _run_block(state, outbox)
+            now = time.monotonic()
+            if now - last_parent_check >= IDLE_POLL_S:
+                last_parent_check = now
+                if parent is not None and not parent.is_alive():
+                    logger.warning("Parent process is gone; exiting")
+                    break
     finally:
         state.session.close()
+
+
+def _run_block(state: WorkerState, outbox: mp.Queue) -> None:
+    """One block of the current run, if due. A failing block stops the run and is reported."""
+    try:
+        pushes = state.runner.run_block()
+    except Exception as exc:  # noqa: BLE001 - the worker stays alive; the run stops
+        logger.exception("Run block failed")
+        pushes = [("run_error", {"error": f"{type(exc).__name__}: {exc}"[:4000]})] + state.runner.stop()
+    for event, data in pushes:
+        outbox.put(push_message(event, to_plain(data)))
 
 
 def _serve(state: WorkerState, msg: dict[str, Any], outbox: mp.Queue) -> bool:
@@ -274,4 +351,8 @@ def _serve(state: WorkerState, msg: dict[str, Any], outbox: mp.Queue) -> bool:
         outbox.put(ok_response(request_id, result, 1000 * (time.perf_counter() - t0)))
     except Exception as exc:  # noqa: BLE001 - every failure becomes an error response
         outbox.put(error_response(request_id, exc, 1000 * (time.perf_counter() - t0)))
+    # Run-state changes caused by the operation (also when it failed half-way, e.g. setup).
+    pushes, state.pushes = state.pushes, []
+    for event, data in pushes:
+        outbox.put(push_message(event, to_plain(data)))
     return True

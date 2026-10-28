@@ -40,6 +40,7 @@ def main() -> int:
     config = uvicorn.Config(
         app, host=settings.host, port=settings.port, workers=1, reload=False,
         log_config=None, access_log=False, lifespan="on",
+        ws="websockets-sansio", ws_ping_interval=10.0, ws_ping_timeout=10.0,  # detects dead WebSocket clients
     )
     server = uvicorn.Server(config)
     # uvicorn handles SIGINT/SIGTERM with a graceful shutdown and then re-raises the signal with

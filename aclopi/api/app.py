@@ -20,15 +20,19 @@ from contextlib import asynccontextmanager
 from typing import Any, AsyncIterator, Callable
 
 import anyio
-from fastapi import FastAPI, Path, Query, Request, Response
-from fastapi.responses import JSONResponse
+from pathlib import Path as FilePath
+
+from fastapi import FastAPI, Path, Query, Request, Response, WebSocket
+from fastapi.responses import FileResponse, JSONResponse
 
 from aclopi.api import errors
-from aclopi.api.errors import PlatformStarting, WorkerUnavailable
+from aclopi.api.errors import InvalidRunState, PlatformStarting, WorkerUnavailable
 from aclopi.api.instance_lock import InstanceLock
 from aclopi.api.models import (
-    STEP_N_DESCRIPTION, Event, Health, Kpis, PlantLayout, PlantState, Probe, SessionCreate, SessionInfo, StepResult,
+    STEP_N_DESCRIPTION, Event, Health, Kpis, PlantLayout, PlantState, Probe, RunRequest, SessionCreate, SessionInfo,
+    StepResult,
 )
+from aclopi.api.ws import stream_session
 from aclopi.api.registry import SessionRegistry
 from aclopi.api.settings import Settings
 from aclopi.logjson import session_id_var
@@ -39,6 +43,7 @@ API_VERSION = "0.2.0"
 THREAD_LIMIT = 32
 SESSION_PATH = re.compile(r"^/sessions/([^/]+)")
 QUIET_PATHS = ("/health",)
+STATIC_DIR = FilePath(__file__).resolve().parent / "static"
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +60,7 @@ def default_pool_factory(settings: Settings) -> WorkerPool:
         debug=False,
         warm=True,
         start_timeout_s=settings.startup_timeout_s,
+        run_options=settings.run_options(),
     )
 
 
@@ -86,10 +92,16 @@ class Runtime:
         self.pool = self.pool_factory(self.settings)
         if self.pool.debug:
             raise RuntimeError("the API must never run a pool with debug=True")
-        self.registry = SessionRegistry(self.pool, self.settings.session_idle_timeout_s, self.limiter)
+        self.registry = SessionRegistry(
+            self.pool, self.settings.session_idle_timeout_s, self.limiter,
+            max_fast_runs=self.settings.max_fast_runs, ws_queue=self.settings.ws_queue,
+        )
+        self.registry.attach(asyncio.get_running_loop())
+        self.pool.set_session_callbacks(self.registry.push_from_thread, self.registry.lost_from_thread)
         self._tasks = [
             asyncio.create_task(self._start_pool(), name="pool-start"),
             asyncio.create_task(self.registry.sweep_loop(), name="idle-sweeper"),
+            asyncio.create_task(self.registry.watchdog_loop(), name="run-watchdog"),
         ]
         logger.info("API starting: %d session + %d what-if workers", self.settings.n_session_workers,
                     self.settings.n_whatif_workers, extra={"phase": self.phase})
@@ -112,9 +124,8 @@ class Runtime:
 
     async def stop(self) -> None:
         self.phase = "stopping"
-        sweeper = self._tasks[1] if len(self._tasks) > 1 else None
-        if sweeper is not None:
-            sweeper.cancel()
+        for task in self._tasks[1:]:  # sweeper and watchdog
+            task.cancel()
         if self.registry is not None:
             self.registry.close_all()
         if self.pool is not None:
@@ -264,19 +275,52 @@ def create_app(
         return runtime.sessions.get(session_id).info()
 
     @app.post("/sessions/{session_id}/step", response_model=StepResult, tags=["sessions"],
-              summary="Advance up to n ticks (stops at the horizon)",
-              responses=errors.responses(404, 410, 500, 504))
+              summary="Advance up to n ticks (stops at the horizon); 409 while running",
+              responses=errors.responses(404, 409, 410, 500, 504))
     async def step(session_id: str = session_id_path,
                    n: int = Query(..., ge=1, le=MAX_STEP_TICKS, description=STEP_N_DESCRIPTION)) -> dict[str, Any]:
-        record, result = await runtime.sessions.call(session_id, "step", n=n)
-        record.ticks, record.finished = int(result["ticks"]), bool(result["finished"])
-        return result
+        registry = runtime.sessions
+        record = registry.get(session_id)
+        _require_not_running(record, "step")
+        watched = len(record.hub) > 0
+        record, result = await registry.call(session_id, "step", n=n, with_state=watched)
+        registry.after_step(record, result)
+        return {k: result[k] for k in ("ticks", "advanced", "finished")}
 
     @app.post("/sessions/{session_id}/reset", response_model=SessionInfo, tags=["sessions"],
-              summary="Run setup again with the same parameters", responses=errors.responses(404, 410, 500, 504))
+              summary="Stop any run and run setup again with the same parameters",
+              responses=errors.responses(404, 410, 500, 504))
     async def reset(session_id: str = session_id_path) -> dict[str, Any]:
         record, result = await runtime.sessions.call(session_id, "reset")
-        record.ticks, record.finished = int(result["ticks"]), False
+        record.apply_run(result)
+        await runtime.sessions.after_reset(record)
+        return record.info()
+
+    # ----- continuous runs (L5.3) -----
+
+    @app.post("/sessions/{session_id}/run", response_model=SessionInfo, tags=["runs"],
+              summary="Run continuously: live (paced, streamed over WebSocket) or fast (no speed limit)",
+              description="Allowed in idle, paused and while running (changes mode or speed). 409 when finished. "
+                          "503 fast_run_limit when ACLOPI_MAX_FAST_RUNS fast runs are already in progress.",
+              responses=errors.responses(404, 409, 410, 500, 503, 504))
+    async def run(body: RunRequest, session_id: str = session_id_path) -> dict[str, Any]:
+        speed = float(body.speed) if body.mode == "live" else None
+        record = await runtime.sessions.start_run(session_id, body.mode, speed)
+        return record.info()
+
+    @app.post("/sessions/{session_id}/pause", response_model=SessionInfo, tags=["runs"],
+              summary="Pause a running session (409 if it is not running)",
+              responses=errors.responses(404, 409, 410, 500, 504))
+    async def pause(session_id: str = session_id_path) -> dict[str, Any]:
+        record, result = await runtime.sessions.call(session_id, "pause")
+        record.apply_run(result)
+        return record.info()
+
+    @app.post("/sessions/{session_id}/resume", response_model=SessionInfo, tags=["runs"],
+              summary="Resume a paused run with its mode and speed (409 if it is not paused)",
+              responses=errors.responses(404, 409, 410, 500, 503, 504))
+    async def resume(session_id: str = session_id_path) -> dict[str, Any]:
+        record = await runtime.sessions.resume_run(session_id)
         return record.info()
 
     @app.get("/sessions/{session_id}/state", response_model=PlantState, tags=["sessions"],
@@ -288,10 +332,14 @@ def create_app(
     @app.get("/sessions/{session_id}/events", response_model=list[Event], tags=["sessions"],
              summary="Events since the previous call; reading them empties the buffer",
              description="Not idempotent: each call returns the events recorded since the previous call "
-                         "and empties the session's event buffer.",
-             responses=errors.responses(404, 410, 500, 504))
+                         "and empties the session's event buffer. 409 while running: then the events "
+                         "travel over the WebSocket (/ws/sessions/{id}).",
+             responses=errors.responses(404, 409, 410, 500, 504))
     async def events(session_id: str = session_id_path) -> Any:
-        _, result = await runtime.sessions.call(session_id, "events")
+        record = runtime.sessions.get(session_id)
+        _require_not_running(record, "reading events")
+        record, result = await runtime.sessions.call(session_id, "events")
+        record.add_events(result)
         return result
 
     @app.get("/sessions/{session_id}/layout", response_model=PlantLayout, tags=["sessions"],
@@ -313,7 +361,23 @@ def create_app(
         await runtime.sessions.delete(session_id)
         return Response(status_code=204)
 
+    # ----- WebSocket and test page (L5.3) -----
+
+    @app.websocket("/ws/sessions/{session_id}")
+    async def ws_session(websocket: WebSocket, session_id: str) -> None:
+        await stream_session(websocket, runtime, session_id)
+
+    @app.get("/ui", include_in_schema=False)
+    async def ui() -> FileResponse:
+        return FileResponse(STATIC_DIR / "live.html", media_type="text/html")
+
     return app
+
+
+def _require_not_running(record: Any, what: str) -> None:
+    if record.status == "active" and record.running:
+        raise InvalidRunState(f"{what} is not allowed while the session is {record.run_state}; pause it first",
+                              record.session_id)
 
 
 async def _pool_status(runtime: Runtime) -> list[dict[str, Any]]:

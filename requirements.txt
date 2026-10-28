@@ -9,3 +9,5 @@ psutil
 fastapi==0.162.0
 uvicorn==0.54.0
 httpx==0.28.1
+# WebSocket (L5.3): server side for uvicorn and client for tests and benchmarks
+websockets==17.3

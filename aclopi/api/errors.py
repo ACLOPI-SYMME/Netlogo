@@ -60,11 +60,23 @@ class SimulationError(ApiError):
     status_code, code = 500, "simulation_error"
 
 
+class InvalidRunState(ApiError):
+    """The request is not allowed in the session's run state (e.g. step while running)."""
+
+    status_code, code = 409, "invalid_run_state"
+
+
+class FastRunLimit(ApiError):
+    status_code, code = 503, "fast_run_limit"
+
+
 ERROR_DESCRIPTIONS = {
     404: "Unknown session (session_not_found)",
+    409: "Not allowed in the session's run state (invalid_run_state), e.g. step while running",
     410: "Session lost because its worker crashed or hung (session_lost), or closed for inactivity (session_expired)",
     500: "Error inside NetLogo or the worker (simulation_error)",
-    503: "Platform starting (platform_starting), no free worker (no_free_worker) or worker unavailable (worker_unavailable)",
+    503: "Platform starting (platform_starting), no free worker (no_free_worker), worker unavailable "
+         "(worker_unavailable) or too many fast runs (fast_run_limit)",
     504: "The worker did not answer in time (worker_timeout); it is restarted and the session is lost",
 }
 
@@ -84,6 +96,8 @@ def install(app: FastAPI) -> None:
     @app.exception_handler(ApiError)
     async def _api_error(request: Request, exc: ApiError) -> JSONResponse:
         level = logging.ERROR if exc.status_code >= 500 and exc.status_code != 503 else logging.WARNING
+        if exc.status_code == 409:
+            level = logging.INFO
         logger.log(level, "%s %s -> %d %s: %s", request.method, request.url.path, exc.status_code, exc.code, exc.detail,
                    extra={"session_id": exc.session_id})
         return JSONResponse(_body(exc), status_code=exc.status_code)

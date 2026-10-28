@@ -28,12 +28,26 @@ class RunParameters(BaseModel):
     horizon_ticks: int
 
 
+RunState = Literal["idle", "running_live", "running_fast", "paused", "finished"]
+
+
+class RunRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    mode: Literal["live", "fast"] = Field(description="live: paced (32 ticks/s x speed); fast: no speed limit")
+    speed: Literal[0.5, 1, 2, 4] = Field(1, description="Live speed factor (ignored in fast mode)")
+
+
 class SessionInfo(BaseModel):
     session_id: str
     status: Literal["active", "lost", "expired"]
     parameters: RunParameters
-    ticks: int = Field(description="Last known tick (every advance goes through the API)")
+    ticks: int = Field(description="Last known tick (from requests and from the run's pushes)")
     finished: bool
+    run_state: RunState = Field(description="idle | running_live | running_fast | paused | finished")
+    mode: Literal["live", "fast"] | None = Field(description="Mode of the current or paused run")
+    speed: float | None = Field(description="Live speed factor of the current or paused run")
+    watchers: int = Field(description="WebSocket clients connected to /ws/sessions/{id}")
     lost_reason: str | None = Field(None, description="Why the session is lost or expired")
     worker_slot: int | None
     created_at: float = Field(description="Unix time (s)")
