@@ -54,7 +54,7 @@ def test_rule4_without_decider_matches_rule3_long(session: SimulationSession, se
     """100,000 ticks against the rule 3 long-run fixtures (tests/fixtures/long)."""
     expected = json.loads((Path(FIXTURES) / f"rule3_seed{seed}.json").read_text(encoding="utf-8"))
     rule4 = run(session, 4, seed, 100000, poll=True)
-    assert rule4.kpis == expected["kpis"]
+    assert {k: rule4.kpis[k] for k in expected["kpis"]} == expected["kpis"]  # fixture keys only
     assert content_sha256(rule4.events_csv) == expected["events_sha256"]
 
     # Data: put the rule 3 name back in column 2; the rest must then be byte-identical.

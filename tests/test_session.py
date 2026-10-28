@@ -184,7 +184,7 @@ def test_export_once_import_many(s1: SimulationSession, s2: SimulationSession) -
 
 @pytest.mark.parametrize("rule", [1, 2, 3])
 def test_horizon_10000_matches_baseline(s1: SimulationSession, rule: int) -> None:
-    s1.setup(seed=42, rule=rule)
+    s1.setup(seed=42, rule=rule, fixed_product_sequence=False)  # the baseline is the original model
     s1.run_to_end()
     baseline_run = json.loads((BASELINE / f"rule{rule}" / f"validation_{rule}_42.json").read_text(encoding="utf-8"))["runs"][0]
     kpis = s1.kpis()

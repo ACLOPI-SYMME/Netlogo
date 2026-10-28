@@ -2,18 +2,25 @@
 
 Runs rule 3 and then rule 4 answered by a random decider (Python's random.Random(seed), as in
 scripts/rule4_checks.py) with the same seed, one tick at a time, and records for each run:
-- the products created, in order: (who, type, creation tick);
+- the products created, in order: (who, type, creation tick, priority);
 - the processing time drawn at each machine entry, per product: (tick, who, type, n-th entry of
   the product = operation index, machine, operation, drawn), where
   drawn = Next.Completion - entry time - base time (200; 100 on M1, which has no random part).
 It prints where the two runs start to differ and saves both runs to
-results/a1/measure_rng_<horizon>.json.
+results/a1/measure_rng_<horizon>_s<seed>_seq-<on|off>.json (products_... with --products-only).
 
 Reads go through platform-local / with-local-randomness reporters, so measuring does not change
 the simulation. Stepping one tick at a time is slow (~2 min for 10,000 ticks per run).
 
+--sequence on|off (default off, the original model as measured in A1) switches the fixed
+product sequence (docs/product-sequence.md). --products-only skips the tick-by-tick part: it
+runs each rule of --rules straight to the end (rule 4 with the random decider) and checks that
+every product n created in all runs has the same type and priority, and reports how the
+creation ticks differ.
+
 Usage (from the repository root):
     python scripts/a1/measure_rng.py --horizon 10000 --seed 42
+    python scripts/a1/measure_rng.py --products-only --sequence on --rules 1 3 4 --horizon 100000
 """
 
 from __future__ import annotations
@@ -26,18 +33,58 @@ from pathlib import Path
 from typing import Any
 
 from aclopi.sim import SimulationSession
-from aclopi.sim.decisions import clear_decisions, pending_decisions, set_next_machine
+from aclopi.sim.decisions import clear_decisions, pending_decisions, run_until_decision, set_next_machine
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 OUTPUT_DIR = REPO_ROOT / "results" / "a1"
 TICK = 0.31
 BASE_TIME = {"M1": 100.0}  # every other machine: 200
 NC_REPORTER = "platform-local [ -> json-any map [m -> (list [Machine.Name] of m [Next.Completion] of m)] sort machines ]"
-PRODUCTS_REPORTER = "platform-local [ -> json-any map [p -> [(list who ProductType ProductCreationTime)] of p] sort products ]"
+PRODUCTS_REPORTER = (
+    "platform-local [ -> json-any map [p -> [(list who ProductType ProductCreationTime priority)] of p] sort products ]"
+)
 
 
-def measure(session: SimulationSession, rule: int, seed: int, horizon: int) -> dict[str, Any]:
-    session.setup(seed=seed, rule=rule, horizon_ticks=horizon)
+def created_products(session: SimulationSession) -> list[tuple[int, str, int, int]]:
+    """(who, type, creation tick, priority) of every product, in creation order (who order)."""
+    return [(w, t, round(c / TICK), p) for w, t, c, p in json.loads(str(session.link.report(PRODUCTS_REPORTER)))]
+
+
+def run_products(session: SimulationSession, rule: int, seed: int, horizon: int, fixed: bool) -> list[tuple]:
+    """Run to the end (rule 4 answered by the random decider) and return the created products."""
+    session.setup(seed=seed, rule=rule, horizon_ticks=horizon, fixed_product_sequence=fixed)
+    if rule == 4:
+        rng = random.Random(seed)
+        while True:
+            result = run_until_decision(session, horizon)
+            for req in pending_decisions(session):
+                assert set_next_machine(session, req.who, rng.choice(req.candidates), req.seq) == "ok"
+            clear_decisions(session)
+            if result.finished:
+                break
+    else:
+        session.run_to_end()
+    return created_products(session)
+
+
+def compare_products(runs: dict[int, list[tuple]]) -> bool:
+    """Print and check that (n, type, priority) match for every n created in all runs."""
+    rules = sorted(runs)
+    common = min(len(p) for p in runs.values())
+    print("products created: " + ", ".join(f"rule {r} {len(runs[r])}" for r in rules))
+    same = all([(p[1], p[3]) for p in runs[r][:common]] == [(p[1], p[3]) for p in runs[rules[0]][:common]] for r in rules)
+    print(f"(n, type, priority) identical for the {common} products n = 1..{common} created in every run: {same}")
+    for r in rules[1:]:
+        diff = [n for n in range(common) if runs[r][n][2] != runs[rules[0]][n][2]]
+        first = f"; first at n={diff[0] + 1}: rule {rules[0]} tick {runs[rules[0]][diff[0]][2]}, rule {r} tick {runs[r][diff[0]][2]}" if diff else ""
+        print(f"creation ticks, rule {r} vs rule {rules[0]}: {len(diff)} of {common} differ{first}")
+    for r in rules:
+        print(f"rule {r} first products (who, type, tick, priority): {runs[r][:6]}")
+    return same and common > 0
+
+
+def measure(session: SimulationSession, rule: int, seed: int, horizon: int, fixed: bool = False) -> dict[str, Any]:
+    session.setup(seed=seed, rule=rule, horizon_ticks=horizon, fixed_product_sequence=fixed)
     rng = random.Random(seed)
     entries: list[tuple] = []
     nth: dict[int, int] = {}
@@ -61,8 +108,7 @@ def measure(session: SimulationSession, rule: int, seed: int, horizon: int) -> d
                 entries.append((e["tick"], e["who"], e["product_type"], k, machine, e["operation"], drawn))
         if result.finished:
             break
-    products = [(w, t, round(c / TICK)) for w, t, c in json.loads(str(session.link.report(PRODUCTS_REPORTER)))]
-    return {"entries": entries, "products": products, "decisions": decisions}
+    return {"entries": entries, "products": created_products(session), "decisions": decisions}
 
 
 def first_diff(a: list, b: list) -> int | None:
@@ -76,16 +122,28 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--horizon", type=int, default=10000)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--sequence", choices=("on", "off"), default="off", help="fixed product sequence")
+    parser.add_argument("--products-only", action="store_true")
+    parser.add_argument("--rules", type=int, nargs="+", default=[1, 3, 4], help="with --products-only")
     args = parser.parse_args()
+    fixed = args.sequence == "on"
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    tag = f"{args.horizon}_s{args.seed}_seq-{args.sequence}"
+
+    if args.products_only:
+        with SimulationSession("measure_rng") as s:
+            runs = {rule: run_products(s, rule, args.seed, args.horizon, fixed) for rule in args.rules}
+        (OUTPUT_DIR / f"products_{tag}.json").write_text(json.dumps({str(r): p for r, p in runs.items()}), encoding="utf-8")
+        print(f"seed {args.seed}, {args.horizon} ticks, fixed product sequence {args.sequence}")
+        return 0 if compare_products(runs) or not fixed else 1
 
     with SimulationSession("measure_rng") as s:
-        r3 = measure(s, 3, args.seed, args.horizon)
-        r4 = measure(s, 4, args.seed, args.horizon)
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    out = OUTPUT_DIR / f"measure_rng_{args.horizon}.json"
+        r3 = measure(s, 3, args.seed, args.horizon, fixed)
+        r4 = measure(s, 4, args.seed, args.horizon, fixed)
+    out = OUTPUT_DIR / f"measure_rng_{tag}.json"
     out.write_text(json.dumps({"rule3": r3, "rule4": r4}), encoding="utf-8")
 
-    print(f"seed {args.seed}, {args.horizon} ticks")
+    print(f"seed {args.seed}, {args.horizon} ticks, fixed product sequence {args.sequence}")
     p3, p4 = r3["products"], r4["products"]
     print(f"products created: rule 3 {len(p3)}, rule 4 {len(p4)}")
     i = first_diff(p3, p4)
