@@ -25,6 +25,9 @@ from aclopi.workers import procinfo
 from aclopi.workers.protocol import (
     DEBUG_OPS, MAX_STEP_TICKS, OPS, error_response, ok_response, push_message,
 )
+from aclopi.sim.candidates import candidates_for_session, machine_loads, read_model_static
+from aclopi.sim.session import netlogo_string
+from aclopi.sim.whatif import CHUNK_TICKS, STALL_TICKS, estimate_entry, run_option
 from aclopi.workers.runner import RunController, RunStateError
 
 IDLE_POLL_S = 0.2
@@ -102,6 +105,7 @@ class WorkerState:
             fast_yield=config.fast_yield,
         )
         self.pushes: list[tuple[str, Any]] = []  # sent after the current response
+        self.static: Any = None  # ModelStatic, read after each setup (candidates, what-if)
 
     def warm_up(self) -> None:
         """Exercise the code paths a client will use (JIT warm-up) before accepting work."""
@@ -120,8 +124,30 @@ class WorkerState:
         if self.config.role == "whatif":
             s.import_world(path)
             s.step(300)
+            self._warm_whatif()
         path.unlink(missing_ok=True)
         self.warm_info = {"run_s": round(t1 - t0, 2), "export_s": round(t2 - t1, 3), "total_s": round(time.perf_counter() - t0, 2)}
+
+    def _warm_whatif(self) -> None:
+        """What-if workers: exercise the what-if path once (rule 4 decision, import, run_option)."""
+        from aclopi.sim.decisions import clear_decisions, pending_decisions, run_until_decision
+
+        s = self.session
+        s.setup(seed=WARM_SEED, rule=4)
+        run_until_decision(s, 5000)
+        requests = pending_decisions(s)
+        clear_decisions(s)
+        if not requests:
+            return
+        req = requests[0]
+        static = read_model_static(s)
+        path = s.export_world(self.worlds_dir / f"warmwi_{self.config.name}_{uuid.uuid4().hex[:8]}.csv")
+        try:
+            for machine in req.candidates[:2]:
+                s.import_world(path)
+                run_option(s, static, req.who, req.seq, machine, 600)
+        finally:
+            path.unlink(missing_ok=True)
 
     # ----- operations -----
 
@@ -157,8 +183,67 @@ class WorkerState:
         finally:
             self.pushes += self.runner.reset()  # any run stops, also if setup fails
         self.configured = True
+        self.static = read_model_static(self.session)
         logger.info("setup seed=%s rule=%s modeling_type=%s horizon_ticks=%s", seed, rule, modeling_type, horizon_ticks)
         return self._params()
+
+    # ----- decisions: candidates and what-if (L5.4) -----
+
+    def op_candidates(self, product: int, seq: int) -> dict[str, Any]:
+        """Candidate machines for a pending decision (aclopi.sim.candidates); between blocks when running."""
+        self._require_configured()
+        if self.static is None:
+            self.static = read_model_static(self.session)
+        return candidates_for_session(self.session, int(product), int(seq), self.static).as_dict()
+
+    def op_whatif_snapshot(self, product: int, seq: int, options: list[str], saturation_queue: int = 0,
+                           enforce_saturation: bool = False) -> dict[str, Any]:
+        """Session worker: validate the options, measure the load of the tested machines and, if
+        everything is valid (and not skipped for saturation), export ONE snapshot of the world."""
+        self._require_configured()
+        if self.static is None:
+            self.static = read_model_static(self.session)
+        s = self.session
+        reasons = {m: str(s._report(f"platform-local [ -> platform-check-next-machine {int(product)} "
+                                     f"{netlogo_string(str(m))} {int(seq)} ]")) for m in options}
+        result: dict[str, Any] = {"tick": s.ticks, "reasons": reasons, "valid": all(r == "ok" for r in reasons.values())}
+        if not result["valid"]:
+            return result
+        state = s.state()
+        loads = machine_loads(state, exclude=int(product))
+        operation = next(str(p["operations"][int(seq)]) for p in state["products"] if p["id"] == int(product))
+        result.update({
+            "time": float(state["time"]),
+            "operation": operation,
+            "loads": {m: len(loads[m]) for m in options},
+            "estimated_entry": {m: estimate_entry(state, int(product), m, operation, self.static)[0] for m in options},
+        })
+        result["saturated"] = bool(saturation_queue) and all(n >= saturation_queue for n in result["loads"].values())
+        if result["saturated"] and enforce_saturation:
+            return result
+        t0 = time.perf_counter()
+        path = s.export_world(self.worlds_dir / f"whatif_{self.config.name}_{uuid.uuid4().hex}.csv")
+        result.update({"path": str(path), "export_ms": round(1000 * (time.perf_counter() - t0), 1)})
+        return result
+
+    def op_whatif_option(self, path: str, product: int, seq: int, machine: str, max_ticks: int,
+                         window_tick: int | None = None, deadline: float | None = None,
+                         stall_ticks: int = STALL_TICKS, chunk_ticks: int = CHUNK_TICKS,
+                         diag_dir: str | None = None, info: dict[str, Any] | None = None) -> dict[str, Any]:
+        """What-if worker: import the snapshot (kept for the next option) and run one option."""
+        t0 = time.perf_counter()
+        self.pushes += self.runner.reset()
+        self.configured = False
+        self.session.import_world(Path(path))
+        self.configured = True
+        self.static = read_model_static(self.session)
+        import_ms = round(1000 * (time.perf_counter() - t0), 1)
+        diagnostic = (Path(path), Path(diag_dir), info or {}) if diag_dir else None
+        out = run_option(self.session, self.static, int(product), int(seq), str(machine), int(max_ticks),
+                         window_tick=window_tick, deadline=deadline, stall_ticks=stall_ticks,
+                         chunk_ticks=chunk_ticks, diagnostic=diagnostic)
+        out.import_ms = import_ms
+        return out.as_dict()
 
     def op_step(self, n: int, with_state: bool = False) -> dict[str, Any]:
         """with_state: also return platform-state (JSON text), for clients watching the session."""

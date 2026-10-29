@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Mapping
 
-from aclopi.workers.pool import DEFAULT_JVM_ARGS, default_work_dir
+from aclopi.workers.pool import DEFAULT_JVM_ARGS, REPO_ROOT, default_work_dir
 
 
 def _int(env: Mapping[str, str], name: str, default: int) -> int:
@@ -39,6 +39,13 @@ class Settings:
     fast_block_ticks: int = 1000
     fast_yield: float = 0.0
     ws_queue: int = 32
+    # What-if (L5.4)
+    whatif_timeout_s: float = 5.0
+    whatif_stall_ticks: int = 300
+    whatif_chunk_ticks: int = 150
+    whatif_saturation_queue: int = 3
+    whatif_saturation_enforce: bool = False
+    whatif_diag_dir: Path = field(default_factory=lambda: REPO_ROOT / "results" / "whatif_diagnostics")
 
     def run_options(self) -> dict[str, float | int]:
         return {"live_update_s": self.live_update_ms / 1000.0, "fast_block_ticks": self.fast_block_ticks,
@@ -65,4 +72,11 @@ class Settings:
             fast_block_ticks=_int(env, "ACLOPI_FAST_BLOCK_TICKS", 1000),
             fast_yield=_float(env, "ACLOPI_FAST_YIELD", 0.0),
             ws_queue=_int(env, "ACLOPI_WS_QUEUE", 32),
+            whatif_timeout_s=_float(env, "ACLOPI_WHATIF_TIMEOUT_S", 5.0),
+            whatif_stall_ticks=_int(env, "ACLOPI_WHATIF_STALL_TICKS", 300),
+            whatif_chunk_ticks=_int(env, "ACLOPI_WHATIF_CHUNK_TICKS", 150),
+            whatif_saturation_queue=_int(env, "ACLOPI_WHATIF_SATURATION_QUEUE", 3),
+            whatif_saturation_enforce=env.get("ACLOPI_WHATIF_SATURATION_ENFORCE", "").strip() in ("1", "true", "yes"),
+            whatif_diag_dir=Path(env["ACLOPI_WHATIF_DIAG_DIR"]) if env.get("ACLOPI_WHATIF_DIAG_DIR", "").strip()
+            else REPO_ROOT / "results" / "whatif_diagnostics",
         )

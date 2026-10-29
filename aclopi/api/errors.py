@@ -70,9 +70,28 @@ class FastRunLimit(ApiError):
     status_code, code = 503, "fast_run_limit"
 
 
+class Rule4Required(ApiError):
+    """What-if needs a session with rule 4 (the decision is forced with platform-set-next-machine)."""
+
+    status_code, code = 409, "rule4_required"
+
+
+class InvalidOption(ApiError):
+    """A what-if option is not valid for the decision (unknown product or machine, machine not capable...)."""
+
+    status_code, code = 422, "invalid_option"
+
+
+class DecisionNotPending(ApiError):
+    """The product has no pending decision for that seq (finished, not in a machine, other seq)."""
+
+    status_code, code = 409, "decision_not_pending"
+
+
 ERROR_DESCRIPTIONS = {
     404: "Unknown session (session_not_found)",
-    409: "Not allowed in the session's run state (invalid_run_state), e.g. step while running",
+    409: "Not allowed in the session's run state (invalid_run_state), e.g. step while running; what-if: "
+         "rule4_required or decision_not_pending",
     410: "Session lost because its worker crashed or hung (session_lost), or closed for inactivity (session_expired)",
     500: "Error inside NetLogo or the worker (simulation_error)",
     503: "Platform starting (platform_starting), no free worker (no_free_worker), worker unavailable "

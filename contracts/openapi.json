@@ -1,6 +1,113 @@
 {
   "components": {
     "schemas": {
+      "CandidateInfo": {
+        "additionalProperties": true,
+        "properties": {
+          "busy": {
+            "title": "Busy",
+            "type": "boolean"
+          },
+          "estimated_wait": {
+            "title": "Estimated Wait",
+            "type": "number"
+          },
+          "load": {
+            "description": "Products queued at the machine or heading to it (not the one in process)",
+            "title": "Load",
+            "type": "integer"
+          },
+          "machine": {
+            "title": "Machine",
+            "type": "string"
+          },
+          "operation_time": {
+            "title": "Operation Time",
+            "type": "number"
+          },
+          "remaining_time": {
+            "title": "Remaining Time",
+            "type": "number"
+          }
+        },
+        "required": [
+          "machine",
+          "load",
+          "busy",
+          "remaining_time",
+          "estimated_wait",
+          "operation_time"
+        ],
+        "title": "CandidateInfo",
+        "type": "object"
+      },
+      "CandidatesResponse": {
+        "additionalProperties": true,
+        "description": "Schema owned by Línea A (aclopi/contracts/candidates.py); extra fields are allowed.",
+        "properties": {
+          "candidates": {
+            "items": {
+              "$ref": "#/components/schemas/CandidateInfo"
+            },
+            "title": "Candidates",
+            "type": "array"
+          },
+          "operation": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Operation"
+          },
+          "product": {
+            "title": "Product",
+            "type": "integer"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why the request is not valid (e.g. seq-mismatch)",
+            "title": "Reason"
+          },
+          "seq": {
+            "title": "Seq",
+            "type": "integer"
+          },
+          "tick": {
+            "title": "Tick",
+            "type": "integer"
+          },
+          "time": {
+            "title": "Time",
+            "type": "number"
+          },
+          "valid": {
+            "title": "Valid",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "product",
+          "seq",
+          "operation",
+          "tick",
+          "time",
+          "valid",
+          "candidates"
+        ],
+        "title": "CandidatesResponse",
+        "type": "object"
+      },
       "ErrorBody": {
         "properties": {
           "code": {
@@ -134,6 +241,11 @@
       },
       "Kpis": {
         "properties": {
+          "created": {
+            "description": "Products created so far (finished + wip)",
+            "title": "Created",
+            "type": "integer"
+          },
           "finished": {
             "title": "Finished",
             "type": "integer"
@@ -147,6 +259,7 @@
                 "type": "null"
               }
             ],
+            "description": "Mean of (last completion - first operation start, ProductRealStart) over finished products; not from creation",
             "title": "Mean Flow Time"
           },
           "simulated_time": {
@@ -171,6 +284,11 @@
           "wip": {
             "title": "Wip",
             "type": "integer"
+          },
+          "work_completed": {
+            "description": "Processing work done, in time units of nominal processing time (OperationDuration); an operation in progress adds its processed fraction",
+            "title": "Work Completed",
+            "type": "number"
           }
         },
         "required": [
@@ -180,9 +298,47 @@
           "wip",
           "throughput",
           "mean_flow_time",
-          "utilization"
+          "utilization",
+          "created",
+          "work_completed"
         ],
         "title": "Kpis",
+        "type": "object"
+      },
+      "OthersMetric": {
+        "properties": {
+          "finished": {
+            "title": "Finished",
+            "type": "integer"
+          },
+          "score": {
+            "description": "work - wait (higher is better)",
+            "title": "Score",
+            "type": "number"
+          },
+          "wait": {
+            "description": "Time the other products spent in the plant without being processed",
+            "title": "Wait",
+            "type": "number"
+          },
+          "window_tick": {
+            "title": "Window Tick",
+            "type": "integer"
+          },
+          "work": {
+            "description": "Nominal processing work done by the other products in the window",
+            "title": "Work",
+            "type": "number"
+          }
+        },
+        "required": [
+          "window_tick",
+          "work",
+          "wait",
+          "finished",
+          "score"
+        ],
+        "title": "OthersMetric",
         "type": "object"
       },
       "PlantLayout": {
@@ -426,11 +582,12 @@
             "type": "string"
           },
           "rule": {
-            "description": "1 Random Machine, 2 Nearest Machine, 3 Potential Fields",
+            "description": "1 Random Machine, 2 Nearest Machine, 3 Potential Fields, 4 AI Agent (without a decider it behaves exactly as rule 3)",
             "enum": [
               1,
               2,
-              3
+              3,
+              4
             ],
             "title": "Rule",
             "type": "integer"
@@ -573,6 +730,21 @@
         "title": "SessionInfo",
         "type": "object"
       },
+      "SessionMetrics": {
+        "additionalProperties": true,
+        "properties": {
+          "whatif": {
+            "additionalProperties": true,
+            "title": "Whatif",
+            "type": "object"
+          }
+        },
+        "required": [
+          "whatif"
+        ],
+        "title": "SessionMetrics",
+        "type": "object"
+      },
       "StepResult": {
         "properties": {
           "advanced": {
@@ -635,6 +807,420 @@
           "type"
         ],
         "title": "ValidationError",
+        "type": "object"
+      },
+      "WhatIfOption": {
+        "additionalProperties": true,
+        "properties": {
+          "advance_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Advance Ms"
+          },
+          "cap_reached": {
+            "default": false,
+            "title": "Cap Reached",
+            "type": "boolean"
+          },
+          "diagnostic_file": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Diagnostic File"
+          },
+          "duration_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Ms"
+          },
+          "entered": {
+            "default": false,
+            "title": "Entered",
+            "type": "boolean"
+          },
+          "entry_estimated": {
+            "default": false,
+            "title": "Entry Estimated",
+            "type": "boolean"
+          },
+          "entry_tick": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entry Tick"
+          },
+          "entry_time": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entry Time"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "import_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Import Ms"
+          },
+          "machine": {
+            "title": "Machine",
+            "type": "string"
+          },
+          "op_end_estimated": {
+            "default": false,
+            "title": "Op End Estimated",
+            "type": "boolean"
+          },
+          "op_end_time": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Op End Time"
+          },
+          "others": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OthersMetric"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "pruned": {
+            "default": false,
+            "title": "Pruned",
+            "type": "boolean"
+          },
+          "skipped": {
+            "default": false,
+            "title": "Skipped",
+            "type": "boolean"
+          },
+          "stalled": {
+            "default": false,
+            "title": "Stalled",
+            "type": "boolean"
+          },
+          "stop_reason": {
+            "anyOf": [
+              {
+                "enum": [
+                  "entered",
+                  "cap",
+                  "stalled",
+                  "pruned",
+                  "timeout",
+                  "horizon",
+                  "error"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stop Reason"
+          },
+          "stop_tick": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stop Tick"
+          },
+          "ticks_simulated": {
+            "default": 0,
+            "title": "Ticks Simulated",
+            "type": "integer"
+          },
+          "timed_out": {
+            "default": false,
+            "title": "Timed Out",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "machine"
+        ],
+        "title": "WhatIfOption",
+        "type": "object"
+      },
+      "WhatIfRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "max_ticks": {
+            "default": 2000,
+            "description": "Cap of ticks simulated per copy",
+            "maximum": 5000.0,
+            "minimum": 1.0,
+            "title": "Max Ticks",
+            "type": "integer"
+          },
+          "options": {
+            "description": "Exactly two different machines to test",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "title": "Options",
+            "type": "array"
+          },
+          "product": {
+            "description": "who of the product being processed",
+            "minimum": 0.0,
+            "title": "Product",
+            "type": "integer"
+          },
+          "seq": {
+            "description": "Index in ProductOperations of the operation to decide (CurrentSequenceOrder + 1)",
+            "minimum": 0.0,
+            "title": "Seq",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "product",
+          "seq",
+          "options"
+        ],
+        "title": "WhatIfRequest",
+        "type": "object"
+      },
+      "WhatIfResponse": {
+        "properties": {
+          "loads": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "integer"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Loads"
+          },
+          "operation": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Operation"
+          },
+          "options": {
+            "items": {
+              "$ref": "#/components/schemas/WhatIfOption"
+            },
+            "title": "Options",
+            "type": "array"
+          },
+          "run_order": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Run Order",
+            "type": "array"
+          },
+          "saturation_queue": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Saturation Queue"
+          },
+          "skipped_reason": {
+            "anyOf": [
+              {
+                "enum": [
+                  "no-free-worker",
+                  "already-used",
+                  "plant-saturated"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Skipped Reason"
+          },
+          "snapshot_tick": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Snapshot Tick"
+          },
+          "snapshot_time": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Snapshot Time"
+          },
+          "status": {
+            "enum": [
+              "ok",
+              "timeout",
+              "skipped",
+              "error"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "timings_ms": {
+            "$ref": "#/components/schemas/WhatIfTimings"
+          },
+          "window_tick": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Window Tick"
+          },
+          "would_skip_saturated": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Would Skip Saturated"
+          }
+        },
+        "required": [
+          "status",
+          "run_order",
+          "timings_ms",
+          "options"
+        ],
+        "title": "WhatIfResponse",
+        "type": "object"
+      },
+      "WhatIfTimings": {
+        "properties": {
+          "advance": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Advance"
+          },
+          "export": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Export"
+          },
+          "import": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Import"
+          },
+          "total": {
+            "title": "Total",
+            "type": "number"
+          }
+        },
+        "required": [
+          "export",
+          "import",
+          "advance",
+          "total"
+        ],
+        "title": "WhatIfTimings",
         "type": "object"
       },
       "WorkerInfo": {
@@ -986,6 +1572,115 @@
         ]
       }
     },
+    "/sessions/{session_id}/candidates": {
+      "get": {
+        "description": "Computed from platform-state by aclopi.sim.candidates (schema owned by Línea A); it does not alter the simulation. While the session runs it is served between blocks. An invalid request (e.g. seq-mismatch) answers 200 with valid=false and the reason.",
+        "operationId": "candidates_sessions__session_id__candidates_get",
+        "parameters": [
+          {
+            "description": "Session id returned by POST /sessions",
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "description": "Session id returned by POST /sessions",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "who of the product",
+            "in": "query",
+            "name": "product",
+            "required": true,
+            "schema": {
+              "description": "who of the product",
+              "minimum": 0,
+              "title": "Product",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Index in ProductOperations of the operation to decide",
+            "in": "query",
+            "name": "seq",
+            "required": true,
+            "schema": {
+              "description": "Index in ProductOperations of the operation to decide",
+              "minimum": 0,
+              "title": "Seq",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CandidatesResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Unknown session (session_not_found)"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Session lost because its worker crashed or hung (session_lost), or closed for inactivity (session_expired)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Error inside NetLogo or the worker (simulation_error)"
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The worker did not answer in time (worker_timeout); it is restarted and the session is lost"
+          }
+        },
+        "summary": "Candidate machines for a pending decision, with load and estimated wait",
+        "tags": [
+          "decisions"
+        ]
+      }
+    },
     "/sessions/{session_id}/events": {
       "get": {
         "description": "Not idempotent: each call returns the events recorded since the previous call and empties the session's event buffer. 409 while running: then the events travel over the WebSocket (/ws/sessions/{id}).",
@@ -1036,7 +1731,7 @@
                 }
               }
             },
-            "description": "Not allowed in the session's run state (invalid_run_state), e.g. step while running"
+            "description": "Not allowed in the session's run state (invalid_run_state), e.g. step while running; what-if: rule4_required or decision_not_pending"
           },
           "410": {
             "content": {
@@ -1253,6 +1948,60 @@
         ]
       }
     },
+    "/sessions/{session_id}/metrics": {
+      "get": {
+        "operationId": "session_metrics_sessions__session_id__metrics_get",
+        "parameters": [
+          {
+            "description": "Session id returned by POST /sessions",
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "description": "Session id returned by POST /sessions",
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionMetrics"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Unknown session (session_not_found)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Per-session metrics: what-ifs run, skipped, caps, stalls and timings",
+        "tags": [
+          "decisions"
+        ]
+      }
+    },
     "/sessions/{session_id}/pause": {
       "post": {
         "operationId": "pause_sessions__session_id__pause_post",
@@ -1298,7 +2047,7 @@
                 }
               }
             },
-            "description": "Not allowed in the session's run state (invalid_run_state), e.g. step while running"
+            "description": "Not allowed in the session's run state (invalid_run_state), e.g. step while running; what-if: rule4_required or decision_not_pending"
           },
           "410": {
             "content": {
@@ -1476,7 +2225,7 @@
                 }
               }
             },
-            "description": "Not allowed in the session's run state (invalid_run_state), e.g. step while running"
+            "description": "Not allowed in the session's run state (invalid_run_state), e.g. step while running; what-if: rule4_required or decision_not_pending"
           },
           "410": {
             "content": {
@@ -1591,7 +2340,7 @@
                 }
               }
             },
-            "description": "Not allowed in the session's run state (invalid_run_state), e.g. step while running"
+            "description": "Not allowed in the session's run state (invalid_run_state), e.g. step while running; what-if: rule4_required or decision_not_pending"
           },
           "410": {
             "content": {
@@ -1792,7 +2541,7 @@
                 }
               }
             },
-            "description": "Not allowed in the session's run state (invalid_run_state), e.g. step while running"
+            "description": "Not allowed in the session's run state (invalid_run_state), e.g. step while running; what-if: rule4_required or decision_not_pending"
           },
           "410": {
             "content": {
@@ -1838,6 +2587,111 @@
         "summary": "Advance up to n ticks (stops at the horizon); 409 while running",
         "tags": [
           "sessions"
+        ]
+      }
+    },
+    "/sessions/{session_id}/what-if": {
+      "post": {
+        "description": "Rule 4 sessions only. One snapshot of the session (the run is not stopped), one copy per option on a borrowed what-if worker, at most ACLOPI_WHATIF_TIMEOUT_S seconds. status 'skipped' (no-free-worker, already-used, plant-saturated) is a normal answer (200). See docs/whatif.md.",
+        "operationId": "what_if_sessions__session_id__what_if_post",
+        "parameters": [
+          {
+            "description": "Session id returned by POST /sessions",
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "description": "Session id returned by POST /sessions",
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WhatIfRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WhatIfResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Unknown session (session_not_found)"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not allowed in the session's run state (invalid_run_state), e.g. step while running; what-if: rule4_required or decision_not_pending"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Session lost because its worker crashed or hung (session_lost), or closed for inactivity (session_expired)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Error inside NetLogo or the worker (simulation_error)"
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The worker did not answer in time (worker_timeout); it is restarted and the session is lost"
+          }
+        },
+        "summary": "Test two assignments of a pending decision in copies of the simulation",
+        "tags": [
+          "decisions"
         ]
       }
     }

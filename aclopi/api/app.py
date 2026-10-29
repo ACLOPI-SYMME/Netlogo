@@ -29,9 +29,10 @@ from aclopi.api import errors
 from aclopi.api.errors import InvalidRunState, PlatformStarting, WorkerUnavailable
 from aclopi.api.instance_lock import InstanceLock
 from aclopi.api.models import (
-    STEP_N_DESCRIPTION, Event, Health, Kpis, PlantLayout, PlantState, Probe, RunRequest, SessionCreate, SessionInfo,
-    StepResult,
+    STEP_N_DESCRIPTION, CandidatesResponse, Event, Health, Kpis, PlantLayout, PlantState, Probe, RunRequest,
+    SessionCreate, SessionInfo, SessionMetrics, StepResult, WhatIfRequest, WhatIfResponse,
 )
+from aclopi.api.whatif import run_whatif
 from aclopi.api.ws import stream_session
 from aclopi.api.registry import SessionRegistry
 from aclopi.api.settings import Settings
@@ -360,6 +361,39 @@ def create_app(
     async def delete_session(session_id: str = session_id_path) -> Response:
         await runtime.sessions.delete(session_id)
         return Response(status_code=204)
+
+    # ----- decisions: candidates and what-if (L5.4) -----
+
+    @app.get("/sessions/{session_id}/candidates", response_model=CandidatesResponse, tags=["decisions"],
+             summary="Candidate machines for a pending decision, with load and estimated wait",
+             description="Computed from platform-state by aclopi.sim.candidates (schema owned by Línea A); "
+                         "it does not alter the simulation. While the session runs it is served between blocks. "
+                         "An invalid request (e.g. seq-mismatch) answers 200 with valid=false and the reason.",
+             responses=errors.responses(404, 410, 500, 504))
+    async def candidates(session_id: str = session_id_path,
+                         product: int = Query(..., ge=0, description="who of the product"),
+                         seq: int = Query(..., ge=0, description="Index in ProductOperations of the operation to decide")
+                         ) -> Any:
+        _, result = await runtime.sessions.call(session_id, "candidates", product=product, seq=seq)
+        return result
+
+    @app.post("/sessions/{session_id}/what-if", response_model=WhatIfResponse, tags=["decisions"],
+              summary="Test two assignments of a pending decision in copies of the simulation",
+              description="Rule 4 sessions only. One snapshot of the session (the run is not stopped), one copy "
+                          "per option on a borrowed what-if worker, at most ACLOPI_WHATIF_TIMEOUT_S seconds. "
+                          "status 'skipped' (no-free-worker, already-used, plant-saturated) is a normal answer "
+                          "(200). See docs/whatif.md.",
+              responses=errors.responses(404, 409, 410, 500, 504))
+    async def what_if(body: WhatIfRequest, session_id: str = session_id_path) -> Any:
+        return await run_whatif(runtime.sessions, settings, session_id, body.product, body.seq, body.options,
+                                body.max_ticks)
+
+    @app.get("/sessions/{session_id}/metrics", response_model=SessionMetrics, tags=["decisions"],
+             summary="Per-session metrics: what-ifs run, skipped, caps, stalls and timings",
+             responses=errors.responses(404))
+    async def session_metrics(session_id: str = session_id_path) -> Any:
+        record = runtime.sessions.get(session_id, touch=False)
+        return {"whatif": record.whatif_metrics.as_dict()}
 
     # ----- WebSocket and test page (L5.3) -----
 

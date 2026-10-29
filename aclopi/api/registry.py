@@ -39,6 +39,7 @@ from aclopi.api.errors import (
     WorkerUnavailable,
 )
 from aclopi.api.hub import SessionHub, encode
+from aclopi.api.whatif import WhatIfMetrics
 from aclopi.logjson import session_id_var
 from aclopi.workers.pool import WorkerPool
 from aclopi.workers.protocol import (
@@ -82,6 +83,9 @@ class SessionRecord:
     layout: dict[str, Any] | None = None
     events: list[dict[str, Any]] = field(default_factory=list)
     events_dropped: int = 0
+    # what-if (L5.4): (product, seq) already tested in this run, and the session's metrics
+    whatif_used: set[tuple[int, int]] = field(default_factory=set)
+    whatif_metrics: WhatIfMetrics = field(default_factory=WhatIfMetrics)
 
     @property
     def running(self) -> bool:
@@ -344,12 +348,14 @@ class SessionRegistry:
             record.add_events(data.get("events") or [])
             hub.publish({"type": "tick", "source": "run", **data}, raw={"state": state} if state else None)
         elif event == "progress":
+            state = data.pop("state", None)  # at most once a second (runner.py)
             record.ticks = int(data["tick"])
-            record.state_raw = None  # not sent in fast mode: the next snapshot asks the worker
+            if state is not None:
+                record.state_raw, record.state_tick = state, record.ticks
             if data.get("kpis") is not None:
                 record.kpis = data["kpis"]
             record.add_events(data.get("events") or [])
-            hub.publish({"type": "progress", **data})
+            hub.publish({"type": "progress", **data}, raw={"state": state} if state else None)
         elif event == "run_state":
             record.apply_run(data)
             hub.publish({"type": "run_state", **data})
@@ -422,6 +428,7 @@ class SessionRegistry:
     async def after_reset(self, record: SessionRecord) -> None:
         """Reset: new run from tick 0; watching clients get a fresh snapshot."""
         record.events.clear()
+        record.whatif_used.clear()  # a new run: the same product ids come back
         record.state_raw, record.state_tick, record.kpis = None, -1, None
         record.finished = False
         if len(record.hub):
