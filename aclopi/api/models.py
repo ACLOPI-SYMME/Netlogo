@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -14,10 +14,32 @@ NETLOGO_SEED_MIN = -2147483648
 NETLOGO_SEED_MAX = 2147483647
 
 
+ProductType = Literal["A", "I", "P", "B", "E", "L", "T"]
+
+
+class ProductItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: ProductType = Field(description="One of the model's product types (case-insensitive on input)")
+    priority: int = Field(80, ge=60, le=100)
+
+    @field_validator("type", mode="before")
+    @classmethod
+    def _upper(cls, value: Any) -> Any:
+        return value.strip().upper() if isinstance(value, str) else value
+
+
+ProductList = Annotated[list[ProductItem], Field(min_length=1, max_length=1000)]
+
+
 class SessionCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    seed: int = Field(ge=NETLOGO_SEED_MIN, le=NETLOGO_SEED_MAX, description="NetLogo random-seed")
+    seed: int | None = Field(None, ge=NETLOGO_SEED_MIN, le=NETLOGO_SEED_MAX,
+                             description="NetLogo random-seed. Optional: without it the platform draws one "
+                                         "(secrets) and returns it, with seed_source 'random'")
+    product_set_id: str | None = Field(None, description="Saved product set to use (the session keeps a copy)")
+    products: ProductList | None = Field(None, description="Product list inline, in entry order")
     rule: Literal[1, 2, 3, 4] = Field(description="1 Random Machine, 2 Nearest Machine, 3 Potential Fields, "
                                                   "4 AI Agent (without a decider it behaves exactly as rule 3)")
     modeling_type: Literal["Stochastic", "Deterministic"] = "Stochastic"
@@ -33,11 +55,13 @@ class SessionCreate(BaseModel):
             raise ValueError("strategy is only accepted with rule 4")
         if self.rule == 4 and self.strategy is None:
             self.strategy = "none"
+        if self.product_set_id is not None and self.products is not None:
+            raise ValueError("give product_set_id or products, not both")
         return self
 
 
 class RunParameters(BaseModel):
-    seed: int
+    seed: int = Field(description="The seed used, given or drawn (see seed_source): the run can be repeated")
     rule: int
     modeling_type: str
     horizon_ticks: int
@@ -65,6 +89,11 @@ class SessionInfo(BaseModel):
     strategy: Strategy | None = Field(None, description="Rule 4: b1 | b1b | agent | none")
     pending_decisions: int = Field(0, description="Fast mode: decisions the run is waiting for")
     warnings: list[str] = Field(default_factory=list, description="e.g. agent_unavailable (live runs still allowed)")
+    seed_source: Literal["user", "random"] = "user"
+    product_set_id: str | None = None
+    products_total: int | None = Field(None, description="Length of the session's product list (None: generated "
+                                                         "from the seed, as before)")
+    products_hash: str | None = Field(None, description="sha256 of the session's product list")
     mode: Literal["live", "fast"] | None = Field(description="Mode of the current or paused run")
     speed: float | None = Field(description="Live speed factor of the current or paused run")
     watchers: int = Field(description="WebSocket clients connected to /ws/sessions/{id}")
@@ -131,6 +160,10 @@ class Kpis(BaseModel):
     mean_flow_time: float | None = Field(description="Mean of (last completion - first operation start, "
                                                      "ProductRealStart) over finished products; not from creation")
     utilization: dict[str, float]
+    products_total: int | None = Field(None, description="Product list: its length (None without a list)")
+    all_done: bool = Field(False, description="Product list: every product created and finished")
+    makespan_ticks: int | None = Field(None, description="Ticks until the last product of the list finished")
+    makespan_time: float | None = Field(None, description="Simulated time until the last product of the list finished")
     created: int = Field(description="Products created so far (finished + wip)")
     work_completed: float = Field(description="Processing work done, in time units of nominal processing time "
                                               "(OperationDuration); an operation in progress adds its processed fraction")
@@ -259,6 +292,51 @@ class SessionMetrics(BaseModel):
     whatif: dict[str, Any]
     decisions: dict[str, Any] = Field(default_factory=dict, description="Decisions by level, % rule3-fallback, "
                                                                          "single-option, late, latency (L5.5)")
+
+
+class ProductSetIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=200)
+    products: ProductList
+
+
+class ProductSetSummary(BaseModel):
+    id: str
+    name: str
+    total: int
+    counts: dict[str, int]
+    hash: str
+    created_at: float
+    updated_at: float
+
+
+class ProductSet(ProductSetSummary):
+    products: list[ProductItem]
+
+
+class ParsedCsv(BaseModel):
+    products: list[ProductItem]
+    total: int
+    counts: dict[str, int]
+    hash: str
+
+
+class GenerateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    seed: int | None = Field(None, ge=NETLOGO_SEED_MIN, le=NETLOGO_SEED_MAX,
+                             description="Optional; without it a random seed is drawn and returned")
+    count: int = Field(ge=1, le=1000)
+
+
+class GeneratedProducts(BaseModel):
+    seed: int
+    seed_source: Literal["user", "random"]
+    products: list[ProductItem]
+    total: int
+    counts: dict[str, int]
+    hash: str
 
 
 class WorkerInfo(BaseModel):

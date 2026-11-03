@@ -11,3 +11,5 @@ uvicorn==0.54.0
 httpx==0.28.1
 # WebSocket (L5.3): server side for uvicorn and client for tests and benchmarks
 websockets==17.3
+# multipart uploads (POST /product-sets/parse-csv, L5.6)
+python-multipart==0.0.20

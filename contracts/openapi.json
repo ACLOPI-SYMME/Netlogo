@@ -68,6 +68,20 @@
         "title": "AgentHealth",
         "type": "object"
       },
+      "Body_parse_product_csv_product_sets_parse_csv_post": {
+        "properties": {
+          "file": {
+            "contentMediaType": "application/octet-stream",
+            "title": "File",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file"
+        ],
+        "title": "Body_parse_product_csv_product_sets_parse_csv_post",
+        "type": "object"
+      },
       "CandidateInfo": {
         "additionalProperties": true,
         "description": "Provisional fields of Línea A (aclopi/contracts/candidates.py). The platform's stub fills\nown_remaining..delta_finish (simulated time units) and leaves the rest null.",
@@ -362,6 +376,84 @@
         "title": "Event",
         "type": "object"
       },
+      "GenerateRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "count": {
+            "maximum": 1000.0,
+            "minimum": 1.0,
+            "title": "Count",
+            "type": "integer"
+          },
+          "seed": {
+            "anyOf": [
+              {
+                "maximum": 2147483647.0,
+                "minimum": -2147483648.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional; without it a random seed is drawn and returned",
+            "title": "Seed"
+          }
+        },
+        "required": [
+          "count"
+        ],
+        "title": "GenerateRequest",
+        "type": "object"
+      },
+      "GeneratedProducts": {
+        "properties": {
+          "counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Counts",
+            "type": "object"
+          },
+          "hash": {
+            "title": "Hash",
+            "type": "string"
+          },
+          "products": {
+            "items": {
+              "$ref": "#/components/schemas/ProductItem"
+            },
+            "title": "Products",
+            "type": "array"
+          },
+          "seed": {
+            "title": "Seed",
+            "type": "integer"
+          },
+          "seed_source": {
+            "enum": [
+              "user",
+              "random"
+            ],
+            "title": "Seed Source",
+            "type": "string"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "seed",
+          "seed_source",
+          "products",
+          "total",
+          "counts",
+          "hash"
+        ],
+        "title": "GeneratedProducts",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -437,6 +529,12 @@
       },
       "Kpis": {
         "properties": {
+          "all_done": {
+            "default": false,
+            "description": "Product list: every product created and finished",
+            "title": "All Done",
+            "type": "boolean"
+          },
           "created": {
             "description": "Products created so far (finished + wip)",
             "title": "Created",
@@ -445,6 +543,30 @@
           "finished": {
             "title": "Finished",
             "type": "integer"
+          },
+          "makespan_ticks": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Ticks until the last product of the list finished",
+            "title": "Makespan Ticks"
+          },
+          "makespan_time": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Simulated time until the last product of the list finished",
+            "title": "Makespan Time"
           },
           "mean_flow_time": {
             "anyOf": [
@@ -457,6 +579,18 @@
             ],
             "description": "Mean of (last completion - first operation start, ProductRealStart) over finished products; not from creation",
             "title": "Mean Flow Time"
+          },
+          "products_total": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Product list: its length (None without a list)",
+            "title": "Products Total"
           },
           "simulated_time": {
             "title": "Simulated Time",
@@ -676,6 +810,40 @@
         "title": "OthersMetric",
         "type": "object"
       },
+      "ParsedCsv": {
+        "properties": {
+          "counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Counts",
+            "type": "object"
+          },
+          "hash": {
+            "title": "Hash",
+            "type": "string"
+          },
+          "products": {
+            "items": {
+              "$ref": "#/components/schemas/ProductItem"
+            },
+            "title": "Products",
+            "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "products",
+          "total",
+          "counts",
+          "hash"
+        ],
+        "title": "ParsedCsv",
+        "type": "object"
+      },
       "PlantLayout": {
         "additionalProperties": true,
         "description": "platform-layout: static geometry of the plant.",
@@ -820,6 +988,163 @@
         "title": "Probe",
         "type": "object"
       },
+      "ProductItem": {
+        "additionalProperties": false,
+        "properties": {
+          "priority": {
+            "default": 80,
+            "maximum": 100.0,
+            "minimum": 60.0,
+            "title": "Priority",
+            "type": "integer"
+          },
+          "type": {
+            "description": "One of the model's product types (case-insensitive on input)",
+            "enum": [
+              "A",
+              "I",
+              "P",
+              "B",
+              "E",
+              "L",
+              "T"
+            ],
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type"
+        ],
+        "title": "ProductItem",
+        "type": "object"
+      },
+      "ProductSet": {
+        "properties": {
+          "counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Counts",
+            "type": "object"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "number"
+          },
+          "hash": {
+            "title": "Hash",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "products": {
+            "items": {
+              "$ref": "#/components/schemas/ProductItem"
+            },
+            "title": "Products",
+            "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "number"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "total",
+          "counts",
+          "hash",
+          "created_at",
+          "updated_at",
+          "products"
+        ],
+        "title": "ProductSet",
+        "type": "object"
+      },
+      "ProductSetIn": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "products": {
+            "items": {
+              "$ref": "#/components/schemas/ProductItem"
+            },
+            "maxItems": 1000,
+            "minItems": 1,
+            "title": "Products",
+            "type": "array"
+          }
+        },
+        "required": [
+          "name",
+          "products"
+        ],
+        "title": "ProductSetIn",
+        "type": "object"
+      },
+      "ProductSetSummary": {
+        "properties": {
+          "counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Counts",
+            "type": "object"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "number"
+          },
+          "hash": {
+            "title": "Hash",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "number"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "total",
+          "counts",
+          "hash",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "ProductSetSummary",
+        "type": "object"
+      },
       "RunParameters": {
         "properties": {
           "horizon_ticks": {
@@ -835,6 +1160,7 @@
             "type": "integer"
           },
           "seed": {
+            "description": "The seed used, given or drawn (see seed_source): the run can be repeated",
             "title": "Seed",
             "type": "integer"
           }
@@ -916,6 +1242,35 @@
             "title": "Modeling Type",
             "type": "string"
           },
+          "product_set_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Saved product set to use (the session keeps a copy)",
+            "title": "Product Set Id"
+          },
+          "products": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ProductItem"
+                },
+                "maxItems": 1000,
+                "minItems": 1,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Product list inline, in entry order",
+            "title": "Products"
+          },
           "rule": {
             "description": "1 Random Machine, 2 Nearest Machine, 3 Potential Fields, 4 AI Agent (without a decider it behaves exactly as rule 3)",
             "enum": [
@@ -928,11 +1283,18 @@
             "type": "integer"
           },
           "seed": {
-            "description": "NetLogo random-seed",
-            "maximum": 2147483647.0,
-            "minimum": -2147483648.0,
-            "title": "Seed",
-            "type": "integer"
+            "anyOf": [
+              {
+                "maximum": 2147483647.0,
+                "minimum": -2147483648.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "NetLogo random-seed. Optional: without it the platform draws one (secrets) and returns it, with seed_source 'random'",
+            "title": "Seed"
           },
           "strategy": {
             "anyOf": [
@@ -954,7 +1316,6 @@
           }
         },
         "required": [
-          "seed",
           "rule"
         ],
         "title": "SessionCreate",
@@ -1013,6 +1374,41 @@
             "title": "Pending Decisions",
             "type": "integer"
           },
+          "product_set_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Product Set Id"
+          },
+          "products_hash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "sha256 of the session's product list",
+            "title": "Products Hash"
+          },
+          "products_total": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Length of the session's product list (None: generated from the seed, as before)",
+            "title": "Products Total"
+          },
           "run_reason": {
             "anyOf": [
               {
@@ -1037,6 +1433,15 @@
               "failed"
             ],
             "title": "Run State",
+            "type": "string"
+          },
+          "seed_source": {
+            "default": "user",
+            "enum": [
+              "user",
+              "random"
+            ],
+            "title": "Seed Source",
             "type": "string"
           },
           "session_id": {
@@ -1794,6 +2199,362 @@
         "summary": "Readiness: 200 when ready or degraded, 503 otherwise",
         "tags": [
           "health"
+        ]
+      }
+    },
+    "/product-sets": {
+      "get": {
+        "operationId": "list_product_sets_product_sets_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ProductSetSummary"
+                  },
+                  "title": "Response List Product Sets Product Sets Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Saved product sets (without their products)",
+        "tags": [
+          "product-sets"
+        ]
+      },
+      "post": {
+        "operationId": "create_product_set_product_sets_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProductSetIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductSet"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Save a product set (name and products in entry order, 1-1000)",
+        "tags": [
+          "product-sets"
+        ]
+      }
+    },
+    "/product-sets/generate": {
+      "post": {
+        "operationId": "generate_products_product_sets_generate_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenerateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GeneratedProducts"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Platform starting (platform_starting), no free worker (no_free_worker), worker unavailable (worker_unavailable), too many fast runs (fast_run_limit) or agent down (agent_unavailable)"
+          }
+        },
+        "summary": "The products the model generates from a seed (fixed sequence); seed optional",
+        "tags": [
+          "product-sets"
+        ]
+      }
+    },
+    "/product-sets/parse-csv": {
+      "post": {
+        "operationId": "parse_product_csv_product_sets_parse_csv_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_parse_product_csv_product_sets_parse_csv_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ParsedCsv"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Errors by line: {code: csv_invalid, errors: [{line, error}]}"
+          }
+        },
+        "summary": "Turn a CSV (type, priority; , or ;; UTF-8, BOM allowed) into a validated list (not saved)",
+        "tags": [
+          "product-sets"
+        ]
+      }
+    },
+    "/product-sets/{set_id}": {
+      "delete": {
+        "operationId": "delete_product_set_product_sets__set_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "set_id",
+            "required": true,
+            "schema": {
+              "title": "Set Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Unknown session (session_not_found)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Product Set",
+        "tags": [
+          "product-sets"
+        ]
+      },
+      "get": {
+        "operationId": "get_product_set_product_sets__set_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "set_id",
+            "required": true,
+            "schema": {
+              "title": "Set Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductSet"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Unknown session (session_not_found)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Product Set",
+        "tags": [
+          "product-sets"
+        ]
+      },
+      "put": {
+        "operationId": "update_product_set_product_sets__set_id__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "set_id",
+            "required": true,
+            "schema": {
+              "title": "Set Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProductSetIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductSet"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Unknown session (session_not_found)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Replace a set (sessions already created keep their own copy)",
+        "tags": [
+          "product-sets"
+        ]
+      }
+    },
+    "/product-sets/{set_id}/csv": {
+      "get": {
+        "operationId": "export_product_set_product_sets__set_id__csv_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "set_id",
+            "required": true,
+            "schema": {
+              "title": "Set Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Unknown session (session_not_found)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Export a set as CSV (type,priority)",
+        "tags": [
+          "product-sets"
         ]
       }
     },

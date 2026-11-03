@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import hmac
+import secrets
 import logging
 import os
 import re
@@ -23,18 +24,22 @@ from typing import Any, AsyncIterator, Callable
 import anyio
 from pathlib import Path as FilePath
 
-from fastapi import Depends, FastAPI, Header, Path, Query, Request, Response, WebSocket
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi import Depends, FastAPI, File, Header, Path, Query, Request, Response, UploadFile, WebSocket
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 
 from aclopi.api import errors
-from aclopi.api.errors import InvalidRunState, PlatformStarting, Unauthorized, WorkerUnavailable
+from aclopi.api.errors import (
+    InvalidRunState, NoWorkerAvailable, PlatformStarting, ProductSetNotFound, Unauthorized, WorkerUnavailable,
+)
 from aclopi.api.instance_lock import InstanceLock
 from aclopi.api.models import (
     STEP_N_DESCRIPTION, CandidatesResponse, Event, Health, Kpis, PlantLayout, PlantState, Probe, RunRequest,
-    NextMachineRequest, NextMachineResponse, SessionCreate, SessionInfo, SessionMetrics, StepResult, WhatIfRequest,
-    WhatIfResponse,
+    GeneratedProducts, GenerateRequest, NextMachineRequest, NextMachineResponse, ParsedCsv, ProductSet, ProductSetIn,
+    ProductSetSummary, SessionCreate, SessionInfo, SessionMetrics, StepResult, WhatIfRequest, WhatIfResponse,
 )
+from aclopi.workers.protocol import NoFreeWorker
 from aclopi.api.agent import AgentClient
+from aclopi.api.product_sets import InMemoryProductSetStore, parse_csv, summary, to_csv
 from aclopi.api.whatif import run_whatif
 from aclopi.api.ws import stream_session
 from aclopi.api.registry import SessionRegistry
@@ -89,6 +94,7 @@ class Runtime:
         self.pool: WorkerPool | None = None
         self.registry: SessionRegistry | None = None
         self.agent: AgentClient | None = None
+        self.product_sets: Any = InMemoryProductSetStore()
         self._tasks: list[asyncio.Task[Any]] = []
 
     async def start(self) -> None:
@@ -280,10 +286,91 @@ def create_app(
               responses=errors.responses(500, 503, 504))
     async def create_session(body: SessionCreate, request: Request) -> dict[str, Any]:
         registry = runtime.require_ready()
-        record = await registry.create(body.seed, body.rule, body.modeling_type, body.horizon_ticks,
-                                       strategy=body.strategy)
+        seed, seed_source = (body.seed, "user") if body.seed is not None else (random_seed(), "random")
+        products = None
+        if body.product_set_id is not None:
+            found = runtime.product_sets.get(body.product_set_id)
+            if found is None:
+                raise ProductSetNotFound(f"product set {body.product_set_id!r} does not exist")
+            products = found["products"]
+        elif body.products is not None:
+            products = [p.model_dump() for p in body.products]
+        record = await registry.create(seed, body.rule, body.modeling_type, body.horizon_ticks,
+                                       strategy=body.strategy, seed_source=seed_source, product_list=products,
+                                       product_set_id=body.product_set_id)
         request.state.session_id = record.session_id
         return record.info()
+
+    # ----- product sets (L5.6) -----
+
+    @app.post("/product-sets", response_model=ProductSet, status_code=201, tags=["product-sets"],
+              summary="Save a product set (name and products in entry order, 1-1000)")
+    async def create_product_set(body: ProductSetIn) -> Any:
+        return runtime.product_sets.create(body.name, [p.model_dump() for p in body.products])
+
+    @app.get("/product-sets", response_model=list[ProductSetSummary], tags=["product-sets"],
+             summary="Saved product sets (without their products)")
+    async def list_product_sets() -> Any:
+        return runtime.product_sets.list()
+
+    @app.post("/product-sets/parse-csv", response_model=ParsedCsv, tags=["product-sets"],
+              summary="Turn a CSV (type, priority; , or ;; UTF-8, BOM allowed) into a validated list (not saved)",
+              responses={422: {"description": "Errors by line: {code: csv_invalid, errors: [{line, error}]}"}})
+    async def parse_product_csv(file: UploadFile = File(...)) -> Any:
+        products, problems = parse_csv(await file.read())
+        if problems:
+            return JSONResponse({"code": "csv_invalid", "detail": f"{len(problems)} error(s) in the CSV",
+                                 "errors": problems}, status_code=422)
+        return {"products": products, **summary(products)}
+
+    @app.post("/product-sets/generate", response_model=GeneratedProducts, tags=["product-sets"],
+              summary="The products the model generates from a seed (fixed sequence); seed optional",
+              responses=errors.responses(503))
+    async def generate_products(body: GenerateRequest) -> Any:
+        registry = runtime.require_ready()
+        seed, seed_source = (body.seed, "user") if body.seed is not None else (random_seed(), "random")
+        try:
+            borrow = registry.pool.borrow_whatif()
+            worker = borrow.__enter__()
+        except NoFreeWorker:
+            raise NoWorkerAvailable("no free worker to generate the products; retry in a few seconds") from None
+        try:
+            items = await registry.run(worker.request, "product_sequence", seed=seed, count=body.count)
+        finally:
+            borrow.__exit__(None, None, None)
+        products = [{"type": t, "priority": int(p)} for t, p in items]
+        return {"seed": seed, "seed_source": seed_source, "products": products, **summary(products)}
+
+    @app.get("/product-sets/{set_id}", response_model=ProductSet, tags=["product-sets"],
+             responses=errors.responses(404))
+    async def get_product_set(set_id: str) -> Any:
+        found = runtime.product_sets.get(set_id)
+        if found is None:
+            raise ProductSetNotFound(f"product set {set_id!r} does not exist")
+        return found
+
+    @app.put("/product-sets/{set_id}", response_model=ProductSet, tags=["product-sets"],
+             summary="Replace a set (sessions already created keep their own copy)", responses=errors.responses(404))
+    async def update_product_set(set_id: str, body: ProductSetIn) -> Any:
+        found = runtime.product_sets.update(set_id, body.name, [p.model_dump() for p in body.products])
+        if found is None:
+            raise ProductSetNotFound(f"product set {set_id!r} does not exist")
+        return found
+
+    @app.delete("/product-sets/{set_id}", status_code=204, tags=["product-sets"], responses=errors.responses(404))
+    async def delete_product_set(set_id: str) -> Response:
+        if not runtime.product_sets.delete(set_id):
+            raise ProductSetNotFound(f"product set {set_id!r} does not exist")
+        return Response(status_code=204)
+
+    @app.get("/product-sets/{set_id}/csv", tags=["product-sets"], response_class=PlainTextResponse,
+             summary="Export a set as CSV (type,priority)", responses=errors.responses(404))
+    async def export_product_set(set_id: str) -> Response:
+        found = runtime.product_sets.get(set_id)
+        if found is None:
+            raise ProductSetNotFound(f"product set {set_id!r} does not exist")
+        return Response(to_csv(found["products"]), media_type="text/csv",
+                        headers={"Content-Disposition": f'attachment; filename="product-set-{set_id[:8]}.csv"'})
 
     @app.get("/sessions", response_model=list[SessionInfo], tags=["sessions"],
              summary="Every session: active, lost and expired")
@@ -441,6 +528,11 @@ def create_app(
         return FileResponse(STATIC_DIR / "live.html", media_type="text/html")
 
     return app
+
+
+def random_seed() -> int:
+    """A seed in NetLogo's random-seed range, from secrets (never from the model's generator)."""
+    return secrets.randbelow(2 ** 32) - 2 ** 31
 
 
 def _require_not_running(record: Any, what: str) -> None:
