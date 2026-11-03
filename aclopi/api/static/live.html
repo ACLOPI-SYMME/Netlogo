@@ -27,7 +27,7 @@
 </head>
 <body>
 <h3>ACLOPI – página de prueba</h3>
-<div class="tabs"><button id="tab-session" class="active">Sesión</button> <button id="tab-set">Set de productos</button></div>
+<div class="tabs"><button id="tab-session" class="active">Sesión</button> <button id="tab-set">Set de productos</button> <button id="tab-runs">Corridas</button></div>
 <div id="agent-banner" class="err" hidden>Agente no disponible: las corridas rápidas con b1 / b1b / agent no se pueden iniciar; en vivo actúa la regla 3.</div>
 
 <!-- ===================== Sesión ===================== -->
@@ -96,6 +96,21 @@
 <table class="set"><thead><tr><th></th><th>#</th><th>Tipo</th><th>Priority</th><th>Acciones</th></tr></thead><tbody id="set-rows"></tbody></table>
 </section>
 
+<!-- ===================== Corridas ===================== -->
+<section id="page-runs" hidden>
+<fieldset>
+  Filtrar: semilla <input id="runs-seed" type="number"> estrategia <select id="runs-strategy"><option value="">(todas)</option><option>none</option><option>b1</option><option>b1b</option><option>agent</option></select>
+  regla <select id="runs-rule"><option value="">(todas)</option><option>1</option><option>2</option><option>3</option><option>4</option></select>
+  <button id="runs-refresh">Actualizar</button> <button id="runs-more" hidden>Más</button>
+  | <button id="runs-compare">Comparar seleccionadas</button>
+</fieldset>
+<div id="runs-msg" class="err"></div>
+<table class="set"><thead><tr><th></th><th>Inicio</th><th>Estado</th><th>Regla</th><th>Estrategia</th><th>Semilla</th><th>Set</th>
+  <th>Ticks</th><th>Terminados</th><th>Creados</th><th>Trabajo</th><th>Flujo medio</th><th>Makespan</th><th></th></tr></thead>
+  <tbody id="runs-rows"></tbody></table>
+<h4>Comparación</h4><div id="runs-compare-box">–</div>
+</section>
+
 <script>
 "use strict";
 const DELAY_MS = 400, MAX_EVENTS = 200, MAX_INTERP_MS = 300;
@@ -117,11 +132,14 @@ async function act(fn) { try { const info = await fn(); if (info && info.run_sta
 
 // ----- tabs -----
 function showTab(name) {
-  $("page-session").hidden = name !== "session"; $("page-set").hidden = name !== "set";
-  $("tab-session").classList.toggle("active", name === "session"); $("tab-set").classList.toggle("active", name === "set");
+  for (const t of ["session", "set", "runs"]) {
+    $(`page-${t}`).hidden = name !== t; $(`tab-${t}`).classList.toggle("active", name === t);
+  }
+  if (name === "runs") loadRuns(true);
 }
 $("tab-session").onclick = () => showTab("session");
 $("tab-set").onclick = () => showTab("set");
+$("tab-runs").onclick = () => showTab("runs");
 
 // ----- seed pattern: checkbox + mandatory integer in range when checked -----
 function seedField(onId, boxId, inputId, errorId) {
@@ -349,6 +367,78 @@ $("set-delete").onclick = async () => {
   await api("DELETE", `/product-sets/${id}`); if (setId === id) setId = null; await refreshSaved();
 };
 refreshSaved().catch(() => {}); renderSet();
+
+// ----- past runs (L5.7) -----
+let runs = [], runsCursor = null;
+const fmt = v => v === null || v === undefined ? "–" : (typeof v === "number" && !Number.isInteger(v) ? v.toFixed(1) : String(v));
+async function loadRuns(reset) {
+  const q = new URLSearchParams({limit: "50"});
+  if ($("runs-seed").value.trim()) q.set("seed", $("runs-seed").value.trim());
+  if ($("runs-strategy").value) q.set("strategy", $("runs-strategy").value);
+  if ($("runs-rule").value) q.set("rule", $("runs-rule").value);
+  if (!reset && runsCursor) q.set("cursor", runsCursor);
+  try {
+    const page = await api("GET", `/runs?${q}`);
+    runs = reset ? page.runs : runs.concat(page.runs); runsCursor = page.next_cursor;
+    $("runs-more").hidden = !runsCursor; $("runs-msg").textContent = ""; renderRuns();
+  } catch (e) { $("runs-msg").textContent = e.message; }
+}
+function renderRuns() {
+  const body = $("runs-rows"); body.textContent = "";
+  runs.forEach(r => {
+    const k = r.kpis || {};
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td><input type="checkbox" data-id="${r.run_id}"></td><td>${new Date(r.created_at * 1000).toLocaleString()}</td>
+      <td>${r.status}${r.reason ? " (" + r.reason + ")" : ""}</td><td>${r.rule}</td><td>${r.strategy ?? "–"}</td>
+      <td>${r.seed}${r.seed_source === "random" ? "*" : ""}</td><td>${r.products_hash ? r.products_hash.slice(0, 8) : "semilla"}</td>
+      <td>${fmt(r.ticks)}</td><td>${fmt(k.finished)}</td><td>${fmt(k.created)}</td><td>${fmt(k.work_completed)}</td>
+      <td>${fmt(k.mean_flow_time)}</td><td>${fmt(k.makespan_time)}</td>
+      <td><button data-a="repeat">Repetir</button><button data-a="csv">CSV</button></td>`;
+    tr.querySelector('[data-a="repeat"]').onclick = () => repeatRun(r);
+    tr.querySelector('[data-a="csv"]').onclick = () => exportRun(r);
+    body.appendChild(tr);
+  });
+}
+async function repeatRun(r) {
+  const body = {seed: r.seed, rule: r.rule, horizon_ticks: r.horizon_ticks};
+  if (r.rule === 4 && r.strategy) body.strategy = r.strategy;
+  if (r.products) body.products = r.products;  // the run's own copy: the same set even if it was edited
+  showTab("session");
+  await act(async () => {
+    if (sid) { await api("DELETE", `/sessions/${sid}`).catch(() => {}); }
+    const info = await api("POST", "/sessions", body);
+    sessionInfo = info; sid = info.session_id; $("sid").textContent = sid;
+    $("seed-value").textContent = info.parameters.seed; $("seed-used").hidden = false;
+    msg(`Sesión creada para repetir la corrida ${r.run_id.slice(0, 8)} (semilla ${r.seed}); iníciala en ${r.mode ?? "vivo"}`);
+    connect(); return info;
+  });
+}
+async function exportRun(r) {
+  const decisions = await api("GET", `/runs/${r.run_id}/decisions`);
+  const k = r.kpis || {};
+  const lines = ["field,value", ...["run_id", "status", "reason", "rule", "strategy", "seed", "seed_source", "horizon_ticks",
+    "mode", "product_set_id", "products_hash", "ticks"].map(f => `${f},${r[f] ?? ""}`),
+    ...Object.keys(k).map(f => `kpi.${f},${k[f] ?? ""}`), "",
+    "seq,tick,request_tick,product,seq_op,machine,decision_level,late,latency_ms,reason",
+    ...decisions.map(d => [d.seq, d.tick, d.request_tick ?? "", d.product, d.seq_op ?? d["seq"], d.machine, d.decision_level,
+                           d.late, d.latency_ms ?? "", JSON.stringify(d.reason ?? "")].join(","))];
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([lines.join("\n") + "\n"], {type: "text/csv"}));
+  a.download = `run-${r.run_id.slice(0, 8)}.csv`; a.click();
+}
+$("runs-refresh").onclick = () => loadRuns(true);
+$("runs-more").onclick = () => loadRuns(false);
+$("runs-compare").onclick = () => {
+  const ids = [...document.querySelectorAll('#runs-rows input[type=checkbox]:checked')].map(c => c.dataset.id);
+  const chosen = runs.filter(r => ids.includes(r.run_id));
+  if (chosen.length < 2) { $("runs-compare-box").textContent = "Selecciona al menos 2 corridas"; return; }
+  const sameSet = new Set(chosen.map(r => `${r.products_hash}|${r.seed}`)).size === 1;
+  const keys = ["finished", "created", "work_completed", "mean_flow_time", "throughput", "all_done", "makespan_time", "makespan_ticks"];
+  const head = `<tr><th>KPI</th>${chosen.map(r => `<th>${r.rule}/${r.strategy ?? "–"} ${r.run_id.slice(0, 6)}</th>`).join("")}</tr>`;
+  const rows = keys.map(k => `<tr><td>${k}</td>${chosen.map(r => `<td>${fmt((r.kpis || {})[k])}</td>`).join("")}</tr>`).join("");
+  $("runs-compare-box").innerHTML = (sameSet ? "" : `<p class="err">Ojo: las corridas no tienen el mismo set y la misma semilla</p>`) +
+    `<table class="set">${head}${rows}</table>`;
+};
 
 // ----- drawing -----
 const canvas = $("plant"), ctx = canvas.getContext("2d");
