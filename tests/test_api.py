@@ -105,7 +105,7 @@ def test_d_validation(client: httpx.Client) -> None:
         assert client.post(f"/sessions/{sid}/step", params={"n": n}).status_code == 422
     assert client.post(f"/sessions/{sid}/step").status_code == 422  # n is required
     assert client.post(f"/sessions/{sid}/step", params={"n": "abc"}).status_code == 422
-    assert client.post("/sessions", json={"seed": 1, "rule": 4}).status_code == 422
+    assert client.post("/sessions", json={"seed": 1, "rule": 5}).status_code == 422  # rule 4 is valid since L5.4
     assert client.post("/sessions", json={"seed": 1, "rule": 3, "modeling_type": "Random"}).status_code == 422
     assert client.post("/sessions", json={"seed": 1, "rule": 3, "horizon_ticks": 0}).status_code == 422
     assert client.post("/sessions", json={"rule": 3}).status_code == 422

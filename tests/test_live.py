@@ -261,7 +261,8 @@ def test_g_fast_run_to_the_end(api: ApiServer, client: httpx.Client) -> None:
     finished = w.wait_for("finished", timeout_s=60)[0]
     assert finished["tick"] == 3000 and finished["kpis"]["ticks"] == 3000
     progress = w.of("progress")
-    assert progress and progress[-1]["tick"] == 3000 and "state" not in progress[-1]
+    # L5.4: the last block always carries platform-state (others at most once a second)
+    assert progress and progress[-1]["tick"] == 3000 and progress[-1]["state"]["tick"] == 3000
     assert sum(len(p["events"]) for p in progress) > 0  # fast mode sends its events in batches
     assert w.wait_for("run_state", count=2)[-1]["run_state"] == "finished"
     info = client.get(f"/sessions/{sid}").json()

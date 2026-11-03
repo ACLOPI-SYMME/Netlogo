@@ -71,7 +71,7 @@ Formato de un evento:
 ```
 
 - **Cadencia:** un mensaje por bloque de `ACLOPI_FAST_BLOCK_TICKS` ticks (1000 por defecto).
-- **Sin estado completo:** el `progress` no trae `state`, porque en modo rápido no se transmite.
+- **`state` como mucho una vez por segundo** (L5.4), y siempre en el último bloque. Con eso el canvas de `/ui` muestra la corrida rápida como un video acelerado. Si un bloque tarda más de 1 s, todos los bloques traen `state`.
 - **`events`:** llegan **todos**, en lote (~18 eventos por cada 1000 ticks). La API además los conserva para la persistencia de L5.6.
 - **`kpis`:** viene aproximadamente una vez por segundo.
 

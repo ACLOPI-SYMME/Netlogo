@@ -77,6 +77,8 @@ class RunController:
         self.speed: float | None = None
         self._next_due = 0.0
         self._last_kpis = 0.0
+        self._last_state = 0.0
+        self.state_interval_s = 1.0  # fast mode: platform-state in "progress" at most this often
         self._history: deque[tuple[float, int]] = deque()
 
     # ----- state -----
@@ -152,6 +154,7 @@ class RunController:
         now = self.clock()
         self._next_due = now
         self._last_kpis = 0.0
+        self._last_state = 0.0
         self._history.clear()
 
     def time_to_next(self) -> float | None:
@@ -243,6 +246,11 @@ class RunController:
         }
         if kpis is not None:
             data["kpis"] = kpis
+        # platform-state at most once a second (and in the last block): the client's canvas shows
+        # the fast run as an accelerated video instead of standing still.
+        if result.finished or done - self._last_state >= self.state_interval_s:
+            self._last_state = done
+            data["state"] = self.session.state_json()
         pushes = [push("progress", data)]
         # Optional pause between fast blocks (fraction of the block time) to leave CPU to live runs.
         self._next_due = done + self.fast_yield * (done - now)

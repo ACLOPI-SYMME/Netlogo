@@ -53,6 +53,21 @@ Si el arranque falla, el log JSON indica qué worker falló y por qué. Luego el
 | `POST /sessions/{id}/pause` | Pausa una corrida (409 si no está corriendo) |
 | `POST /sessions/{id}/resume` | Reanuda con el mismo modo y velocidad (409 si no está en pausa) |
 | `WS /ws/sessions/{id}` | Transmisión en tiempo real (formato en `docs/websocket.md`) |
+| `GET /sessions/{id}/candidates?product=&seq=` | Candidatas de una decisión pendiente, con su carga y su espera estimada (L5.4, `docs/whatif.md`) |
+| `POST /sessions/{id}/what-if` | Prueba 2 asignaciones de una decisión en copias de la simulación, dentro de `budget_ms` (por defecto 10 s, de 2 a 15 s; el agente lo calcula con su plazo de decisión: desde M2–M7 cabe ~10 s, desde M1 no cabe con las llamadas al LLM). Solo regla 4; `docs/whatif.md` |
+| `GET /sessions/{id}/metrics` | Métricas de what-if de la sesión |
+
+**Regla 4.** `POST /sessions` acepta `rule: 4` (AI Agent). Sin decisor se comporta exactamente como la regla 3.
+
+**KPIs** (`GET /kpis`, mensajes del WebSocket):
+
+| KPI | Definición |
+|---|---|
+| `finished`, `wip`, `created` | Productos terminados, en proceso y creados (`created` = terminados + en proceso) |
+| `throughput` | Terminados ÷ `Simulated.Time` |
+| `mean_flow_time` | Media de (última finalización − **inicio de la primera operación**, `ProductRealStart`) de los terminados. **Se mide desde la primera operación, no desde la creación** (`docs/product-sequence.md`) |
+| `utilization` | Tiempo ocupado ÷ `Simulated.Time`, por máquina |
+| `work_completed` | Trabajo de proceso en tiempo **nominal** (`OperationDuration`): la operación en curso suma la fracción procesada |
 | `GET /ui` | Página HTML mínima de prueba (fuera del contrato OpenAPI) |
 
 ## Corridas continuas (L5.3)

@@ -20,7 +20,7 @@
 <h3>ACLOPI – sesión en vivo (página de prueba)</h3>
 <fieldset>
   Semilla <input id="seed" type="number" value="42">
-  Regla <select id="rule"><option>1</option><option>2</option><option selected>3</option></select>
+  Regla <select id="rule"><option>1</option><option>2</option><option selected>3</option><option>4</option></select>
   Horizonte <input id="horizon" type="number" value="10000">
   <button id="create">Crear sesión</button>
   <span id="sid"></span>
@@ -46,6 +46,7 @@
 "use strict";
 const DELAY_MS = 400;           // playback buffer
 const MAX_EVENTS = 200;
+const MAX_INTERP_MS = 300;      // frames further apart are not interpolated
 let sid = null, ws = null, layout = null, frames = [], events = [];
 const $ = id => document.getElementById(id);
 
@@ -98,8 +99,9 @@ function addFrame(tick, state) {
 function showKpis(k) {
   if (!k) return;
   const u = Object.entries(k.utilization).map(([m, v]) => `${m} ${(100 * v).toFixed(0)}%`).join(" ");
-  $("kpis").textContent = `ticks ${k.ticks}  terminados ${k.finished}  WIP ${k.wip}\n` +
-    `throughput ${k.throughput.toFixed(5)}  flujo medio ${k.mean_flow_time === null ? "–" : k.mean_flow_time.toFixed(1)}\n${u}`;
+  $("kpis").textContent = `ticks ${k.ticks}  creados ${k.created ?? "–"}  terminados ${k.finished}  WIP ${k.wip}\n` +
+    `throughput ${k.throughput.toFixed(5)}  flujo medio ${k.mean_flow_time === null ? "–" : k.mean_flow_time.toFixed(1)}` +
+    ` (desde la 1.ª operación)\ntrabajo completado ${k.work_completed === undefined ? "–" : k.work_completed.toFixed(1)}\n${u}`;
 }
 
 function handle(m) {
@@ -113,6 +115,7 @@ function handle(m) {
       addFrame(m.tick, m.state); addEvents(m.events); showKpis(m.kpis); break;
     case "progress":
       $("tick").textContent = m.tick; $("rate").textContent = m.ticks_per_s ? `${Math.round(m.ticks_per_s)} ticks/s` : "–";
+      addFrame(m.tick, m.state);  // fast mode: platform-state about once a second (accelerated video)
       addEvents(m.events); showKpis(m.kpis); break;
     case "run_state": showRun(m); break;
     case "finished": showKpis(m.kpis); msg(`Corrida terminada en el tick ${m.tick}`); break;
@@ -158,7 +161,8 @@ function draw() {
   const t = performance.now() - DELAY_MS;
   const [a, b] = framePair(t);
   if (!a) return;
-  const f = b === a || b.t === a.t ? 1 : Math.min(1, Math.max(0, (t - a.t) / (b.t - a.t)));
+  // Interpolate only between close frames (live mode); fast-mode frames are ~1 s apart: show the latest.
+  const f = b === a || b.t === a.t || b.t - a.t > MAX_INTERP_MS ? 1 : Math.min(1, Math.max(0, (t - a.t) / (b.t - a.t)));
   ctx.fillStyle = "#d33";
   for (const [id, pb] of b.products) {
     const pa = a.products.get(id) || pb;
