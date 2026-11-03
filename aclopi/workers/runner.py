@@ -31,6 +31,10 @@ Rule 4 with a decider (L5.5, `decisions=True` in start):
 - the model's decision log (Decision.Source of every rule-4 assignment) is read and cleared after
   every block and pushed as "assignments" (also without a decider: strategy none).
 - fail(reason) ends the run with run state "failed" (e.g. agent_unavailable).
+
+With a product list (docs/product-sets.md) the run also ends, with reason "all_products_done",
+as soon as every product of the list has been created and finished (checked after every block);
+at the horizon the reason is "horizon".
 """
 
 from __future__ import annotations
@@ -100,6 +104,7 @@ class RunController:
         self.decisions = False  # rule 4 with a decider: hand the requests to the API
         self.pending: set[tuple[int, int]] = set()  # fast mode: requests waiting for next_machine
         self.reason: str | None = None  # why the run ended (failed: agent_unavailable)
+        self.product_list = False  # the session has a product list: stop when all are done
         self._last_heartbeat = 0.0
 
     # ----- state -----
@@ -129,9 +134,21 @@ class RunController:
         return [self._set(new)]
 
     def mark_finished_after_step(self, finished: bool) -> list[tuple[str, Any]]:
-        if finished and self.state != "finished":
-            return [self._set("finished")]
+        if self.state == "finished":
+            return []
+        if finished:
+            return [self._set("finished", "horizon")]
+        if self.all_products_done():
+            return [self._set("finished", "all_products_done")]
         return []
+
+    def all_products_done(self) -> bool:
+        """With a product list: every product of the list created and finished (no random numbers)."""
+        if not self.product_list:
+            return False
+        return bool(self.session._report(
+            'platform-local [ -> product-list? and products-created >= length product-list '
+            'and not any? products with [Product.State != "death"] ]'))
 
     def start(self, mode: str, speed: float | None, decisions: bool = False,
               rule4: bool = False) -> list[tuple[str, Any]]:
@@ -219,7 +236,10 @@ class RunController:
     # ----- blocks -----
 
     def _platform_step(self, n: int) -> BlockResult:
-        r = self.session.step(n)
+        if self.product_list:  # stop exactly when the last product finishes (session.step_product_list)
+            r, _ = self.session.step_product_list(n)
+        else:
+            r = self.session.step(n)
         return BlockResult(ticks=r.ticks, advanced=r.advanced, finished=r.finished)
 
     def _until_decision(self, n: int) -> BlockResult:
@@ -304,7 +324,9 @@ class RunController:
         if done - self._next_due > MAX_LAG_S:  # starved: re-anchor instead of catching up
             self._next_due = done
         if result.finished:
-            pushes += self._finish(result, kpis)
+            pushes += self._finish(result, kpis, "horizon")
+        elif self.all_products_done():
+            pushes += self._finish(result, None, "all_products_done")
         return pushes
 
     def _fast_block(self, now: float) -> list[tuple[str, Any]]:
@@ -332,7 +354,9 @@ class RunController:
         # Optional pause between fast blocks (fraction of the block time) to leave CPU to live runs.
         self._next_due = done + self.fast_yield * (done - now)
         if result.finished:
-            pushes += self._finish(result, kpis)
+            pushes += self._finish(result, kpis, "horizon")
+        elif self.all_products_done():
+            pushes += self._finish(result, None, "all_products_done")
         elif requests:  # fast mode: no block runs until every request has its next_machine
             self.pending = {(int(r["who"]), int(r["seq"])) for r in requests}
             self._last_heartbeat = done
@@ -340,9 +364,10 @@ class RunController:
                        self._set("waiting_decision")]
         return pushes
 
-    def _finish(self, result: BlockResult, kpis: dict[str, Any] | None) -> list[tuple[str, Any]]:
+    def _finish(self, result: BlockResult, kpis: dict[str, Any] | None, reason: str) -> list[tuple[str, Any]]:
         final = kpis if kpis is not None else self.session.kpis().as_dict()
-        return [push("finished", {"tick": result.ticks, "kpis": final}), self._set("finished")]
+        return [push("finished", {"tick": result.ticks, "kpis": final, "reason": reason}),
+                self._set("finished", reason)]
 
     def snapshot(self) -> dict[str, Any]:
         return {

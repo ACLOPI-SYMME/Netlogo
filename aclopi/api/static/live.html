@@ -3,30 +3,48 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ACLOPI – prueba en vivo</title>
+<title>ACLOPI – prueba</title>
 <style>
   body { font-family: sans-serif; margin: 12px; }
   fieldset { margin-bottom: 8px; }
-  input { width: 6em; }
+  input[type=number] { width: 7em; }
   #main { display: flex; gap: 12px; flex-wrap: wrap; }
   canvas { border: 1px solid #999; background: #fff; }
   #side { min-width: 280px; max-width: 420px; }
-  #events { height: 260px; overflow-y: auto; font-family: monospace; font-size: 12px; border: 1px solid #ccc; padding: 4px; }
+  #events { height: 220px; overflow-y: auto; font-family: monospace; font-size: 12px; border: 1px solid #ccc; padding: 4px; white-space: pre; }
   pre { font-size: 12px; margin: 4px 0; }
   .err { color: #b00; }
+  .tabs button { padding: 6px 12px; }
+  .tabs button.active { font-weight: bold; border-bottom: 2px solid #246; }
+  .info { cursor: help; border: 1px solid #888; border-radius: 50%; padding: 0 5px; font-size: 11px; }
+  table.set { border-collapse: collapse; }
+  table.set td, table.set th { border: 1px solid #ccc; padding: 2px 6px; font-size: 13px; }
+  table.set tr.dragging { opacity: 0.4; }
+  table.set tr.over td { border-top: 2px solid #246; }
+  .handle { cursor: grab; user-select: none; }
+  #set-errors { font-size: 12px; }
 </style>
 </head>
 <body>
-<h3>ACLOPI – sesión en vivo (página de prueba)</h3>
+<h3>ACLOPI – página de prueba</h3>
+<div class="tabs"><button id="tab-session" class="active">Sesión</button> <button id="tab-set">Set de productos</button></div>
+<div id="agent-banner" class="err" hidden>Agente no disponible: las corridas rápidas con b1 / b1b / agent no se pueden iniciar; en vivo actúa la regla 3.</div>
+
+<!-- ===================== Sesión ===================== -->
+<section id="page-session">
 <fieldset>
-  Semilla <input id="seed" type="number" value="42">
+  <label><input id="seed-on" type="checkbox"> Agregar semilla</label>
+  <span class="info" title="Define la semilla que se usará para el azar de la simulación. Si no la defines, se genera una aleatoria.">i</span>
+  <span id="seed-box" hidden><input id="seed" type="number" step="1"> <span id="seed-error" class="err"></span></span>
   Regla <select id="rule"><option>1</option><option>2</option><option selected>3</option><option>4</option></select>
-  Horizonte <input id="horizon" type="number" value="10000">
   <span id="strategy-box" hidden>Estrategia <select id="strategy">
     <option value="none">none (regla 3)</option><option>b1</option><option>b1b</option><option selected>agent</option>
   </select></span>
+  Horizonte <input id="horizon" type="number" value="10000">
+  Set <select id="session-set"><option value="">Generado con la semilla</option></select>
   <button id="create">Crear sesión</button>
   <span id="sid"></span>
+  <span id="seed-used" hidden>Semilla usada: <b id="seed-value"></b> <button id="seed-copy" title="Copiar">copiar</button></span>
 </fieldset>
 <fieldset>
   Velocidad <select id="speed"><option>0.5</option><option selected>1</option><option>2</option><option>4</option></select>
@@ -37,8 +55,7 @@
   <button id="reset">Reiniciar</button>
   <button id="close">Cerrar</button>
 </fieldset>
-<div id="agent-banner" class="err" hidden>Agente no disponible: las corridas rápidas con b1 / b1b / agent no se pueden iniciar; en vivo actúa la regla 3.</div>
-<div>Tick: <b id="tick">–</b> · Estado: <b id="runstate">–</b> · Ritmo: <span id="rate">–</span> · <span id="msg"></span></div>
+<div>Tick: <b id="tick">–</b> · Estado: <b id="runstate">–</b> · Ritmo: <span id="rate">–</span> · <span id="list-progress"></span> <span id="msg"></span></div>
 <div id="main">
   <canvas id="plant" width="760" height="520"></canvas>
   <div id="side">
@@ -47,31 +64,110 @@
     <b>Eventos</b> (últimos 200)<div id="events"></div>
   </div>
 </div>
+</section>
+
+<!-- ===================== Set de productos ===================== -->
+<section id="page-set" hidden>
+<fieldset>
+  <b id="set-summary">0 productos</b> <span id="set-counts"></span> <span id="set-dirty" class="err"></span>
+</fieldset>
+<fieldset>
+  Agregar: tipo <select id="add-type"><option>A</option><option>I</option><option>P</option><option>B</option><option>E</option><option>L</option><option>T</option></select>
+  priority <input id="add-priority" type="number" min="60" max="100" value="80">
+  cantidad <input id="add-count" type="number" min="1" max="1000" value="1">
+  <button id="add">Agregar</button>
+  | <label>Subir CSV <input id="csv-file" type="file" accept=".csv,text/csv"></label>
+  <button id="csv-download">Descargar CSV</button>
+  <button id="clear">Vaciar</button>
+</fieldset>
+<fieldset>
+  Generar desde semilla:
+  <label><input id="gen-seed-on" type="checkbox"> Agregar semilla</label>
+  <span class="info" title="Define la semilla que se usará para generar los productos. Si no la defines, se genera una aleatoria.">i</span>
+  <span id="gen-seed-box" hidden><input id="gen-seed" type="number" step="1"> <span id="gen-seed-error" class="err"></span></span>
+  cantidad <input id="gen-count" type="number" min="1" max="1000" value="50">
+  <button id="generate">Generar</button> <span id="gen-used"></span>
+</fieldset>
+<fieldset>
+  Nombre <input id="set-name" value="Mi set"> <button id="set-save">Guardar</button>
+  | Guardados <select id="saved-sets"></select> <button id="set-open">Abrir</button> <button id="set-delete">Borrar</button>
+</fieldset>
+<div id="set-errors" class="err"></div>
+<table class="set"><thead><tr><th></th><th>#</th><th>Tipo</th><th>Priority</th><th>Acciones</th></tr></thead><tbody id="set-rows"></tbody></table>
+</section>
+
 <script>
 "use strict";
-const DELAY_MS = 400;           // playback buffer
-const MAX_EVENTS = 200;
-const MAX_INTERP_MS = 300;      // frames further apart are not interpolated
-let sid = null, ws = null, layout = null, frames = [], events = [];
+const DELAY_MS = 400, MAX_EVENTS = 200, MAX_INTERP_MS = 300;
+const TYPES = ["A", "I", "P", "B", "E", "L", "T"];
+const SEED_MIN = -2147483648, SEED_MAX = 2147483647;
+let sid = null, ws = null, layout = null, frames = [], events = [], sessionInfo = null, lastState = null;
 const $ = id => document.getElementById(id);
 
 function msg(text, error) { $("msg").textContent = text; $("msg").className = error ? "err" : ""; }
-
-async function api(method, path, body) {
-  const r = await fetch(path, {method, headers: {"Content-Type": "application/json"},
-                               body: body ? JSON.stringify(body) : undefined});
+async function api(method, path, body, raw) {
+  const r = await fetch(path, raw ? {method, body} : {method, headers: {"Content-Type": "application/json"},
+                                                       body: body ? JSON.stringify(body) : undefined});
   if (r.status === 204) return null;
   const data = await r.json();
-  if (!r.ok) throw new Error(`${r.status} ${data.code || ""}: ${typeof data.detail === "string" ? data.detail : JSON.stringify(data.detail)}`);
+  if (!r.ok) { const e = new Error(`${r.status} ${data.code || ""}: ${typeof data.detail === "string" ? data.detail : JSON.stringify(data.detail)}`); e.data = data; throw e; }
   return data;
 }
 async function act(fn) { try { const info = await fn(); if (info && info.run_state) showRun(info); } catch (e) { msg(e.message, true); } }
+
+// ----- tabs -----
+function showTab(name) {
+  $("page-session").hidden = name !== "session"; $("page-set").hidden = name !== "set";
+  $("tab-session").classList.toggle("active", name === "session"); $("tab-set").classList.toggle("active", name === "set");
+}
+$("tab-session").onclick = () => showTab("session");
+$("tab-set").onclick = () => showTab("set");
+
+// ----- seed pattern: checkbox + mandatory integer in range when checked -----
+function seedField(onId, boxId, inputId, errorId) {
+  $(onId).onchange = () => { $(boxId).hidden = !$(onId).checked; $(errorId).textContent = ""; };
+  return () => {  // returns {ok, seed}; seed undefined = not sent (random)
+    if (!$(onId).checked) return {ok: true};
+    const raw = $(inputId).value.trim(), n = Number(raw);
+    if (raw === "" || !Number.isInteger(n) || n < SEED_MIN || n > SEED_MAX) {
+      $(errorId).textContent = `entero entre ${SEED_MIN} y ${SEED_MAX}`; return {ok: false};
+    }
+    $(errorId).textContent = ""; return {ok: true, seed: n};
+  };
+}
+const sessionSeed = seedField("seed-on", "seed-box", "seed", "seed-error");
+const generateSeed = seedField("gen-seed-on", "gen-seed-box", "gen-seed", "gen-seed-error");
+
+// ----- session -----
 function showRun(info) {
   $("runstate").textContent = info.run_state + (info.mode ? ` (${info.mode}${info.speed ? " " + info.speed + "×" : ""})` : "");
   const reason = info.reason ?? info.run_reason;
   if (info.run_state === "failed" && reason === "agent_unavailable") msg("Agente no disponible: la corrida se detuvo", true);
+  if (info.run_state === "finished" && reason === "all_products_done") msg("Terminaron todos los productos del set");
 }
 $("rule").onchange = () => { $("strategy-box").hidden = $("rule").value !== "4"; };
+$("create").onclick = () => act(async () => {
+  const s = sessionSeed(); if (!s.ok) throw new Error("Semilla inválida");
+  if (sid) { await api("DELETE", `/sessions/${sid}`).catch(() => {}); }
+  const body = {rule: +$("rule").value, horizon_ticks: +$("horizon").value};
+  if (s.seed !== undefined) body.seed = s.seed;
+  if (body.rule === 4) body.strategy = $("strategy").value;
+  if ($("session-set").value) body.product_set_id = $("session-set").value;
+  const info = await api("POST", "/sessions", body);
+  sessionInfo = info;
+  if (info.warnings && info.warnings.includes("agent_unavailable")) msg("Aviso: el agente no está disponible (en vivo actuará la regla 3)", true);
+  $("seed-value").textContent = info.parameters.seed + (info.seed_source === "random" ? " (aleatoria)" : "");
+  $("seed-used").hidden = false;
+  sid = info.session_id; $("sid").textContent = sid; connect(); return info;
+});
+$("seed-copy").onclick = () => navigator.clipboard && navigator.clipboard.writeText(String(sessionInfo.parameters.seed));
+$("live").onclick = () => act(() => api("POST", `/sessions/${sid}/run`, {mode: "live", speed: +$("speed").value}));
+$("fast").onclick = () => act(() => api("POST", `/sessions/${sid}/run`, {mode: "fast"}));
+$("pause").onclick = () => act(() => api("POST", `/sessions/${sid}/pause`));
+$("resume").onclick = () => act(() => api("POST", `/sessions/${sid}/resume`));
+$("reset").onclick = () => act(() => api("POST", `/sessions/${sid}/reset`));
+$("close").onclick = () => act(async () => { await api("DELETE", `/sessions/${sid}`); sid = null; $("sid").textContent = ""; });
+
 async function pollAgent() {
   try { const h = await (await fetch("/health")).json(); $("agent-banner").hidden = !h.agent || h.agent.status !== "down"; } catch (e) {}
 }
@@ -89,21 +185,6 @@ async function showDecisions() {
 }
 setInterval(showDecisions, 2000);
 
-$("create").onclick = () => act(async () => {
-  if (sid) { await api("DELETE", `/sessions/${sid}`).catch(() => {}); }
-  const body = {seed: +$("seed").value, rule: +$("rule").value, horizon_ticks: +$("horizon").value};
-  if (body.rule === 4) body.strategy = $("strategy").value;
-  const info = await api("POST", "/sessions", body);
-  if (info.warnings && info.warnings.includes("agent_unavailable")) msg("Aviso: el agente no está disponible (en vivo actuará la regla 3)", true);
-  sid = info.session_id; $("sid").textContent = sid; connect(); return info;
-});
-$("live").onclick = () => act(() => api("POST", `/sessions/${sid}/run`, {mode: "live", speed: +$("speed").value}));
-$("fast").onclick = () => act(() => api("POST", `/sessions/${sid}/run`, {mode: "fast"}));
-$("pause").onclick = () => act(() => api("POST", `/sessions/${sid}/pause`));
-$("resume").onclick = () => act(() => api("POST", `/sessions/${sid}/resume`));
-$("reset").onclick = () => act(() => api("POST", `/sessions/${sid}/reset`));
-$("close").onclick = () => act(async () => { await api("DELETE", `/sessions/${sid}`); sid = null; $("sid").textContent = ""; });
-
 function connect() {
   if (ws) ws.close();
   frames = []; events = [];
@@ -112,27 +193,36 @@ function connect() {
   ws.onmessage = e => handle(JSON.parse(e.data));
   ws.onclose = e => msg(`WebSocket cerrado (${e.code} ${e.reason})`, e.code !== 1000);
 }
-
 function addEvents(list) {
   events.push(...list);
   if (events.length > MAX_EVENTS) events = events.slice(-MAX_EVENTS);
   $("events").textContent = events.map(ev => `${ev.tick} ${ev.event} p${ev.who} ${ev.location ?? ""} → ${ev.destination ?? ""}`).join("\n");
-  $("events").style.whiteSpace = "pre"; $("events").scrollTop = 1e9;
+  $("events").scrollTop = 1e9;
 }
 function addFrame(tick, state) {
   if (!state) return;
-  const products = new Map(state.products.map(p => [p.id, p]));
-  frames.push({t: performance.now(), tick, products});
+  lastState = state;
+  showListProgress();
+  frames.push({t: performance.now(), tick, products: new Map(state.products.map(p => [p.id, p]))});
   if (frames.length > 60) frames.shift();
+}
+function showListProgress() {
+  if (!lastState || !lastState.product_list_active) { $("list-progress").textContent = ""; return; }
+  const total = lastState.product_list_length, entered = lastState.product_list_next, done = lastState.finished;
+  $("list-progress").textContent = `Set: entraron ${entered} · terminaron ${done} · faltan ${total - done} de ${total} ·`;
 }
 function showKpis(k) {
   if (!k) return;
   const u = Object.entries(k.utilization).map(([m, v]) => `${m} ${(100 * v).toFixed(0)}%`).join(" ");
-  $("kpis").textContent = `ticks ${k.ticks}  creados ${k.created ?? "–"}  terminados ${k.finished}  WIP ${k.wip}\n` +
+  let text = `ticks ${k.ticks}  creados ${k.created ?? "–"}  terminados ${k.finished}  WIP ${k.wip}\n` +
     `throughput ${k.throughput.toFixed(5)}  flujo medio ${k.mean_flow_time === null ? "–" : k.mean_flow_time.toFixed(1)}` +
     ` (desde la 1.ª operación)\ntrabajo completado ${k.work_completed === undefined ? "–" : k.work_completed.toFixed(1)}\n${u}`;
+  if (k.products_total !== null && k.products_total !== undefined) {
+    text += `\nset: ${k.products_total} productos  todos terminados ${k.all_done ? "sí" : "no"}` +
+      `  makespan ${k.makespan_time === null ? "–" : `${k.makespan_time.toFixed(1)} u.t. (${k.makespan_ticks} ticks)`}`;
+  }
+  $("kpis").textContent = text;
 }
-
 function handle(m) {
   switch (m.type) {
     case "snapshot":
@@ -144,16 +234,121 @@ function handle(m) {
       addFrame(m.tick, m.state); addEvents(m.events); showKpis(m.kpis); break;
     case "progress":
       $("tick").textContent = m.tick; $("rate").textContent = m.ticks_per_s ? `${Math.round(m.ticks_per_s)} ticks/s` : "–";
-      addFrame(m.tick, m.state);  // fast mode: platform-state about once a second (accelerated video)
-      addEvents(m.events); showKpis(m.kpis); break;
+      addFrame(m.tick, m.state); addEvents(m.events); showKpis(m.kpis); break;
     case "run_state": showRun(m); break;
-    case "decision": break;  // counted by showDecisions (metrics)
-    case "finished": showKpis(m.kpis); msg(`Corrida terminada en el tick ${m.tick}`); break;
+    case "decision": break;
+    case "finished": showKpis(m.kpis); msg(`Corrida terminada en el tick ${m.tick}` + (m.reason ? ` (${m.reason})` : "")); break;
     case "resync": msg(`Resincronizando (${m.reason}, ${m.dropped} mensajes descartados)`); break;
     case "run_error": msg(`Error en la corrida: ${m.error}`, true); break;
     case "closed": msg(`Sesión cerrada: ${m.code} – ${m.reason}`, true); break;
   }
 }
+
+// ----- product set editor -----
+let setItems = [], setId = null, dirty = false, dragFrom = null;
+function markDirty(v) { dirty = v; $("set-dirty").textContent = v ? "(cambios sin guardar)" : ""; }
+window.addEventListener("beforeunload", e => { if (dirty) { e.preventDefault(); e.returnValue = ""; } });
+function confirmDiscard() { return !dirty || confirm("Hay cambios sin guardar en el set. ¿Descartarlos?"); }
+function renderSet() {
+  const counts = Object.fromEntries(TYPES.map(t => [t, 0]));
+  setItems.forEach(p => counts[p.type]++);
+  $("set-summary").textContent = `${setItems.length} productos`;
+  $("set-counts").textContent = TYPES.map(t => `${t}: ${counts[t]}`).join("  ");
+  const body = $("set-rows"); body.textContent = "";
+  setItems.forEach((p, i) => {
+    const tr = document.createElement("tr"); tr.draggable = true; tr.dataset.i = i;
+    tr.innerHTML = `<td class="handle" title="Arrastrar">☰</td><td>${i + 1}</td>
+      <td><select>${TYPES.map(t => `<option${t === p.type ? " selected" : ""}>${t}</option>`).join("")}</select></td>
+      <td><input type="number" min="60" max="100" value="${p.priority}"></td>
+      <td><button data-a="up" title="Subir">↑</button><button data-a="down" title="Bajar">↓</button>
+          <button data-a="dup">Duplicar</button><button data-a="del">Eliminar</button></td>`;
+    tr.querySelector("select").onchange = e => { p.type = e.target.value; markDirty(true); renderSet(); };
+    tr.querySelector("input").onchange = e => {
+      const v = Number(e.target.value);
+      if (!Number.isInteger(v) || v < 60 || v > 100) { e.target.value = p.priority; $("set-errors").textContent = "priority: entero 60–100"; return; }
+      p.priority = v; markDirty(true);
+    };
+    tr.querySelectorAll("button").forEach(b => b.onclick = () => {
+      const a = b.dataset.a;
+      if (a === "up" && i > 0) [setItems[i - 1], setItems[i]] = [setItems[i], setItems[i - 1]];
+      if (a === "down" && i < setItems.length - 1) [setItems[i + 1], setItems[i]] = [setItems[i], setItems[i + 1]];
+      if (a === "dup") setItems.splice(i + 1, 0, {...p});
+      if (a === "del") setItems.splice(i, 1);
+      markDirty(true); renderSet();
+    });
+    tr.ondragstart = () => { dragFrom = i; tr.classList.add("dragging"); };
+    tr.ondragend = () => { tr.classList.remove("dragging"); };
+    tr.ondragover = e => { e.preventDefault(); tr.classList.add("over"); };
+    tr.ondragleave = () => tr.classList.remove("over");
+    tr.ondrop = e => {
+      e.preventDefault(); tr.classList.remove("over");
+      if (dragFrom === null || dragFrom === i) return;
+      const [moved] = setItems.splice(dragFrom, 1);
+      setItems.splice(i, 0, moved); dragFrom = null; markDirty(true); renderSet();
+    };
+    body.appendChild(tr);
+  });
+}
+function setList(items, dirtyAfter) { setItems = items.map(p => ({type: p.type, priority: p.priority})); markDirty(dirtyAfter); renderSet(); }
+$("add").onclick = () => {
+  const n = Number($("add-count").value), pr = Number($("add-priority").value);
+  if (!Number.isInteger(n) || n < 1 || setItems.length + n > 1000) { $("set-errors").textContent = "cantidad: 1–1000 en total"; return; }
+  if (!Number.isInteger(pr) || pr < 60 || pr > 100) { $("set-errors").textContent = "priority: entero 60–100"; return; }
+  for (let k = 0; k < n; k++) setItems.push({type: $("add-type").value, priority: pr});
+  $("set-errors").textContent = ""; markDirty(true); renderSet();
+};
+$("clear").onclick = () => { if (confirmDiscard()) { setList([], setItems.length > 0); setId = null; } };
+$("csv-file").onchange = async e => {
+  const file = e.target.files[0]; if (!file) return;
+  if (!confirmDiscard()) { e.target.value = ""; return; }
+  const form = new FormData(); form.append("file", file);
+  try {
+    const parsed = await api("POST", "/product-sets/parse-csv", form, true);
+    setList(parsed.products, true); setId = null; $("set-errors").textContent = "";
+  } catch (err) {
+    const errs = err.data && err.data.errors ? err.data.errors.map(x => `línea ${x.line}: ${x.error}`).join("\n") : err.message;
+    $("set-errors").textContent = errs; $("set-errors").style.whiteSpace = "pre";
+  }
+  e.target.value = "";
+};
+$("csv-download").onclick = () => {
+  const csv = "type,priority\n" + setItems.map(p => `${p.type},${p.priority}`).join("\n") + "\n";
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([csv], {type: "text/csv"})); a.download = `${$("set-name").value || "set"}.csv`; a.click();
+};
+$("generate").onclick = async () => {
+  const s = generateSeed(); if (!s.ok) return;
+  if (!confirmDiscard()) return;
+  try {
+    const body = {count: Number($("gen-count").value)}; if (s.seed !== undefined) body.seed = s.seed;
+    const g = await api("POST", "/product-sets/generate", body);
+    setList(g.products, true); setId = null;
+    $("gen-used").textContent = `Semilla usada: ${g.seed}${g.seed_source === "random" ? " (aleatoria)" : ""}`;
+  } catch (err) { $("set-errors").textContent = err.message; }
+};
+async function refreshSaved() {
+  const sets = await api("GET", "/product-sets");
+  const opts = sets.map(s => `<option value="${s.id}">${s.name} (${s.total})</option>`).join("");
+  $("saved-sets").innerHTML = opts;
+  $("session-set").innerHTML = `<option value="">Generado con la semilla</option>` + opts;
+}
+$("set-save").onclick = async () => {
+  try {
+    const body = {name: $("set-name").value, products: setItems};
+    const saved = setId ? await api("PUT", `/product-sets/${setId}`, body) : await api("POST", "/product-sets", body);
+    setId = saved.id; markDirty(false); $("set-errors").textContent = ""; await refreshSaved();
+  } catch (err) { $("set-errors").textContent = err.message; }
+};
+$("set-open").onclick = async () => {
+  const id = $("saved-sets").value; if (!id || !confirmDiscard()) return;
+  const s = await api("GET", `/product-sets/${id}`);
+  setId = s.id; $("set-name").value = s.name; setList(s.products, false);
+};
+$("set-delete").onclick = async () => {
+  const id = $("saved-sets").value; if (!id || !confirm("¿Borrar el set guardado?")) return;
+  await api("DELETE", `/product-sets/${id}`); if (setId === id) setId = null; await refreshSaved();
+};
+refreshSaved().catch(() => {}); renderSet();
 
 // ----- drawing -----
 const canvas = $("plant"), ctx = canvas.getContext("2d");
@@ -165,9 +360,7 @@ function transform() {
   return p => [20 + (p.x - minX) * s, canvas.height - 20 - (p.y - minY) * s];
 }
 function framePair(t) {
-  for (let i = frames.length - 1; i > 0; i--) {
-    if (frames[i - 1].t <= t) return [frames[i - 1], frames[i]];
-  }
+  for (let i = frames.length - 1; i > 0; i--) { if (frames[i - 1].t <= t) return [frames[i - 1], frames[i]]; }
   return frames.length ? [frames[0], frames[0]] : [null, null];
 }
 function draw() {
@@ -187,11 +380,9 @@ function draw() {
   for (const n of layout.nodes) { const [x, y] = tf(n); ctx.fillRect(x - 2, y - 2, 4, 4); }
   ctx.fillStyle = "#246"; ctx.font = "12px sans-serif";
   for (const m of layout.machines) { const [x, y] = tf(m); ctx.fillRect(x - 6, y - 6, 12, 12); ctx.fillText(m.name, x + 8, y - 8); }
-  // products, interpolated DELAY_MS behind the newest frame
   const t = performance.now() - DELAY_MS;
   const [a, b] = framePair(t);
   if (!a) return;
-  // Interpolate only between close frames (live mode); fast-mode frames are ~1 s apart: show the latest.
   const f = b === a || b.t === a.t || b.t - a.t > MAX_INTERP_MS ? 1 : Math.min(1, Math.max(0, (t - a.t) / (b.t - a.t)));
   ctx.fillStyle = "#d33";
   for (const [id, pb] of b.products) {

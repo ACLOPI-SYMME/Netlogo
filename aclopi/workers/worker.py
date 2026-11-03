@@ -175,11 +175,15 @@ class WorkerState:
         modeling_type: str = "Stochastic",
         horizon_ticks: int = 10000,
         session_id: str | None = None,
+        product_list: list[list[Any]] | None = None,
     ) -> dict[str, Any]:
-        """session_id (optional) only tags this worker's log lines until the next setup."""
+        """session_id (optional) only tags this worker's log lines until the next setup.
+        product_list: [[type, priority], ...] in entry order (docs/product-sets.md)."""
         logjson.session_id_var.set(session_id)
         try:
-            self.session.setup(seed=seed, rule=rule, modeling_type=modeling_type, horizon_ticks=horizon_ticks)
+            self.session.setup(seed=seed, rule=rule, modeling_type=modeling_type, horizon_ticks=horizon_ticks,
+                               product_list=[(str(t), int(p)) for t, p in product_list] if product_list else None)
+            self.runner.product_list = bool(product_list)
         finally:
             self.pushes += self.runner.reset()  # any run stops, also if setup fails
         self.configured = True
@@ -259,7 +263,7 @@ class WorkerState:
             )
         self._require_configured()
         self._require_not_running("step")
-        r = self.session.step(n)
+        r = self.session.step_product_list(n)[0] if self.runner.product_list else self.session.step(n)
         self.pushes += self.runner.mark_finished_after_step(r.finished)
         result: dict[str, Any] = {"ticks": r.ticks, "advanced": r.advanced, "finished": r.finished}
         if with_state:
@@ -302,6 +306,12 @@ class WorkerState:
         result, pushes = self.runner.next_machine(int(product), int(seq), str(machine))
         self.pushes += pushes
         return {"result": result, "tick": self.session.ticks, **self.runner.info()}
+
+    def op_product_sequence(self, seed: int, count: int) -> list[list[Any]]:
+        """The first `count` products of the fixed sequence of `seed` ("Generate from seed")."""
+        if self.session._params is None:  # PosibleProducts is set by setup: a worker with no world needs one
+            self.session.setup(seed=WARM_SEED, rule=WARM_RULE)
+        return [[t, p] for t, p in self.session.product_sequence(int(seed), int(count))]
 
     def op_fail_run(self, reason: str) -> dict[str, Any]:
         """End the current run as failed (the API gave up waiting for the agent)."""

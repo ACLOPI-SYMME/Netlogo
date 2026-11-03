@@ -47,6 +47,7 @@ from aclopi.api.errors import (
 )
 from aclopi.contracts.agent import DECIDING_STRATEGIES
 from aclopi.api.hub import SessionHub, encode
+from aclopi.api.product_sets import products_hash
 from aclopi.api.whatif import WhatIfMetrics
 from aclopi.logjson import session_id_var
 from aclopi.workers.pool import WorkerPool
@@ -107,6 +108,11 @@ class SessionRecord:
     sources: dict[str, int] = field(default_factory=dict)  # Decision.Source counts
     decide_failed: int = 0
     agent: Any = None  # the API's AgentClient (for the warnings in info())
+    # product list (L5.6): a COPY of the list, so editing the set later does not change the session
+    seed_source: str = "user"
+    product_set_id: str | None = None
+    product_list: list[dict[str, Any]] | None = None
+    products_hash: str | None = None
 
     @property
     def deciding(self) -> bool:
@@ -131,6 +137,10 @@ class SessionRecord:
             "pending_decisions": self.pending_decisions,
             "watchers": len(self.hub),
             "warnings": ["agent_unavailable"] if self.deciding and not (self.agent and self.agent.available) else [],
+            "seed_source": self.seed_source,
+            "product_set_id": self.product_set_id,
+            "products_total": len(self.product_list) if self.product_list is not None else None,
+            "products_hash": self.products_hash,
             "lost_reason": self.lost_reason,
             "worker_slot": self.worker_slot,
             "created_at": self.created_at,
@@ -222,7 +232,9 @@ class SessionRegistry:
     # ----- lifecycle -----
 
     async def create(self, seed: int, rule: int, modeling_type: str, horizon_ticks: int,
-                     strategy: str | None = None) -> SessionRecord:
+                     strategy: str | None = None, seed_source: str = "user",
+                     product_list: list[dict[str, Any]] | None = None,
+                     product_set_id: str | None = None) -> SessionRecord:
         session_id = uuid.uuid4().hex
         session_id_var.set(session_id)
         try:
@@ -234,7 +246,8 @@ class SessionRegistry:
             ) from None
         try:
             result = await self.run(handle.request, "setup", seed=seed, rule=rule, modeling_type=modeling_type,
-                                    horizon_ticks=horizon_ticks, session_id=session_id)
+                                    horizon_ticks=horizon_ticks, session_id=session_id,
+                                    product_list=[[p["type"], p["priority"]] for p in product_list] if product_list else None)
         except WorkerTimeout as exc:
             # The pool killed the worker; it frees the slot itself after the restart.
             self.pool.release_session(session_id)
@@ -256,6 +269,10 @@ class SessionRegistry:
             hub=SessionHub(session_id, self.ws_queue),
             strategy=strategy,
             agent=self.agent,
+            seed_source=seed_source,
+            product_set_id=product_set_id,
+            product_list=[dict(p) for p in product_list] if product_list else None,
+            products_hash=products_hash(product_list) if product_list else None,
         )
         record.apply_run(result)
         self._records[session_id] = record

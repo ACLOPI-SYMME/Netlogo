@@ -74,10 +74,12 @@ def test_platform_state_structure(netlogo: Any, rule: int) -> None:
     assert set(state) == {
         "tick", "time", "terminado", "finished", "segments", "gates", "machines", "products",
         "fixed_product_sequence", "product_sequence_seed", "products_created",
+        "product_list_active", "product_list_length", "product_list_next",
     }
     # Plain setup (no SimulationSession): the original model, without the fixed sequence.
     assert state["fixed_product_sequence"] is False and state["product_sequence_seed"] == 0
     assert state["products_created"] == len(state["products"]) + state["finished"]
+    assert state["product_list_active"] is False and state["product_list_length"] == 0
     assert state["tick"] == N_TICKS
     assert is_num(state["time"]) and state["terminado"] == "No"
     assert set(state["segments"]) == set(SEGMENTS)

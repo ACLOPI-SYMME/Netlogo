@@ -58,6 +58,13 @@ Si el arranque falla, el log JSON indica qué worker falló y por qué. Luego el
 | `GET /sessions/{id}/metrics` | Métricas de la sesión: what-if (`whatif`) y decisiones (`decisions`, L5.5) |
 | `POST /sessions/{id}/next-machine` | Decisión del agente para una petición pendiente (regla 4; `docs/agent-api.md`, PROPUESTA) |
 
+**Sets de productos y semilla opcional (L5.6).**
+- `POST /sessions` acepta `product_set_id` o `products`, y `seed` es opcional: sin ella se sortea, y queda en `parameters.seed` con `seed_source`.
+- Rutas `/product-sets*`.
+- KPIs `products_total`, `all_done`, `makespan_ticks` y `makespan_time`.
+- Una sesión con lista termina con `run_reason: "all_products_done"`.
+- Detalle en `docs/product-sets.md`.
+
 **Estrategias (L5.5).** Con `rule: 4`, `POST /sessions` acepta `strategy`:
 
 | `strategy` | Comportamiento |

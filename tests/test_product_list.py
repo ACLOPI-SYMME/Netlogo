@@ -30,7 +30,10 @@ def test_list_from_the_seed_equals_the_fixed_sequence() -> None:
     list_kpis, list_products = _run(generated)
     assert len(fixed_products) > 10
     assert list_products == fixed_products
-    assert list_kpis == fixed_kpis
+    list_only = {"products_total", "all_done", "makespan_ticks", "makespan_time"}  # KPIs of a list run
+    same = {k: v for k, v in fixed_kpis.items() if k not in list_only}
+    assert {k: v for k, v in list_kpis.items() if k not in list_only} == same
+    assert list_kpis["products_total"] == 300 and fixed_kpis["products_total"] is None
 
 
 def test_short_list_creates_exactly_those_products() -> None:
@@ -59,3 +62,25 @@ def test_switch_off_by_default() -> None:
 def test_validation(bad: list[Any]) -> None:
     with pytest.raises(ValueError):
         validate_product_list(bad)
+
+
+def test_exact_stop_is_identical_to_step() -> None:
+    """step_product_list stops at the go in which the last product finishes; up to that tick the run
+    is the same as with step (the stop condition uses no random numbers)."""
+    items = [("E", 70), ("A", 90), ("T", 60)]
+    with SimulationSession() as s:
+        s.setup(seed=7, rule=3, horizon_ticks=40000, product_list=items)
+        done = False
+        while not done:
+            r, done = s.step_product_list(2000)
+            assert r.ticks < 40000
+        stop_tick, kpis = s.ticks, s.kpis().as_dict()
+        assert kpis["all_done"] and kpis["finished"] == 3
+        r, done = s.step_product_list(2000)
+        assert r.advanced == 0 and done  # never advances after the end
+    with SimulationSession() as s:
+        s.setup(seed=7, rule=3, horizon_ticks=40000, product_list=items)
+        left = stop_tick
+        while left > 0:
+            left -= s.step(min(left, 2000)).advanced
+        assert s.kpis().as_dict() == kpis
