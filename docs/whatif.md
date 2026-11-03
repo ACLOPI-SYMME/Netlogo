@@ -29,17 +29,24 @@ Devuelve las máquinas candidatas para la operación `seq` del producto `product
 ```json
 {"product": 201, "seq": 1, "operation": "O1", "tick": 1012, "time": 313.72, "valid": true, "reason": null,
  "candidates": [
-   {"machine": "M3", "load": 0, "busy": false, "remaining_time": 0.0, "estimated_wait": 0.0, "operation_time": 210.0},
-   {"machine": "M2", "load": 1, "busy": false, "remaining_time": 0.0, "estimated_wait": 210.0, "operation_time": 210.0}]}
+   {"machine": "M2", "own_remaining": 88.2, "travel": 115.0, "arrival": 516.9, "queue_time": 0.0,
+    "start": 516.9, "finish": 726.9, "delta_finish": 0.0, "current_remaining": null, "en_route_time": null,
+    "available": null, "next_machine": null, "finish_plus_next": null, "delta_finish_plus_next": null},
+   {"machine": "M3", "...": "..."}]}
 ```
 
 | Campo | Significado |
 |---|---|
-| `load` | Productos en cola en la máquina o con ella como destino (`Heading.Workstation`), sin contar el que está procesando ni el propio producto |
-| `estimated_wait` | Lo que le falta al trabajo en curso más los tiempos de proceso de esa carga. En Stochastic se suma la media del término aleatorio (+10 en M2–M7). No incluye el viaje |
-| `operation_time` | Tiempo de proceso de la operación de este producto en esa máquina |
+| `own_remaining` | Lo que le falta a la operación actual del producto en su máquina |
+| `travel` | Viaje desde su máquina hasta la candidata (`distances` / 0,3 por tick × 0,31) |
+| `arrival` | Ahora + `own_remaining` + `travel`, en tiempo absoluto |
+| `queue_time` | Lo que le falta al trabajo en curso de la candidata + los tiempos de proceso de los productos en su cola o en camino (+10 en M2–M7 en Stochastic) |
+| `start` | `max(arrival, ahora + queue_time)` |
+| `finish` | `start` + tiempo de proceso de la operación en esa máquina |
+| `delta_finish` | `finish` − el mejor `finish` |
+| `current_remaining`, `en_route_time`, `available`, `next_machine`, `finish_plus_next`, `delta_finish_plus_next` | `null` en el stub. Los llenará la implementación de la Línea A |
 
-La lista viene ordenada por `estimated_wait`.
+Es la misma estimación de "Estimación de la entrada". Todos los valores están en u.t.; `arrival`, `start` y `finish` son tiempos absolutos (`Simulated.Time`). La lista viene ordenada por `finish`.
 
 ## `POST /sessions/{id}/what-if`
 

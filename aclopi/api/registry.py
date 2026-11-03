@@ -19,7 +19,14 @@ session is running (running_live / running_fast); in idle, paused or finished on
 so a forgotten browser tab does not hold a worker forever.
 
 Watchdog: a running session that sends no push for RUN_WATCHDOG_S is treated as hung and its
-worker is killed (L5.5: a session waiting for the agent must push heartbeats, see runner.py).
+worker is killed. A fast run waiting for the agent pushes heartbeats (runner.py), so only the
+worker's own requests count, never the time the agent takes.
+
+Decisions (L5.5, rule 4 with strategy b1 / b1b / agent): every decision request pushed by the
+worker is sent to the agent (POST /decide, aclopi.api.agent) without waiting for it. The agent
+answers with POST /sessions/{id}/next-machine (next_machine below). A fast run waiting for
+decisions fails with reason agent_unavailable after ACLOPI_FAST_DECISION_TIMEOUT_S; a live run
+never waits (the model applies rule 3: rule3-fallback, counted from the "assignments").
 """
 
 from __future__ import annotations
@@ -35,9 +42,10 @@ from typing import Any, Callable
 import anyio
 
 from aclopi.api.errors import (
-    FastRunLimit, GatewayTimeout, InvalidRunState, NoWorkerAvailable, SessionGone, SessionNotFound,
-    WorkerUnavailable,
+    AgentUnavailable, DecisionNotPending, FastRunLimit, GatewayTimeout, InvalidOption, InvalidRunState,
+    NoWorkerAvailable, Rule4Required, SessionGone, SessionNotFound, WorkerUnavailable,
 )
+from aclopi.contracts.agent import DECIDING_STRATEGIES
 from aclopi.api.hub import SessionHub, encode
 from aclopi.api.whatif import WhatIfMetrics
 from aclopi.logjson import session_id_var
@@ -48,7 +56,10 @@ from aclopi.workers.protocol import (
 
 TOMBSTONE_TTL_S = 24 * 3600.0
 MAX_TOMBSTONES = 1000
-RUNNING = ("running_live", "running_fast")
+RUNNING = ("running_live", "running_fast", "waiting_decision")
+FAST_STATES = ("running_fast", "waiting_decision")
+NOT_PENDING = {"product-finished", "stale-seq", "not-in-machine", "seq-mismatch"}
+MAX_DECISION_LOG = 100_000
 RECENT_EVENTS = 500
 MAX_EVENT_LOG = 200_000  # per session; kept for persistence (L5.6)
 
@@ -86,6 +97,20 @@ class SessionRecord:
     # what-if (L5.4): (product, seq) already tested in this run, and the session's metrics
     whatif_used: set[tuple[int, int]] = field(default_factory=set)
     whatif_metrics: WhatIfMetrics = field(default_factory=WhatIfMetrics)
+    # decisions (L5.5)
+    strategy: str | None = None
+    run_reason: str | None = None
+    pending_decisions: int = 0
+    waiting_since: float | None = None  # fast run waiting for the agent (monotonic)
+    decision_requests: dict[tuple[int, int], dict[str, Any]] = field(default_factory=dict)
+    decision_log: list[dict[str, Any]] = field(default_factory=list)
+    sources: dict[str, int] = field(default_factory=dict)  # Decision.Source counts
+    decide_failed: int = 0
+    agent: Any = None  # the API's AgentClient (for the warnings in info())
+
+    @property
+    def deciding(self) -> bool:
+        return int(self.parameters.get("rule", 0)) == 4 and self.strategy in DECIDING_STRATEGIES
 
     @property
     def running(self) -> bool:
@@ -99,9 +124,13 @@ class SessionRecord:
             "ticks": self.ticks,
             "finished": self.finished,
             "run_state": self.run_state,
+            "run_reason": self.run_reason,
             "mode": self.mode,
             "speed": self.speed,
+            "strategy": self.strategy,
+            "pending_decisions": self.pending_decisions,
             "watchers": len(self.hub),
+            "warnings": ["agent_unavailable"] if self.deciding and not (self.agent and self.agent.available) else [],
             "lost_reason": self.lost_reason,
             "worker_slot": self.worker_slot,
             "created_at": self.created_at,
@@ -113,6 +142,10 @@ class SessionRecord:
         if "run_state" in result:
             self.run_state, self.mode, self.speed = result["run_state"], result.get("mode"), result.get("speed")
             self.finished = self.run_state == "finished"
+            self.run_reason = result.get("reason")
+            self.pending_decisions = int(result.get("pending_decisions") or 0)
+            if self.run_state != "waiting_decision":
+                self.waiting_since = None
         tick = result.get("ticks", result.get("tick"))
         if tick is not None:
             self.ticks = int(tick)
@@ -146,6 +179,9 @@ class SessionRegistry:
         self._records: dict[str, SessionRecord] = {}
         self._fast_reservations = 0
         self.loop: asyncio.AbstractEventLoop | None = None
+        self.agent: Any = None  # aclopi.api.agent.AgentClient, set by the app
+        self.fast_decision_timeout_s = 90.0
+        self._tasks: set[asyncio.Task[Any]] = set()
 
     async def run(self, fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
         """Run a blocking call in a thread (contextvars, hence session_id, are copied)."""
@@ -185,7 +221,8 @@ class SessionRegistry:
 
     # ----- lifecycle -----
 
-    async def create(self, seed: int, rule: int, modeling_type: str, horizon_ticks: int) -> SessionRecord:
+    async def create(self, seed: int, rule: int, modeling_type: str, horizon_ticks: int,
+                     strategy: str | None = None) -> SessionRecord:
         session_id = uuid.uuid4().hex
         session_id_var.set(session_id)
         try:
@@ -217,6 +254,8 @@ class SessionRegistry:
             last_activity=now,
             last_activity_mono=time.monotonic(),
             hub=SessionHub(session_id, self.ws_queue),
+            strategy=strategy,
+            agent=self.agent,
         )
         record.apply_run(result)
         self._records[session_id] = record
@@ -295,12 +334,17 @@ class SessionRegistry:
     async def start_run(self, session_id: str, mode: str, speed: float | None) -> SessionRecord:
         record = self.get(session_id)
         self._ensure_active(record)
-        reserve = mode == "fast" and record.run_state != "running_fast"
+        if record.deciding and mode == "fast" and not (self.agent is not None and self.agent.available):
+            raise AgentUnavailable(
+                f"a fast run with strategy {record.strategy!r} waits for the agent at every decision, and the "
+                f"agent is {self.agent.status if self.agent else 'not configured'}", session_id)
+        reserve = mode == "fast" and record.run_state not in FAST_STATES
         if reserve:
             self._check_fast_limit(record)
             self._fast_reservations += 1
         try:
-            record, result = await self.call(session_id, "run", mode=mode, speed=speed)
+            record, result = await self.call(session_id, "run", mode=mode, speed=speed,
+                                             decisions=record.deciding, rule4=int(record.parameters["rule"]) == 4)
         finally:
             if reserve:
                 self._fast_reservations -= 1
@@ -326,7 +370,7 @@ class SessionRegistry:
 
     def _check_fast_limit(self, record: SessionRecord) -> None:
         running = sum(1 for r in self._records.values()
-                      if r.status == "active" and r.run_state == "running_fast" and r is not record)
+                      if r.status == "active" and r.run_state in FAST_STATES and r is not record)
         if running + self._fast_reservations >= self.max_fast_runs:
             raise FastRunLimit(
                 f"{self.max_fast_runs} fast run(s) already in progress (ACLOPI_MAX_FAST_RUNS); "
@@ -338,6 +382,7 @@ class SessionRegistry:
             return
         record.last_push_mono = time.monotonic()
         hub = record.hub
+        self._decision_push(record, event, data)
         if event == "tick":
             state = data.pop("state", None)
             record.ticks = int(data["tick"])
@@ -368,6 +413,109 @@ class SessionRegistry:
                          extra={"session_id": session_id})
             hub.publish({"type": "run_error", **data})
 
+    # ----- decisions (L5.5) -----
+
+    def _decision_push(self, record: SessionRecord, event: str, data: Any) -> None:
+        """Take the decision parts out of a push: send the requests to the agent, count sources."""
+        if not isinstance(data, dict):
+            return
+        for a in data.pop("assignments", None) or []:
+            record.sources[a["source"]] = record.sources.get(a["source"], 0) + 1
+        # The requests travel in the block's tick/progress push; "decision_required" (fast mode)
+        # repeats them only to say that the run now waits: it starts the timeout, nothing is resent.
+        requests = data.pop("decision_requests", None) or []
+        if event == "decision_required":
+            record.waiting_since = record.waiting_since or time.monotonic()
+        for req in requests:
+            self._request_decision(record, req)
+
+    def _request_decision(self, record: SessionRecord, req: dict[str, Any]) -> None:
+        live = record.run_state == "running_live"
+        payload = {
+            "session_id": record.session_id, "product": int(req["who"]), "seq": int(req["seq"]),
+            "strategy": record.strategy, "mode": "live" if live else "fast",
+            "ticks_per_second": round(32.0 * (record.speed or 1.0), 3) if live else None,
+            # Simulated.Time advances 0.31 per tick, rounded to 2 decimals (Product.Movement)
+            "tick": int(req["tick"]), "simulated_time": round(0.31 * int(req["tick"]), 2),
+            "operation": req.get("operation"), "origin": req.get("origin"), "candidates": req.get("candidates"),
+        }
+        record.decision_requests[(payload["product"], payload["seq"])] = {
+            "sent_mono": time.monotonic(), "tick": payload["tick"], "mode": payload["mode"]}
+        if self.agent is None:
+            return
+
+        async def send() -> None:
+            if not await self.agent.decide(payload):
+                record.decide_failed += 1
+
+        task = asyncio.ensure_future(send())
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
+
+    async def next_machine(self, session_id: str, product: int, seq: int, machine: str, level: str,
+                           reason: str | None, latencies: dict[str, Any] | None) -> dict[str, Any]:
+        record = self.get(session_id)
+        self._ensure_active(record)
+        if int(record.parameters.get("rule", 0)) != 4:
+            raise Rule4Required("next-machine needs a session with rule 4", session_id)
+        record, out = await self.call(session_id, "next_machine", product=product, seq=seq, machine=machine)
+        result = out["result"]
+        request = record.decision_requests.get((product, seq))
+        entry = {
+            "tick": int(out["tick"]), "request_tick": request["tick"] if request else None, "product": product,
+            "seq": seq, "strategy": record.strategy, "decision_level": level, "machine": machine,
+            "reason": reason, "latency_ms": round(1000 * (time.monotonic() - request["sent_mono"]), 1) if request else None,
+            "agent_latencies": latencies, "late": False, "result": result,
+        }
+        if result == "ok":
+            record.decision_requests.pop((product, seq), None)
+            record.apply_run(out)
+            self._log_decision(record, entry)
+            record.hub.publish({"type": "decision", "product": product, "seq_op": seq, "machine": machine,
+                                "level": level, "late": False, "latency_ms": entry["latency_ms"], "tick": entry["tick"]})
+            return {"applied": True, "tick": entry["tick"], "late": False, "run_state": record.run_state,
+                    "pending_decisions": record.pending_decisions}
+        if result in NOT_PENDING:
+            entry["late"] = True
+            record.decision_requests.pop((product, seq), None)
+            self._log_decision(record, entry)
+            record.hub.publish({"type": "decision", "product": product, "seq_op": seq, "machine": machine,
+                                "level": level, "late": True, "latency_ms": entry["latency_ms"], "tick": entry["tick"]})
+            raise DecisionNotPending(f"the decision is no longer pending ({result}): registered as late", session_id)
+        if result == "rule4-not-active":
+            raise Rule4Required("next-machine needs a session with rule 4", session_id)
+        raise InvalidOption(f"invalid next machine: {result}", session_id)
+
+    def _log_decision(self, record: SessionRecord, entry: dict[str, Any]) -> None:
+        record.decision_log.append(entry)
+        if len(record.decision_log) > MAX_DECISION_LOG:
+            del record.decision_log[: len(record.decision_log) - MAX_DECISION_LOG]
+
+    def decision_metrics(self, record: SessionRecord) -> dict[str, Any]:
+        applied = [d for d in record.decision_log if not d["late"]]
+        levels: dict[str, int] = {}
+        for d in applied:
+            levels[d["decision_level"]] = levels.get(d["decision_level"], 0) + 1
+        lat = sorted(d["latency_ms"] for d in applied if d["latency_ms"] is not None)
+        multi = record.sources.get("agent", 0) + record.sources.get("rule3-fallback", 0)
+        return {
+            "strategy": record.strategy,
+            "requests_sent": len(record.decision_log) + len(record.decision_requests),
+            "decide_failed": record.decide_failed,
+            "applied": len(applied),
+            "late": sum(1 for d in record.decision_log if d["late"]),
+            "unanswered": len(record.decision_requests),
+            "by_level": levels,
+            "by_level_pct": {k: round(100 * v / len(applied), 1) for k, v in levels.items()} if applied else {},
+            "sources": dict(record.sources),
+            "rule3_fallback_pct": round(100 * record.sources.get("rule3-fallback", 0) / multi, 1) if multi else None,
+            "single_option": record.sources.get("single-option", 0),
+            "latency_ms": {"mean": round(sum(lat) / len(lat), 1), "p95": lat[min(len(lat) - 1, int(round(0.95 * (len(lat) - 1))))],
+                           "max": lat[-1], "n": len(lat)} if lat else None,
+            "log": [{k: d[k] for k in ("tick", "request_tick", "product", "seq", "machine", "decision_level", "late",
+                                       "latency_ms", "reason")} for d in record.decision_log],
+        }
+
     def on_lost(self, session_id: str, reason: str) -> None:
         record = self._records.get(session_id)
         if record is not None and record.status == "active":
@@ -378,6 +526,14 @@ class SessionRegistry:
         limit = RUN_WATCHDOG_S * timeout_scale()
         now = time.monotonic()
         for record in list(self._records.values()):
+            if (record.status == "active" and record.run_state == "waiting_decision" and record.waiting_since
+                    and now - record.waiting_since > self.fast_decision_timeout_s):
+                record.waiting_since = None  # one failure per stall
+                logger.error("No decision from the agent for %.0f s: the fast run fails (agent_unavailable)",
+                             self.fast_decision_timeout_s, extra={"session_id": record.session_id})
+                task = asyncio.ensure_future(self._fail_run(record.session_id, "agent_unavailable"))
+                self._tasks.add(task)
+                task.add_done_callback(self._tasks.discard)
             if record.status == "active" and record.running and now - record.last_push_mono > limit:
                 reason = f"no progress from the worker for {now - record.last_push_mono:.0f} s while {record.run_state}"
                 record.last_push_mono = now  # one kill per stall
@@ -465,6 +621,13 @@ class SessionRegistry:
                         await self._stop_worker(record)
                     self._close(record, "expired", f"closed after {self.idle_timeout_s:g} s without requests")
         self.prune()
+
+    async def _fail_run(self, session_id: str, reason: str) -> None:
+        try:
+            record, out = await self.call(session_id, "fail_run", touch=False, reason=reason)
+            record.apply_run(out)
+        except Exception:  # noqa: BLE001
+            logger.exception("Could not fail the run", extra={"session_id": session_id})
 
     async def sweep_loop(self) -> None:
         interval = min(60.0, max(self.idle_timeout_s / 4, 0.5))

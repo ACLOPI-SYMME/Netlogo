@@ -55,7 +55,21 @@ Si el arranque falla, el log JSON indica qué worker falló y por qué. Luego el
 | `WS /ws/sessions/{id}` | Transmisión en tiempo real (formato en `docs/websocket.md`) |
 | `GET /sessions/{id}/candidates?product=&seq=` | Candidatas de una decisión pendiente, con su carga y su espera estimada (L5.4, `docs/whatif.md`) |
 | `POST /sessions/{id}/what-if` | Prueba 2 asignaciones de una decisión en copias de la simulación, dentro de `budget_ms` (por defecto 10 s, de 2 a 15 s; el agente lo calcula con su plazo de decisión: desde M2–M7 cabe ~10 s, desde M1 no cabe con las llamadas al LLM). Solo regla 4; `docs/whatif.md` |
-| `GET /sessions/{id}/metrics` | Métricas de what-if de la sesión |
+| `GET /sessions/{id}/metrics` | Métricas de la sesión: what-if (`whatif`) y decisiones (`decisions`, L5.5) |
+| `POST /sessions/{id}/next-machine` | Decisión del agente para una petición pendiente (regla 4; `docs/agent-api.md`, PROPUESTA) |
+
+**Estrategias (L5.5).** Con `rule: 4`, `POST /sessions` acepta `strategy`:
+
+| `strategy` | Comportamiento |
+|---|---|
+| `b1`, `b1b`, `agent` | Llaman al agente en cada decisión |
+| `none` (por defecto) | Regla 4 sin decisor, igual a la regla 3 |
+
+- Con las reglas 1–3, enviar `strategy` responde 422.
+- `SessionInfo` incluye `strategy`, `run_reason` (por ejemplo `agent_unavailable`), `pending_decisions` y `warnings`.
+- `candidates`, `what-if` y `next-machine` exigen `Authorization: Bearer` cuando `ACLOPI_AGENT_TOKEN` está definida.
+- `GET /health` muestra el estado del agente (`agent`), que no afecta a `/health/ready`.
+- Detalles en `docs/agent-api.md`.
 
 **Regla 4.** `POST /sessions` acepta `rule: 4` (AI Agent). Sin decisor se comporta exactamente como la regla 3.
 
@@ -86,6 +100,8 @@ idle ──run──► running_live / running_fast ──pause──► paused 
   │ reset        ▼ horizonte (también por un step manual)
   └─────────── finished
 ```
+
+Con decisor y en modo rápido, la corrida pasa a `waiting_decision` mientras espera al agente. Si nadie responde en `ACLOPI_FAST_DECISION_TIMEOUT_S` termina en `failed`, con `run_reason: "agent_unavailable"`; desde `failed` solo vale `reset`.
 
 | Pedido | idle | running_* | paused | finished |
 |---|---|---|---|---|

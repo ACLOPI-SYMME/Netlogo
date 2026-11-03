@@ -43,6 +43,12 @@ class Settings:
     whatif_stall_ticks: int = 300
     whatif_chunk_ticks: int = 150
     whatif_skip_beyond_cap: bool = False
+    # Agent (L5.5): service URL, shared token (never logged), timeouts
+    agent_url: str | None = None
+    agent_token: str | None = None
+    agent_decide_timeout_s: float = 2.0
+    agent_health_interval_s: float = 30.0
+    fast_decision_timeout_s: float = 90.0
     whatif_diag_dir: Path = field(default_factory=lambda: REPO_ROOT / "results" / "whatif_diagnostics")
 
     def run_options(self) -> dict[str, float | int]:
@@ -73,6 +79,11 @@ class Settings:
             whatif_stall_ticks=_int(env, "ACLOPI_WHATIF_STALL_TICKS", 300),
             whatif_chunk_ticks=_int(env, "ACLOPI_WHATIF_CHUNK_TICKS", 150),
             whatif_skip_beyond_cap=env.get("ACLOPI_WHATIF_SKIP_BEYOND_CAP", "").strip() in ("1", "true", "yes"),
+            agent_url=env.get("ACLOPI_AGENT_URL", "").strip().rstrip("/") or None,
+            agent_token=env.get("ACLOPI_AGENT_TOKEN", "").strip() or None,
+            agent_decide_timeout_s=_float(env, "ACLOPI_AGENT_DECIDE_TIMEOUT_S", 2.0),
+            agent_health_interval_s=_float(env, "ACLOPI_AGENT_HEALTH_INTERVAL_S", 30.0),
+            fast_decision_timeout_s=_float(env, "ACLOPI_FAST_DECISION_TIMEOUT_S", 90.0),
             whatif_diag_dir=Path(env["ACLOPI_WHATIF_DIAG_DIR"]) if env.get("ACLOPI_WHATIF_DIAG_DIR", "").strip()
             else REPO_ROOT / "results" / "whatif_diagnostics",
         )
