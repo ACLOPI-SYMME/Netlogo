@@ -65,7 +65,7 @@ La lista viene ordenada por `estimated_wait`.
    |---|---|
    | `entered` | El producto **entra** a la máquina probada. Se leen el tick, el tiempo de entrada y el fin de la operación (`Next.Completion`), que se fija al entrar, con su parte aleatoria incluida |
    | `cap` | Llegó a `max_ticks` sin entrar |
-   | `stalled` | Bloqueo: ningún producto cambió de posición durante `ACLOPI_WHATIF_STALL_TICKS` ticks (300; las posiciones se comparan cada `min(150, stall_ticks)` ticks) |
+   | `stalled` | Bloqueo: durante `ACLOPI_WHATIF_STALL_TICKS` ticks (300) ningún producto cambió de posición **y** ninguna operación empezó ni terminó (el total de elementos de `ProductRealStart` y `ProductRealCompletion` de todos los productos no cambió). Se compara cada `min(150, stall_ticks)` ticks. Una operación en M2–M7 dura ~645 ticks: que todos esperen en máquina o en cola no es un bloqueo |
    | `pruned` | Solo la segunda copia: llegó a la ventana común sin entrar, así que ya es peor que la primera |
    | `timeout` | Se acabó `budget_ms` |
    | `horizon` | Terminó la corrida |
@@ -124,6 +124,54 @@ Así las dos métricas se miden en el mismo tick, y la poda coincide con la vent
 | `finished` | Productos terminados dentro de la ventana |
 
 La plataforma no combina estas cantidades ni ordena las opciones: eso lo decide el agente.
+
+### Definición de los campos
+
+Todos los valores están en **unidades de tiempo simulado (u.t.)**, salvo los ticks y los conteos. 1 tick = 0,31 u.t. (`set simulated.time precision (simulated.time + 0.31) 2`, línea 1020).
+
+Notación:
+
+| Símbolo | Significado |
+|---|---|
+| `T0` | `Simulated.Time` de la foto, que es el momento de la petición |
+| `T` | `Simulated.Time` en la parada de la copia, que es la ventana común para comparar |
+| `W` | El producto que se decide |
+| "los demás" | Todos los productos de la copia salvo `W`: también los creados dentro de la ventana y los que terminan dentro de ella. Los que terminaron antes de `T0` aportan 0 |
+
+**Entrada y fin de la operación de `W`**
+
+| Campo | Definición |
+|---|---|
+| `entry_tick` | Tick del `go` en que `W` entra a la máquina probada, es decir, en que `length ProductRealStart` pasa de `seq` a `seq + 1` |
+| `entry_time` | `item seq ProductRealStart` de `W`, en u.t. |
+| `op_end_time` | `Next.Completion` de la máquina probada leída en ese tick. Se fija al entrar e incluye la parte aleatoria `random-exponential 10` en M2–M7 (líneas 1310–1317 para M1, sin término aleatorio, y 1455–1462 y sus copias para M2–M7) |
+| Valores estimados (`*_estimated: true`) | Cuando `W` no entra, salen de "Estimación de la entrada" sobre el estado de la copia en la parada |
+
+**Ventana**
+
+| Campo | Definición |
+|---|---|
+| `window_tick` | El tick en que se detuvo la **primera** copia, la de menor entrada estimada, ya sea por entrar, por tope, por bloqueo o por plazo |
+| Cómo corre la segunda copia | Corre hasta su entrada o hasta `window_tick`, lo que llegue primero. Si entra antes, sigue hasta `window_tick`. Si no entró al llegar a la ventana, se poda (`pruned`). En ambos casos, su `others` se mide en `window_tick` |
+| Excepción | Si la segunda copia se queda sin plazo antes de la ventana, `others.window_tick` dice dónde se midió |
+
+**Métrica `others`** (las sumas son sobre los demás)
+
+| Campo | Fórmula |
+|---|---|
+| `work` | `Σ trabajo_nominal(T) − Σ trabajo_nominal(T0)`. `trabajo_nominal` es el de `work_completed` (`aclopi/sim/kpis.py`): cada operación completada suma su `OperationDuration` (200 en O1–O7, 100 en O8–O9; `Set.operations`, línea 2633). La que está en curso suma `OperationDuration × fracción procesada`, donde la fracción es `(Simulated.Time − last ProductRealStart) / (Next.Completion − last ProductRealStart)`, recortada a [0, 1]. Usa el **tiempo nominal**, no el real. Una operación que cae solo en parte dentro de la ventana aporta la parte de su nominal que avanzó en ella |
+| `presence` | `Σ solapamiento([max(ProductCreationTime, T0), fin], [T0, T])`, con `fin` = `last ProductRealCompletion` si terminó (estado `death`), o `T` si sigue en planta. Es tiempo **real** en planta |
+| `wait` | `presence − Σ proceso_real`, con `proceso_real` = `Σ solapamiento([ProductRealStart_i, ProductRealCompletion_i o T], [T0, T])`. Es tiempo **real** sin proceso, es decir, viajando o en cola. **No usa `work`**: como `presence` y `proceso_real` son reales, `wait` no arrastra el término aleatorio. El tiempo extra de una operación larga por `random-exponential` cuenta como proceso, no como espera |
+| `finished` | Cantidad de los demás con estado `death` y `last ProductRealCompletion > T0`, es decir, que terminaron dentro de la ventana |
+
+**Ejemplo.** Con `T0` = 300 y `T` = 500 u.t. hay dos productos más:
+
+| Producto | Qué pasa en la ventana | `presence` | `proceso_real` | `work` |
+|---|---|---|---|---|
+| A | En planta desde antes. Procesa O1 entre 350 y 560 (real 210: nominal 200 + 10 aleatorio) | 200 | 150 | `200 × (150 / 210) ≈ 142,9` |
+| B | Se crea en 420 y viaja | 80 | 0 | 0 |
+
+Totales: `presence` = 280, `wait` = 280 − 150 = 130, `work` ≈ 142,9 y `finished` = 0.
 
 ### Respuesta (siempre 200, salvo validación)
 

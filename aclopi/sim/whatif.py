@@ -79,7 +79,8 @@ def _others_reporter(exclude: int, t0: float) -> str:
 
 def _status_reporter(product: int, seq: int, machine: str) -> str:
     """One read per chunk: [ticks, entered (0/1), entry time, operation end, positions of the alive
-    products, machines processing] (positions detect stalls; the count goes to the diagnostic)."""
+    products, operations started + completed so far (all products), machines processing].
+    Positions and the operation count detect stalls; the processing count goes to the diagnostic."""
     entered = f"[length ProductRealStart] of turtle {product} > {seq}"
     return (
         "platform-local [ -> json-any (list ticks "
@@ -87,6 +88,7 @@ def _status_reporter(product: int, seq: int, machine: str) -> str:
         f"(ifelse-value ({entered}) [item {seq} [ProductRealStart] of turtle {product}] [-1]) "
         f"([Next.Completion] of first sort machines with [Machine.Name = {netlogo_string(machine)}]) "
         "(map [p -> [(list who xcor ycor)] of p] sort products with [Product.State != \"death\"]) "
+        "(sum map [p -> [length ProductRealStart + length ProductRealCompletion] of p] sort products) "
         "(length filter [m -> [Machine.State = \"Machine.Processing\"] of m] sort machines)) ]"
     )
 
@@ -232,7 +234,7 @@ def run_option(
         until = "" if out.entered else f" and not ({entered_cond})"
         session._command(f'while [ticks < {target} and ticks < horizon-ticks and terminado = "No"{until}] [ go ]')
         previous = tick
-        tick, entered, entry_time, op_end, positions, processing = json.loads(str(session._report(status)))
+        tick, entered, entry_time, op_end, positions, operations, processing = json.loads(str(session._report(status)))
         if not out.entered and entered:
             out.entered, out.stop_reason = True, "entered"
             out.entry_tick, out.entry_time, out.op_end_time = tick, float(entry_time), float(op_end)
@@ -243,13 +245,14 @@ def run_option(
             if not out.entered:
                 out.stop_reason = "horizon"
             break
-        # Stall: no product moved for stall_ticks (positions compared between chunks, which are
-        # never longer than stall_ticks). `processing` is kept for the diagnostic only.
-        if positions == last_activity:
+        # Stall: for stall_ticks no product changed position AND no operation started or ended
+        # (an operation in M2-M7 lasts ~645 ticks: products waiting in machines or queues for more
+        # than 300 ticks is not a stall). Compared between chunks, never longer than stall_ticks.
+        if (positions, operations) == last_activity:
             quiet += tick - previous
         else:
             quiet = 0
-        last_activity = positions
+        last_activity = (positions, operations)
         if quiet >= stall_ticks and not out.entered:
             out.stop_reason, out.stalled = "stalled", True
             if diagnostic is not None:

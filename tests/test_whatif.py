@@ -230,32 +230,46 @@ def test_timeout_returns_what_is_ready(api: ApiServer, client: httpx.Client) -> 
 
 
 def test_stall_saves_a_diagnostic(api: ApiServer, client: httpx.Client, tmp_path: Path) -> None:
-    """With stall_ticks = 1 a single tick without movement counts as a stall (on a real snapshot
-    that happens within a few ticks: no product moves in ~20 % of the ticks)."""
+    """stall_ticks = 1 on a real snapshot: the copy stops at the first tick in which no product
+    moved and no operation started or ended. The test replays the copy to check that condition."""
     tick, req, snapshot = find_decision(seed=42, nth=4)
-    snapshot.unlink()
-    sid = api_session(client, 42, tick)
-    settings = api.app.state.settings
-    previous = (settings.whatif_stall_ticks, settings.whatif_diag_dir)
-    object.__setattr__(settings, "whatif_stall_ticks", 1)
-    object.__setattr__(settings, "whatif_diag_dir", tmp_path / "diag")
     try:
-        body = whatif(client, sid, req, list(req.candidates[:2])).json()
+        sid = api_session(client, 42, tick)
+        settings = api.app.state.settings
+        previous = (settings.whatif_stall_ticks, settings.whatif_diag_dir)
+        object.__setattr__(settings, "whatif_stall_ticks", 1)
+        object.__setattr__(settings, "whatif_diag_dir", tmp_path / "diag")
+        try:
+            body = whatif(client, sid, req, list(req.candidates[:2])).json()
+        finally:
+            object.__setattr__(settings, "whatif_stall_ticks", previous[0])
+            object.__setattr__(settings, "whatif_diag_dir", previous[1])
+        stalled = [o for o in body["options"] if o["stop_reason"] == "stalled"]
+        assert stalled, body["options"]
+        o = stalled[0]
+        assert o["stalled"] and not o["entered"] and o["entry_estimated"]
+        csv_file = Path(o["diagnostic_file"])
+        assert csv_file.parent == tmp_path / "diag" and csv_file.stat().st_size > 10_000  # the world snapshot
+        meta = json.loads(csv_file.with_suffix(".json").read_text(encoding="utf-8"))
+        assert meta["session_id"] == sid and meta["product"] == req.who and meta["seq"] == req.seq
+        assert meta["machine"] == o["machine"] and meta["snapshot_tick"] == tick and meta["quiet_ticks"] >= 1
+        assert meta["stall_tick"] == o["stop_tick"]
+        # replay: between stall_tick - 1 and stall_tick nothing moved and no operation changed
+        probe = ('platform-local [ -> json-any (list (map [p -> [(list who xcor ycor)] of p] '
+                 'sort products with [Product.State != "death"]) '
+                 '(sum map [p -> [length ProductRealStart + length ProductRealCompletion] of p] sort products)) ]')
+        with SimulationSession() as s:
+            s.import_world(snapshot)
+            assert set_next_machine(s, req.who, o["machine"], req.seq) == "ok"
+            s.step(o["stop_tick"] - 1 - tick)
+            before = json.loads(str(s._report(probe)))
+            s.step(1)
+            after = json.loads(str(s._report(probe)))
+        assert before == after
+        assert client.get(f"/sessions/{sid}/metrics").json()["whatif"]["stalled"] >= 1
+        client.delete(f"/sessions/{sid}")
     finally:
-        object.__setattr__(settings, "whatif_stall_ticks", previous[0])
-        object.__setattr__(settings, "whatif_diag_dir", previous[1])
-    stalled = [o for o in body["options"] if o["stop_reason"] == "stalled"]
-    assert stalled, body["options"]
-    o = stalled[0]
-    assert o["stalled"] and not o["entered"] and o["entry_estimated"]
-    csv_file = Path(o["diagnostic_file"])
-    meta_file = csv_file.with_suffix(".json")
-    assert csv_file.parent == tmp_path / "diag" and csv_file.stat().st_size > 10_000  # the world snapshot
-    meta = json.loads(meta_file.read_text(encoding="utf-8"))
-    assert meta["session_id"] == sid and meta["product"] == req.who and meta["seq"] == req.seq
-    assert meta["machine"] == o["machine"] and meta["snapshot_tick"] == tick and meta["quiet_ticks"] >= 1
-    assert client.get(f"/sessions/{sid}/metrics").json()["whatif"]["stalled"] >= 1
-    client.delete(f"/sessions/{sid}")
+        snapshot.unlink(missing_ok=True)
 
 
 def test_candidates_endpoint(client: httpx.Client) -> None:
