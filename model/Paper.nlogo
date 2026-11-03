@@ -274,14 +274,16 @@ to PrintData
   set DataFrameTemp lput Modeling.Type DataFrameTemp
 
   ; Block 1 (Global State)
+  ; P11: means and the mean completion ratio are 0 when no product is alive (a product list that ran
+  ; out); with alive products the expressions are the original ones (docs/known-issues.md).
   set DataFrameTemp lput count products with [Product.State != "death"] DataFrameTemp
   set DataFrameTemp lput (count products with [Product.State != "death"] / 10)  DataFrameTemp
   set DataFrameTemp lput (count machines with [Machine.State =  "Machine.Processing"])  DataFrameTemp
   set DataFrameTemp lput (count products with [Product.State != "death"] - count machines with [Machine.State =  "Machine.Processing"])  DataFrameTemp
-  set DataFrameTemp lput precision (mean [xcor] of products with [Product.State != "death"]) 2 DataFrameTemp
-  set DataFrameTemp lput precision (sqrt (mean map [i -> (i - mean [xcor] of products with [Product.State != "death"]) ^ 2] [xcor] of products with [Product.State != "death"])) 2 DataFrameTemp
-  set DataFrameTemp lput precision mean [ycor] of products with [Product.State != "death"] 2 DataFrameTemp
-  set DataFrameTemp lput precision (sqrt (mean map [i -> (i - mean [ycor] of products with [Product.State != "death"]) ^ 2] [ycor] of products with [Product.State != "death"])) 2 DataFrameTemp
+  set DataFrameTemp lput (ifelse-value (any? products with [Product.State != "death"]) [precision (mean [xcor] of products with [Product.State != "death"]) 2] [0]) DataFrameTemp
+  set DataFrameTemp lput (ifelse-value (any? products with [Product.State != "death"]) [precision (sqrt (mean map [i -> (i - mean [xcor] of products with [Product.State != "death"]) ^ 2] [xcor] of products with [Product.State != "death"])) 2] [0]) DataFrameTemp
+  set DataFrameTemp lput (ifelse-value (any? products with [Product.State != "death"]) [precision mean [ycor] of products with [Product.State != "death"] 2] [0]) DataFrameTemp
+  set DataFrameTemp lput (ifelse-value (any? products with [Product.State != "death"]) [precision (sqrt (mean map [i -> (i - mean [ycor] of products with [Product.State != "death"]) ^ 2] [ycor] of products with [Product.State != "death"])) 2] [0]) DataFrameTemp
   set DataFrameTemp lput (sum [length productoperations] of products with [Product.State != "death"]) DataFrameTemp
   set DataFrameTemp lput (sum [length productrealcompletion] of products with [Product.State != "death"]) DataFrameTemp
   set DataFrameTemp lput (count products with [Product.State = "Waiting"]) DataFrameTemp
@@ -316,7 +318,7 @@ to PrintData
   set DataFrameTemp lput precision (length listEntropy / 7) 2 DataFrameTemp
   set DataFrameTemp lput precision (sum map [i -> ([length productrealcompletion / (length productoperations)] of i)] (sort products with [Product.State != "death"])) 2 DataFrameTemp
   set DataFrameTemp lput precision (count products with [Product.State != "death"]) 2 DataFrameTemp
-  set DataFrameTemp lput precision (((sum map [i -> ([length productrealcompletion / (length productoperations)] of i)] (sort products with [Product.State != "death"]))) / (count products with [Product.State != "death"])) 2 DataFrameTemp
+  set DataFrameTemp lput (ifelse-value (any? products with [Product.State != "death"]) [precision (((sum map [i -> ([length productrealcompletion / (length productoperations)] of i)] (sort products with [Product.State != "death"]))) / (count products with [Product.State != "death"])) 2] [0]) DataFrameTemp
 
   ; Block 3 (Machines)
 
@@ -424,10 +426,10 @@ to PrintData
   set DataFrameTemp lput count products with [2 <= xcor and xcor < 70 and 30 <= ycor and ycor < 70] DataFrameTemp        ; M6
   set DataFrameTemp lput count products with [2 <= xcor and xcor < 70 and 70 <= ycor and ycor <= 120] DataFrameTemp      ; M7
 
-  set DataFrameTemp lput precision mean [xcor] of products with [Product.State != "death"] 2 DataFrameTemp
-  set DataFrameTemp lput precision(sqrt (mean map [i -> (i - mean [xcor] of products with [Product.State != "death"]) ^ 2] [xcor] of products with [Product.State != "death"])) 2 DataFrameTemp
-  set DataFrameTemp lput precision mean [ycor] of products with [Product.State != "death"] 2 DataFrameTemp
-  set DataFrameTemp lput precision(sqrt (mean map [i -> (i - mean [ycor] of products with [Product.State != "death"]) ^ 2] [ycor] of products with [Product.State != "death"])) 2 DataFrameTemp
+  set DataFrameTemp lput (ifelse-value (any? products with [Product.State != "death"]) [precision mean [xcor] of products with [Product.State != "death"] 2] [0]) DataFrameTemp
+  set DataFrameTemp lput (ifelse-value (any? products with [Product.State != "death"]) [precision(sqrt (mean map [i -> (i - mean [xcor] of products with [Product.State != "death"]) ^ 2] [xcor] of products with [Product.State != "death"])) 2] [0]) DataFrameTemp
+  set DataFrameTemp lput (ifelse-value (any? products with [Product.State != "death"]) [precision mean [ycor] of products with [Product.State != "death"] 2] [0]) DataFrameTemp
+  set DataFrameTemp lput (ifelse-value (any? products with [Product.State != "death"]) [precision(sqrt (mean map [i -> (i - mean [ycor] of products with [Product.State != "death"]) ^ 2] [ycor] of products with [Product.State != "death"])) 2] [0]) DataFrameTemp
   set DataFrameTemp lput (sum [length productoperations] of products with [Product.State != "death"]) DataFrameTemp
   set DataFrameTemp lput (sum [length productrealcompletion] of products with [Product.State != "death"]) DataFrameTemp
   set DataFrameTemp lput (count products with [Product.State = "Waiting"]) DataFrameTemp
