@@ -94,6 +94,7 @@ class SessionInfo(BaseModel):
     products_total: int | None = Field(None, description="Length of the session's product list (None: generated "
                                                          "from the seed, as before)")
     products_hash: str | None = Field(None, description="sha256 of the session's product list")
+    last_run_id: str | None = Field(None, description="Last run of this session saved to the results store")
     mode: Literal["live", "fast"] | None = Field(description="Mode of the current or paused run")
     speed: float | None = Field(description="Live speed factor of the current or paused run")
     watchers: int = Field(description="WebSocket clients connected to /ws/sessions/{id}")
@@ -337,6 +338,37 @@ class GeneratedProducts(BaseModel):
     total: int
     counts: dict[str, int]
     hash: str
+
+
+class RunRecord(BaseModel):
+    """A saved run (L5.7): parameters, outcome and summaries."""
+
+    model_config = ConfigDict(extra="allow")
+
+    run_id: str
+    session_id: str
+    created_at: float
+    finished_at: float
+    status: Literal["finished", "failed", "stopped"]
+    reason: str | None = None
+    ticks: int | None = None
+    rule: int
+    strategy: str | None = None
+    seed: int
+    seed_source: str
+    horizon_ticks: int
+    mode: str | None = None
+    product_set_id: str | None = None
+    products_hash: str | None = None
+    products: list[ProductItem] | None = None
+    kpis: dict[str, Any]
+    decisions_summary: dict[str, Any] | None = None
+    whatif_summary: dict[str, Any] | None = None
+
+
+class RunPage(BaseModel):
+    runs: list[RunRecord]
+    next_cursor: str | None = None
 
 
 class WorkerInfo(BaseModel):

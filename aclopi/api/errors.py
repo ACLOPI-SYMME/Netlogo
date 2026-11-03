@@ -30,6 +30,10 @@ class SessionNotFound(ApiError):
     status_code, code = 404, "session_not_found"
 
 
+class RunNotFound(ApiError):
+    status_code, code = 404, "run_not_found"
+
+
 class ProductSetNotFound(ApiError):
     status_code, code = 404, "product_set_not_found"
 
