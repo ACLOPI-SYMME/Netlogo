@@ -1,42 +1,227 @@
 {
   "components": {
     "schemas": {
-      "CandidateInfo": {
-        "additionalProperties": true,
+      "AgentHealth": {
         "properties": {
-          "busy": {
-            "title": "Busy",
+          "configured": {
+            "title": "Configured",
             "type": "boolean"
           },
-          "estimated_wait": {
-            "title": "Estimated Wait",
-            "type": "number"
-          },
-          "load": {
-            "description": "Products queued at the machine or heading to it (not the one in process)",
-            "title": "Load",
+          "decide_failed": {
+            "default": 0,
+            "title": "Decide Failed",
             "type": "integer"
+          },
+          "decide_sent": {
+            "default": 0,
+            "title": "Decide Sent",
+            "type": "integer"
+          },
+          "last_check": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Check"
+          },
+          "last_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error"
+          },
+          "last_ok": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Ok"
+          },
+          "status": {
+            "enum": [
+              "ok",
+              "down",
+              "unknown",
+              "not_configured"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "configured",
+          "status"
+        ],
+        "title": "AgentHealth",
+        "type": "object"
+      },
+      "CandidateInfo": {
+        "additionalProperties": true,
+        "description": "Provisional fields of Línea A (aclopi/contracts/candidates.py). The platform's stub fills\nown_remaining..delta_finish (simulated time units) and leaves the rest null.",
+        "properties": {
+          "arrival": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Arrival"
+          },
+          "available": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Available"
+          },
+          "current_remaining": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Remaining"
+          },
+          "delta_finish": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Delta Finish"
+          },
+          "delta_finish_plus_next": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Delta Finish Plus Next"
+          },
+          "en_route_time": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "En Route Time"
+          },
+          "finish": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finish"
+          },
+          "finish_plus_next": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finish Plus Next"
           },
           "machine": {
             "title": "Machine",
             "type": "string"
           },
-          "operation_time": {
-            "title": "Operation Time",
-            "type": "number"
+          "next_machine": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Machine"
           },
-          "remaining_time": {
-            "title": "Remaining Time",
-            "type": "number"
+          "own_remaining": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Own Remaining"
+          },
+          "queue_time": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Queue Time"
+          },
+          "start": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start"
+          },
+          "travel": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Travel"
           }
         },
         "required": [
-          "machine",
-          "load",
-          "busy",
-          "remaining_time",
-          "estimated_wait",
-          "operation_time"
+          "machine"
         ],
         "title": "CandidateInfo",
         "type": "object"
@@ -192,6 +377,17 @@
       },
       "Health": {
         "properties": {
+          "agent": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AgentHealth"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Agent service (does not affect /health/ready)"
+          },
           "sessions": {
             "$ref": "#/components/schemas/SessionCounts"
           },
@@ -303,6 +499,145 @@
           "work_completed"
         ],
         "title": "Kpis",
+        "type": "object"
+      },
+      "Latencies": {
+        "additionalProperties": true,
+        "properties": {
+          "llm_ms": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "One value per LLM call",
+            "title": "Llm Ms"
+          },
+          "total_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Ms"
+          }
+        },
+        "title": "Latencies",
+        "type": "object"
+      },
+      "NextMachineRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "decision_level": {
+            "enum": [
+              "code-obvious",
+              "code-fallback",
+              "llm",
+              "llm-what-if",
+              "heuristic"
+            ],
+            "title": "Decision Level",
+            "type": "string"
+          },
+          "latencies": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Latencies"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "machine": {
+            "pattern": "^M[1-7]$",
+            "title": "Machine",
+            "type": "string"
+          },
+          "product": {
+            "minimum": 0.0,
+            "title": "Product",
+            "type": "integer"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "seq": {
+            "minimum": 0.0,
+            "title": "Seq",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "product",
+          "seq",
+          "machine",
+          "decision_level"
+        ],
+        "title": "NextMachineRequest",
+        "type": "object"
+      },
+      "NextMachineResponse": {
+        "properties": {
+          "applied": {
+            "title": "Applied",
+            "type": "boolean"
+          },
+          "late": {
+            "default": false,
+            "title": "Late",
+            "type": "boolean"
+          },
+          "pending_decisions": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pending Decisions"
+          },
+          "run_state": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run State"
+          },
+          "tick": {
+            "title": "Tick",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "applied",
+          "tick"
+        ],
+        "title": "NextMachineResponse",
         "type": "object"
       },
       "OthersMetric": {
@@ -598,6 +933,24 @@
             "minimum": -2147483648.0,
             "title": "Seed",
             "type": "integer"
+          },
+          "strategy": {
+            "anyOf": [
+              {
+                "enum": [
+                  "b1",
+                  "b1b",
+                  "agent",
+                  "none"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Rule 4 only: who decides. b1 / b1b / agent call the agent service (docs/agent-api.md); none = rule 4 without a decider (same as rule 3). Default none with rule 4; not accepted with rules 1-3",
+            "title": "Strategy"
           }
         },
         "required": [
@@ -654,14 +1007,34 @@
           "parameters": {
             "$ref": "#/components/schemas/RunParameters"
           },
+          "pending_decisions": {
+            "default": 0,
+            "description": "Fast mode: decisions the run is waiting for",
+            "title": "Pending Decisions",
+            "type": "integer"
+          },
+          "run_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why the run ended, e.g. agent_unavailable (failed)",
+            "title": "Run Reason"
+          },
           "run_state": {
-            "description": "idle | running_live | running_fast | paused | finished",
+            "description": "idle | running_live | running_fast | waiting_decision | paused | finished | failed",
             "enum": [
               "idle",
               "running_live",
               "running_fast",
+              "waiting_decision",
               "paused",
-              "finished"
+              "finished",
+              "failed"
             ],
             "title": "Run State",
             "type": "string"
@@ -691,10 +1064,36 @@
             "title": "Status",
             "type": "string"
           },
+          "strategy": {
+            "anyOf": [
+              {
+                "enum": [
+                  "b1",
+                  "b1b",
+                  "agent",
+                  "none"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Rule 4: b1 | b1b | agent | none",
+            "title": "Strategy"
+          },
           "ticks": {
             "description": "Last known tick (from requests and from the run's pushes)",
             "title": "Ticks",
             "type": "integer"
+          },
+          "warnings": {
+            "description": "e.g. agent_unavailable (live runs still allowed)",
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
           },
           "watchers": {
             "description": "WebSocket clients connected to /ws/sessions/{id}",
@@ -733,6 +1132,12 @@
       "SessionMetrics": {
         "additionalProperties": true,
         "properties": {
+          "decisions": {
+            "additionalProperties": true,
+            "description": "Decisions by level, % rule3-fallback, single-option, late, latency (L5.5)",
+            "title": "Decisions",
+            "type": "object"
+          },
           "whatif": {
             "additionalProperties": true,
             "title": "Whatif",
@@ -1467,7 +1872,7 @@
                 }
               }
             },
-            "description": "Platform starting (platform_starting), no free worker (no_free_worker), worker unavailable (worker_unavailable) or too many fast runs (fast_run_limit)"
+            "description": "Platform starting (platform_starting), no free worker (no_free_worker), worker unavailable (worker_unavailable), too many fast runs (fast_run_limit) or agent down (agent_unavailable)"
           },
           "504": {
             "content": {
@@ -1624,6 +2029,22 @@
               "title": "Seq",
               "type": "integer"
             }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
           }
         ],
         "responses": {
@@ -1636,6 +2057,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Missing or wrong Authorization: Bearer token (unauthorized), when ACLOPI_AGENT_TOKEN is set"
           },
           "404": {
             "content": {
@@ -2015,6 +2446,137 @@
         ]
       }
     },
+    "/sessions/{session_id}/next-machine": {
+      "post": {
+        "description": "Applied between blocks with platform-set-next-machine. 409 decision_not_pending (registered as late) if the product already left the decision; 422 if the machine cannot do the operation. See docs/agent-api.md (PROPOSAL).",
+        "operationId": "next_machine_sessions__session_id__next_machine_post",
+        "parameters": [
+          {
+            "description": "Session id returned by POST /sessions",
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "description": "Session id returned by POST /sessions",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NextMachineRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NextMachineResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Missing or wrong Authorization: Bearer token (unauthorized), when ACLOPI_AGENT_TOKEN is set"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Unknown session (session_not_found)"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not allowed in the session's run state (invalid_run_state), e.g. step while running; what-if: rule4_required or decision_not_pending"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Session lost because its worker crashed or hung (session_lost), or closed for inactivity (session_expired)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Error inside NetLogo or the worker (simulation_error)"
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The worker did not answer in time (worker_timeout); it is restarted and the session is lost"
+          }
+        },
+        "summary": "The agent's decision for a pending request (rule 4)",
+        "tags": [
+          "decisions"
+        ]
+      }
+    },
     "/sessions/{session_id}/pause": {
       "post": {
         "operationId": "pause_sessions__session_id__pause_post",
@@ -2278,7 +2840,7 @@
                 }
               }
             },
-            "description": "Platform starting (platform_starting), no free worker (no_free_worker), worker unavailable (worker_unavailable) or too many fast runs (fast_run_limit)"
+            "description": "Platform starting (platform_starting), no free worker (no_free_worker), worker unavailable (worker_unavailable), too many fast runs (fast_run_limit) or agent down (agent_unavailable)"
           },
           "504": {
             "content": {
@@ -2393,7 +2955,7 @@
                 }
               }
             },
-            "description": "Platform starting (platform_starting), no free worker (no_free_worker), worker unavailable (worker_unavailable) or too many fast runs (fast_run_limit)"
+            "description": "Platform starting (platform_starting), no free worker (no_free_worker), worker unavailable (worker_unavailable), too many fast runs (fast_run_limit) or agent down (agent_unavailable)"
           },
           "504": {
             "content": {
@@ -2618,6 +3180,22 @@
               "title": "Session Id",
               "type": "string"
             }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
           }
         ],
         "requestBody": {
@@ -2640,6 +3218,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Missing or wrong Authorization: Bearer token (unauthorized), when ACLOPI_AGENT_TOKEN is set"
           },
           "404": {
             "content": {

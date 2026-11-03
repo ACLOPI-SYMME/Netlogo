@@ -35,7 +35,7 @@ from pathlib import Path
 from typing import Any
 
 from aclopi.contracts.candidates import CandidateParams, ModelStatic
-from aclopi.sim.candidates import _op_time, machine_loads, travel_time
+from aclopi.sim.candidates import estimate_start
 from aclopi.sim.decisions import set_next_machine
 from aclopi.sim.session import netlogo_string
 
@@ -141,37 +141,13 @@ def others_metric(session: Any, exclude: int, t0: float, work0: float) -> dict[s
     }
 
 
-def _remaining(m: dict[str, Any]) -> float:
-    return float(m["remaining"]) if m.get("state") == "Machine.Processing" and m.get("remaining") is not None else 0.0
-
-
 def estimate_entry(state: dict[str, Any], product: int, machine: str, operation: str, static: ModelStatic,
                    params: CandidateParams = CandidateParams(), origin: str | None = None,
                    left_time: float | None = None) -> tuple[float, float]:
-    """(entry time, operation end time) estimated from a platform-state.
-
-    The product can enter when it has arrived AND the machine is free:
-      arrival = now + what is left of its own operation (if it is in a machine)
-                    + travel from its machine to the tested one (distances / conveyor speed)
-      free    = now + what is left of the machine's job + processing times of its load
-      entry   = max(arrival, free)
-    A product already travelling (not in a machine) needs `origin` (its last machine) and
-    `left_time` (when it left it); the travel already done is subtracted.
-    TODO(Línea A): when the real candidates arrives, use its estimated start instead of this.
-    """
-    now = float(state["time"])
-    machines = {m["name"]: m for m in state["machines"]}
-    current = next((m for m in state["machines"] if m.get("product") == product), None)
-    if current is not None:  # being processed: waits for its own operation, then travels
-        own, origin, travelled = _remaining(current), current["name"], 0.0
-    else:
-        own, travelled = 0.0, max(0.0, now - left_time) if left_time is not None else 0.0
-    arrival = now + own + max(0.0, travel_time(static, origin, machine) - travelled)
-    queued = sum(_op_time(static, params, machine, str(q.get("next_operation")))
-                 for q in machine_loads(state, exclude=product)[machine])
-    free = now + _remaining(machines[machine]) + queued
-    entry = max(arrival, free)
-    return entry, entry + _op_time(static, params, machine, operation)
+    """(entry time, operation end time) estimated from a platform-state: start and finish of
+    aclopi.sim.candidates.estimate_start (own operation + travel, or the machine's load)."""
+    e = estimate_start(state, product, machine, operation, static, params, origin=origin, left_time=left_time)
+    return e["start"], e["finish"]
 
 
 def run_option(

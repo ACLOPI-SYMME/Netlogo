@@ -22,6 +22,9 @@
   Semilla <input id="seed" type="number" value="42">
   Regla <select id="rule"><option>1</option><option>2</option><option selected>3</option><option>4</option></select>
   Horizonte <input id="horizon" type="number" value="10000">
+  <span id="strategy-box" hidden>Estrategia <select id="strategy">
+    <option value="none">none (regla 3)</option><option>b1</option><option>b1b</option><option selected>agent</option>
+  </select></span>
   <button id="create">Crear sesión</button>
   <span id="sid"></span>
 </fieldset>
@@ -34,11 +37,13 @@
   <button id="reset">Reiniciar</button>
   <button id="close">Cerrar</button>
 </fieldset>
+<div id="agent-banner" class="err" hidden>Agente no disponible: las corridas rápidas con b1 / b1b / agent no se pueden iniciar; en vivo actúa la regla 3.</div>
 <div>Tick: <b id="tick">–</b> · Estado: <b id="runstate">–</b> · Ritmo: <span id="rate">–</span> · <span id="msg"></span></div>
 <div id="main">
   <canvas id="plant" width="760" height="520"></canvas>
   <div id="side">
     <b>KPIs</b><pre id="kpis">–</pre>
+    <b>Decisiones</b><pre id="decisions">–</pre>
     <b>Eventos</b> (últimos 200)<div id="events"></div>
   </div>
 </div>
@@ -61,11 +66,35 @@ async function api(method, path, body) {
   return data;
 }
 async function act(fn) { try { const info = await fn(); if (info && info.run_state) showRun(info); } catch (e) { msg(e.message, true); } }
-function showRun(info) { $("runstate").textContent = info.run_state + (info.mode ? ` (${info.mode}${info.speed ? " " + info.speed + "×" : ""})` : ""); }
+function showRun(info) {
+  $("runstate").textContent = info.run_state + (info.mode ? ` (${info.mode}${info.speed ? " " + info.speed + "×" : ""})` : "");
+  const reason = info.reason ?? info.run_reason;
+  if (info.run_state === "failed" && reason === "agent_unavailable") msg("Agente no disponible: la corrida se detuvo", true);
+}
+$("rule").onchange = () => { $("strategy-box").hidden = $("rule").value !== "4"; };
+async function pollAgent() {
+  try { const h = await (await fetch("/health")).json(); $("agent-banner").hidden = !h.agent || h.agent.status !== "down"; } catch (e) {}
+}
+setInterval(pollAgent, 10000); pollAgent();
+async function showDecisions() {
+  if (!sid) return;
+  try {
+    const m = (await (await fetch(`/sessions/${sid}/metrics`)).json()).decisions;
+    if (!m || !m.strategy || m.strategy === "none") { $("decisions").textContent = "–"; return; }
+    const levels = Object.entries(m.by_level_pct).map(([k, v]) => `${k} ${v}%`).join("  ") || "–";
+    $("decisions").textContent = `aplicadas ${m.applied}  tarde ${m.late}  sin respuesta ${m.unanswered}\n${levels}\n` +
+      `rule3-fallback ${m.rule3_fallback_pct ?? "–"}%  single-option ${m.single_option}` +
+      (m.latency_ms ? `\nlatencia media ${m.latency_ms.mean} ms  p95 ${m.latency_ms.p95} ms` : "");
+  } catch (e) {}
+}
+setInterval(showDecisions, 2000);
 
 $("create").onclick = () => act(async () => {
   if (sid) { await api("DELETE", `/sessions/${sid}`).catch(() => {}); }
-  const info = await api("POST", "/sessions", {seed: +$("seed").value, rule: +$("rule").value, horizon_ticks: +$("horizon").value});
+  const body = {seed: +$("seed").value, rule: +$("rule").value, horizon_ticks: +$("horizon").value};
+  if (body.rule === 4) body.strategy = $("strategy").value;
+  const info = await api("POST", "/sessions", body);
+  if (info.warnings && info.warnings.includes("agent_unavailable")) msg("Aviso: el agente no está disponible (en vivo actuará la regla 3)", true);
   sid = info.session_id; $("sid").textContent = sid; connect(); return info;
 });
 $("live").onclick = () => act(() => api("POST", `/sessions/${sid}/run`, {mode: "live", speed: +$("speed").value}));
@@ -118,6 +147,7 @@ function handle(m) {
       addFrame(m.tick, m.state);  // fast mode: platform-state about once a second (accelerated video)
       addEvents(m.events); showKpis(m.kpis); break;
     case "run_state": showRun(m); break;
+    case "decision": break;  // counted by showDecisions (metrics)
     case "finished": showKpis(m.kpis); msg(`Corrida terminada en el tick ${m.tick}`); break;
     case "resync": msg(`Resincronizando (${m.reason}, ${m.dropped} mensajes descartados)`); break;
     case "run_error": msg(`Error en la corrida: ${m.error}`, true); break;

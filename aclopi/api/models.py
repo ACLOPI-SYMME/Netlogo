@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from aclopi.contracts.agent import NextMachineRequest, NextMachineResponse, Strategy  # noqa: F401 (re-exported)
 
 from aclopi.workers.protocol import MAX_STEP_TICKS
 
@@ -20,6 +22,18 @@ class SessionCreate(BaseModel):
                                                   "4 AI Agent (without a decider it behaves exactly as rule 3)")
     modeling_type: Literal["Stochastic", "Deterministic"] = "Stochastic"
     horizon_ticks: int = Field(10000, ge=1, le=1_000_000, description="The run ends (ExportData) at this tick")
+    strategy: Strategy | None = Field(
+        None, description="Rule 4 only: who decides. b1 / b1b / agent call the agent service (docs/agent-api.md); "
+                          "none = rule 4 without a decider (same as rule 3). Default none with rule 4; not "
+                          "accepted with rules 1-3")
+
+    @model_validator(mode="after")
+    def _strategy_needs_rule4(self) -> "SessionCreate":
+        if self.rule != 4 and self.strategy is not None:
+            raise ValueError("strategy is only accepted with rule 4")
+        if self.rule == 4 and self.strategy is None:
+            self.strategy = "none"
+        return self
 
 
 class RunParameters(BaseModel):
@@ -29,7 +43,7 @@ class RunParameters(BaseModel):
     horizon_ticks: int
 
 
-RunState = Literal["idle", "running_live", "running_fast", "paused", "finished"]
+RunState = Literal["idle", "running_live", "running_fast", "waiting_decision", "paused", "finished", "failed"]
 
 
 class RunRequest(BaseModel):
@@ -45,7 +59,12 @@ class SessionInfo(BaseModel):
     parameters: RunParameters
     ticks: int = Field(description="Last known tick (from requests and from the run's pushes)")
     finished: bool
-    run_state: RunState = Field(description="idle | running_live | running_fast | paused | finished")
+    run_state: RunState = Field(description="idle | running_live | running_fast | waiting_decision | paused | "
+                                             "finished | failed")
+    run_reason: str | None = Field(None, description="Why the run ended, e.g. agent_unavailable (failed)")
+    strategy: Strategy | None = Field(None, description="Rule 4: b1 | b1b | agent | none")
+    pending_decisions: int = Field(0, description="Fast mode: decisions the run is waiting for")
+    warnings: list[str] = Field(default_factory=list, description="e.g. agent_unavailable (live runs still allowed)")
     mode: Literal["live", "fast"] | None = Field(description="Mode of the current or paused run")
     speed: float | None = Field(description="Live speed factor of the current or paused run")
     watchers: int = Field(description="WebSocket clients connected to /ws/sessions/{id}")
@@ -118,14 +137,25 @@ class Kpis(BaseModel):
 
 
 class CandidateInfo(BaseModel):
+    """Provisional fields of Línea A (aclopi/contracts/candidates.py). The platform's stub fills
+    own_remaining..delta_finish (simulated time units) and leaves the rest null."""
+
     model_config = ConfigDict(extra="allow")
 
     machine: str
-    load: int = Field(description="Products queued at the machine or heading to it (not the one in process)")
-    busy: bool
-    remaining_time: float
-    estimated_wait: float
-    operation_time: float
+    own_remaining: float | None = None
+    travel: float | None = None
+    arrival: float | None = None
+    queue_time: float | None = None
+    start: float | None = None
+    finish: float | None = None
+    delta_finish: float | None = None
+    current_remaining: float | None = None
+    en_route_time: float | None = None
+    available: bool | None = None
+    next_machine: str | None = None
+    finish_plus_next: float | None = None
+    delta_finish_plus_next: float | None = None
 
 
 class CandidatesResponse(BaseModel):
@@ -227,6 +257,8 @@ class SessionMetrics(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     whatif: dict[str, Any]
+    decisions: dict[str, Any] = Field(default_factory=dict, description="Decisions by level, % rule3-fallback, "
+                                                                         "single-option, late, latency (L5.5)")
 
 
 class WorkerInfo(BaseModel):
@@ -245,8 +277,19 @@ class SessionCounts(BaseModel):
     max: int
 
 
+class AgentHealth(BaseModel):
+    configured: bool
+    status: Literal["ok", "down", "unknown", "not_configured"]
+    last_check: float | None = None
+    last_ok: float | None = None
+    last_error: str | None = None
+    decide_sent: int = 0
+    decide_failed: int = 0
+
+
 class Health(BaseModel):
     status: Literal["starting", "ready", "degraded", "failed", "stopping"]
+    agent: AgentHealth | None = Field(None, description="Agent service (does not affect /health/ready)")
     uptime_s: float
     startup_s: float | None
     sessions: SessionCounts

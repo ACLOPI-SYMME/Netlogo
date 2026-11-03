@@ -81,8 +81,18 @@ Formato de un evento:
 {"type": "run_state", "seq": 43, "run_state": "paused", "mode": "live", "speed": 1.0, "tick": 1293}
 ```
 
-- **Estados:** `run_state` vale `idle`, `running_live`, `running_fast`, `paused` o `finished`.
+- **Estados:** `run_state` vale `idle`, `running_live`, `running_fast`, `waiting_decision` (rápido con decisor, esperando al agente), `paused`, `finished` o `failed`.
+- **`reason`:** por qué terminó, por ejemplo `agent_unavailable` en `failed`. `pending_decisions` dice cuántas decisiones se esperan.
 - **`mode` y `speed`:** son los de la corrida en curso o pausada, y valen `null` en `idle` y `finished`.
+
+### `decision`: se aplicó (o llegó tarde) una decisión del agente (L5.5)
+
+```json
+{"type": "decision", "seq": 61, "product": 201, "seq_op": 1, "machine": "M3", "level": "llm",
+ "late": false, "latency_ms": 3412.0, "tick": 1113}
+```
+
+Es un mensaje ligero: el detalle está en `GET /sessions/{id}/metrics` (`decisions`). Nota: el campo `seq` del mensaje es el número de mensaje del WebSocket, y el `seq` de la operación decidida va en **`seq_op`**.
 
 ### `finished`: la corrida llegó al horizonte
 

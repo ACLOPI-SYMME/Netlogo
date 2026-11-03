@@ -12,6 +12,7 @@ created with debug=False.
 from __future__ import annotations
 
 import asyncio
+import hmac
 import logging
 import os
 import re
@@ -22,16 +23,18 @@ from typing import Any, AsyncIterator, Callable
 import anyio
 from pathlib import Path as FilePath
 
-from fastapi import FastAPI, Path, Query, Request, Response, WebSocket
+from fastapi import Depends, FastAPI, Header, Path, Query, Request, Response, WebSocket
 from fastapi.responses import FileResponse, JSONResponse
 
 from aclopi.api import errors
-from aclopi.api.errors import InvalidRunState, PlatformStarting, WorkerUnavailable
+from aclopi.api.errors import InvalidRunState, PlatformStarting, Unauthorized, WorkerUnavailable
 from aclopi.api.instance_lock import InstanceLock
 from aclopi.api.models import (
     STEP_N_DESCRIPTION, CandidatesResponse, Event, Health, Kpis, PlantLayout, PlantState, Probe, RunRequest,
-    SessionCreate, SessionInfo, SessionMetrics, StepResult, WhatIfRequest, WhatIfResponse,
+    NextMachineRequest, NextMachineResponse, SessionCreate, SessionInfo, SessionMetrics, StepResult, WhatIfRequest,
+    WhatIfResponse,
 )
+from aclopi.api.agent import AgentClient
 from aclopi.api.whatif import run_whatif
 from aclopi.api.ws import stream_session
 from aclopi.api.registry import SessionRegistry
@@ -85,6 +88,7 @@ class Runtime:
         self.lock = InstanceLock(settings.work_dir)
         self.pool: WorkerPool | None = None
         self.registry: SessionRegistry | None = None
+        self.agent: AgentClient | None = None
         self._tasks: list[asyncio.Task[Any]] = []
 
     async def start(self) -> None:
@@ -99,10 +103,16 @@ class Runtime:
         )
         self.registry.attach(asyncio.get_running_loop())
         self.pool.set_session_callbacks(self.registry.push_from_thread, self.registry.lost_from_thread)
+        self.agent = AgentClient(self.settings.agent_url, self.settings.agent_token,
+                                 self.settings.agent_decide_timeout_s, self.settings.agent_health_interval_s)
+        await self.agent.start()
+        self.registry.agent = self.agent
+        self.registry.fast_decision_timeout_s = self.settings.fast_decision_timeout_s
         self._tasks = [
             asyncio.create_task(self._start_pool(), name="pool-start"),
             asyncio.create_task(self.registry.sweep_loop(), name="idle-sweeper"),
             asyncio.create_task(self.registry.watchdog_loop(), name="run-watchdog"),
+            asyncio.create_task(self.agent.health_loop(), name="agent-health"),
         ]
         logger.info("API starting: %d session + %d what-if workers", self.settings.n_session_workers,
                     self.settings.n_whatif_workers, extra={"phase": self.phase})
@@ -133,6 +143,8 @@ class Runtime:
             await anyio.to_thread.run_sync(self.pool.shutdown)
         if self._tasks:
             await asyncio.gather(*self._tasks, return_exceptions=True)
+        if self.agent is not None:
+            await self.agent.close()
         self.lock.release()
         logger.info("API stopped", extra={"phase": self.phase})
 
@@ -220,6 +232,14 @@ def create_app(
     app.add_middleware(RequestContextMiddleware)
     errors.install(app)
 
+    def require_agent_token(authorization: str | None = Header(None)) -> None:
+        """With ACLOPI_AGENT_TOKEN set, the agent's calls carry Authorization: Bearer <token>."""
+        token = settings.agent_token
+        if token is None:
+            return
+        if authorization is None or not hmac.compare_digest(authorization, f"Bearer {token}"):
+            raise Unauthorized("missing or wrong Authorization: Bearer token")
+
     # ----- health -----
 
     @app.get("/health/live", response_model=Probe, tags=["health"],
@@ -248,6 +268,7 @@ def create_app(
                          "max": settings.n_session_workers},
             "workers": [{k: w[k] for k in ("slot", "role", "ready", "state", "pid", "rss_mib", "restarts", "session_id")}
                         for w in workers],
+            "agent": runtime.agent.info() if runtime.agent else None,
         }
 
     # ----- sessions -----
@@ -259,7 +280,8 @@ def create_app(
               responses=errors.responses(500, 503, 504))
     async def create_session(body: SessionCreate, request: Request) -> dict[str, Any]:
         registry = runtime.require_ready()
-        record = await registry.create(body.seed, body.rule, body.modeling_type, body.horizon_ticks)
+        record = await registry.create(body.seed, body.rule, body.modeling_type, body.horizon_ticks,
+                                       strategy=body.strategy)
         request.state.session_id = record.session_id
         return record.info()
 
@@ -369,11 +391,11 @@ def create_app(
              description="Computed from platform-state by aclopi.sim.candidates (schema owned by Línea A); "
                          "it does not alter the simulation. While the session runs it is served between blocks. "
                          "An invalid request (e.g. seq-mismatch) answers 200 with valid=false and the reason.",
-             responses=errors.responses(404, 410, 500, 504))
+             responses=errors.responses(401, 404, 410, 500, 504))
     async def candidates(session_id: str = session_id_path,
                          product: int = Query(..., ge=0, description="who of the product"),
-                         seq: int = Query(..., ge=0, description="Index in ProductOperations of the operation to decide")
-                         ) -> Any:
+                         seq: int = Query(..., ge=0, description="Index in ProductOperations of the operation to decide"),
+                         _auth: None = Depends(require_agent_token)) -> Any:
         _, result = await runtime.sessions.call(session_id, "candidates", product=product, seq=seq)
         return result
 
@@ -383,8 +405,9 @@ def create_app(
                           "per option on a borrowed what-if worker, within the request's budget_ms. "
                           "status 'skipped' (no-free-worker, already-used, entry-beyond-cap) is a normal answer "
                           "(200). See docs/whatif.md.",
-              responses=errors.responses(404, 409, 410, 500, 504))
-    async def what_if(body: WhatIfRequest, session_id: str = session_id_path) -> Any:
+              responses=errors.responses(401, 404, 409, 410, 500, 504))
+    async def what_if(body: WhatIfRequest, session_id: str = session_id_path,
+                      _auth: None = Depends(require_agent_token)) -> Any:
         return await run_whatif(runtime.sessions, settings, session_id, body.product, body.seq, body.options,
                                 body.max_ticks, body.budget_ms)
 
@@ -393,7 +416,19 @@ def create_app(
              responses=errors.responses(404))
     async def session_metrics(session_id: str = session_id_path) -> Any:
         record = runtime.sessions.get(session_id, touch=False)
-        return {"whatif": record.whatif_metrics.as_dict()}
+        return {"whatif": record.whatif_metrics.as_dict(), "decisions": runtime.sessions.decision_metrics(record)}
+
+    @app.post("/sessions/{session_id}/next-machine", response_model=NextMachineResponse, tags=["decisions"],
+              summary="The agent's decision for a pending request (rule 4)",
+              description="Applied between blocks with platform-set-next-machine. 409 decision_not_pending "
+                          "(registered as late) if the product already left the decision; 422 if the machine "
+                          "cannot do the operation. See docs/agent-api.md (PROPOSAL).",
+              responses=errors.responses(401, 404, 409, 410, 500, 504))
+    async def next_machine(body: NextMachineRequest, session_id: str = session_id_path,
+                           _auth: None = Depends(require_agent_token)) -> Any:
+        return await runtime.sessions.next_machine(
+            session_id, body.product, body.seq, body.machine, body.decision_level, body.reason,
+            body.latencies.model_dump() if body.latencies else None)
 
     # ----- WebSocket and test page (L5.3) -----
 
