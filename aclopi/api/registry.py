@@ -48,6 +48,7 @@ from aclopi.api.errors import (
 from aclopi.contracts.agent import DECIDING_STRATEGIES
 from aclopi.api.hub import SessionHub, encode
 from aclopi.api.product_sets import products_hash
+from aclopi.api.results import new_run_id
 from aclopi.api.whatif import WhatIfMetrics
 from aclopi.logjson import session_id_var
 from aclopi.workers.pool import WorkerPool
@@ -108,11 +109,16 @@ class SessionRecord:
     sources: dict[str, int] = field(default_factory=dict)  # Decision.Source counts
     decide_failed: int = 0
     agent: Any = None  # the API's AgentClient (for the warnings in info())
+    last_run_id: str | None = None
     # product list (L5.6): a COPY of the list, so editing the set later does not change the session
     seed_source: str = "user"
     product_set_id: str | None = None
     product_list: list[dict[str, Any]] | None = None
     products_hash: str | None = None
+    # the run in progress, saved to the results store when it finishes, fails or is stopped (L5.7)
+    run_started_at: float | None = None
+    run_mode: str | None = None
+    run_decision_start: int = 0
 
     @property
     def deciding(self) -> bool:
@@ -138,6 +144,7 @@ class SessionRecord:
             "watchers": len(self.hub),
             "warnings": ["agent_unavailable"] if self.deciding and not (self.agent and self.agent.available) else [],
             "seed_source": self.seed_source,
+            "last_run_id": self.last_run_id,
             "product_set_id": self.product_set_id,
             "products_total": len(self.product_list) if self.product_list is not None else None,
             "products_hash": self.products_hash,
@@ -192,6 +199,7 @@ class SessionRegistry:
         self.agent: Any = None  # aclopi.api.agent.AgentClient, set by the app
         self.fast_decision_timeout_s = 90.0
         self._tasks: set[asyncio.Task[Any]] = set()
+        self.results: Any = None  # aclopi.api.results.ResultsStore, set by the app
 
     async def run(self, fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
         """Run a blocking call in a thread (contextvars, hence session_id, are copied)."""
@@ -326,6 +334,7 @@ class SessionRegistry:
                     self.pool.release_session(session_id)
         else:
             self.pool.release_session(session_id)  # clears the pool's lost entry, if any
+        self.save_run(record, "stopped", "deleted")
         record.status = "deleted"
         record.hub.close_all("session_deleted", "the session was closed (DELETE)")
         self._records.pop(session_id, None)
@@ -360,8 +369,12 @@ class SessionRegistry:
             self._check_fast_limit(record)
             self._fast_reservations += 1
         try:
+            new_run = record.run_state == "idle"
             record, result = await self.call(session_id, "run", mode=mode, speed=speed,
                                              decisions=record.deciding, rule4=int(record.parameters["rule"]) == 4)
+            if new_run or record.run_started_at is None:
+                record.run_started_at, record.run_decision_start = time.time(), len(record.decision_log)
+            record.run_mode = mode
         finally:
             if reserve:
                 self._fast_reservations -= 1
@@ -421,10 +434,13 @@ class SessionRegistry:
         elif event == "run_state":
             record.apply_run(data)
             hub.publish({"type": "run_state", **data})
+            if record.run_state == "failed":
+                self.save_run(record, "failed", record.run_reason)
         elif event == "finished":
             record.ticks, record.finished = int(data["tick"]), True
             record.kpis = data.get("kpis")
             hub.publish({"type": "finished", **data})
+            self.save_run(record, "finished", data.get("reason"))
         elif event == "run_error":
             logger.error("Run stopped by an error in the worker: %s", data.get("error"),
                          extra={"session_id": session_id})
@@ -533,6 +549,53 @@ class SessionRegistry:
                                        "latency_ms", "reason")} for d in record.decision_log],
         }
 
+    # ----- results (L5.7) -----
+
+    def save_run(self, record: SessionRecord, status: str, reason: str | None) -> None:
+        """Save the run in progress (if any) to the results store, in a thread; never raises."""
+        if record.run_started_at is None:
+            return
+        kpis = record.kpis or {}
+        # "seq" is the stored decisions' sort key (their order in the run): the operation's seq is seq_op
+        decisions = [{**{k: v for k, v in d.items() if k != "seq"}, "seq_op": d["seq"]}
+                     for d in record.decision_log[record.run_decision_start:]]
+        metrics = {k: v for k, v in self.decision_metrics(record).items() if k != "log"}
+        run = {
+            "run_id": new_run_id(), "session_id": record.session_id, "created_at": record.run_started_at,
+            "finished_at": time.time(), "status": status, "reason": reason, "ticks": record.ticks,
+            "rule": int(record.parameters["rule"]), "strategy": record.strategy,
+            "seed": int(record.parameters["seed"]), "seed_source": record.seed_source,
+            "modeling_type": record.parameters.get("modeling_type"),
+            "horizon_ticks": int(record.parameters["horizon_ticks"]), "mode": record.run_mode,
+            "product_set_id": record.product_set_id, "products_hash": record.products_hash,
+            "products": record.product_list,
+            "kpis": {k: kpis.get(k) for k in ("ticks", "finished", "created", "wip", "work_completed", "mean_flow_time",
+                                              "throughput", "products_total", "all_done", "makespan_ticks",
+                                              "makespan_time")},
+            "utilization": kpis.get("utilization"),
+            "decisions_summary": metrics,
+            "whatif_summary": record.whatif_metrics.as_dict(),
+        }
+        record.run_started_at = None
+        record.last_run_id = run["run_id"]
+        if self.results is None:
+            return
+        store = self.results
+
+        def write() -> None:
+            try:
+                store.save_run(run, [dict(d) for d in decisions])
+                logger.info("Run %s saved (%s)", run["run_id"], status, extra={"session_id": record.session_id})
+            except Exception:  # noqa: BLE001 - saving must never break the platform
+                logger.exception("Could not save run %s", run["run_id"], extra={"session_id": record.session_id})
+
+        if self.loop is not None and self.loop.is_running():
+            future = self.loop.run_in_executor(None, write)
+            self._tasks.add(future)  # type: ignore[arg-type]
+            future.add_done_callback(self._tasks.discard)  # type: ignore[arg-type]
+        else:
+            write()
+
     def on_lost(self, session_id: str, reason: str) -> None:
         record = self._records.get(session_id)
         if record is not None and record.status == "active":
@@ -600,6 +663,7 @@ class SessionRegistry:
 
     async def after_reset(self, record: SessionRecord) -> None:
         """Reset: new run from tick 0; watching clients get a fresh snapshot."""
+        self.save_run(record, "stopped", "reset")
         record.events.clear()
         record.whatif_used.clear()  # a new run: the same product ids come back
         record.state_raw, record.state_tick, record.kpis = None, -1, None
@@ -680,6 +744,7 @@ class SessionRegistry:
         record.last_activity_mono = time.monotonic()
 
     def _close(self, record: SessionRecord, status: str, reason: str) -> None:
+        self.save_run(record, "stopped", f"{status}: {reason}")
         record.status, record.lost_reason, record.closed_mono = status, reason, time.monotonic()
         record.run_state, record.mode, record.speed = ("finished" if record.finished else "idle"), None, None
         self.pool.release_session(record.session_id)

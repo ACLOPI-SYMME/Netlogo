@@ -29,17 +29,20 @@ from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 
 from aclopi.api import errors
 from aclopi.api.errors import (
-    InvalidRunState, NoWorkerAvailable, PlatformStarting, ProductSetNotFound, Unauthorized, WorkerUnavailable,
+    InvalidRunState, NoWorkerAvailable, PlatformStarting, ProductSetNotFound, RunNotFound, Unauthorized,
+    WorkerUnavailable,
 )
 from aclopi.api.instance_lock import InstanceLock
 from aclopi.api.models import (
     STEP_N_DESCRIPTION, CandidatesResponse, Event, Health, Kpis, PlantLayout, PlantState, Probe, RunRequest,
     GeneratedProducts, GenerateRequest, NextMachineRequest, NextMachineResponse, ParsedCsv, ProductSet, ProductSetIn,
-    ProductSetSummary, SessionCreate, SessionInfo, SessionMetrics, StepResult, WhatIfRequest, WhatIfResponse,
+    ProductSetSummary, RunPage, RunRecord, SessionCreate, SessionInfo, SessionMetrics, StepResult, WhatIfRequest,
+    WhatIfResponse,
 )
 from aclopi.workers.protocol import NoFreeWorker
 from aclopi.api.agent import AgentClient
 from aclopi.api.product_sets import InMemoryProductSetStore, parse_csv, summary, to_csv
+from aclopi.api.results import DynamoProductSetStore, DynamoResultsStore, InMemoryResultsStore
 from aclopi.api.whatif import run_whatif
 from aclopi.api.ws import stream_session
 from aclopi.api.registry import SessionRegistry
@@ -95,6 +98,7 @@ class Runtime:
         self.registry: SessionRegistry | None = None
         self.agent: AgentClient | None = None
         self.product_sets: Any = InMemoryProductSetStore()
+        self.results: Any = None
         self._tasks: list[asyncio.Task[Any]] = []
 
     async def start(self) -> None:
@@ -114,6 +118,8 @@ class Runtime:
         await self.agent.start()
         self.registry.agent = self.agent
         self.registry.fast_decision_timeout_s = self.settings.fast_decision_timeout_s
+        self._open_stores()
+        self.registry.results = self.results
         self._tasks = [
             asyncio.create_task(self._start_pool(), name="pool-start"),
             asyncio.create_task(self.registry.sweep_loop(), name="idle-sweeper"),
@@ -122,6 +128,17 @@ class Runtime:
         ]
         logger.info("API starting: %d session + %d what-if workers", self.settings.n_session_workers,
                     self.settings.n_whatif_workers, extra={"phase": self.phase})
+
+    def _open_stores(self) -> None:
+        """Results and product sets: DynamoDB when configured, else in memory."""
+        s = self.settings
+        if s.results_store == "dynamodb":
+            self.results = DynamoResultsStore(s.dynamodb_endpoint, s.dynamodb_table_prefix, s.create_tables)
+            self.product_sets = DynamoProductSetStore(s.dynamodb_endpoint, s.dynamodb_table_prefix, create_tables=False)
+            logger.info("Results store: DynamoDB (%s)", s.dynamodb_endpoint or "AWS eu-west-3")
+        else:
+            self.results = InMemoryResultsStore()
+            logger.info("Results store: in memory")
 
     async def _start_pool(self) -> None:
         assert self.pool is not None
@@ -300,6 +317,31 @@ def create_app(
                                        product_set_id=body.product_set_id)
         request.state.session_id = record.session_id
         return record.info()
+
+    # ----- results (L5.7) -----
+
+    @app.get("/runs", response_model=RunPage, tags=["runs-history"],
+             summary="Saved runs, newest first; optional filters and simple paging (cursor)")
+    async def list_runs(seed: int | None = None, strategy: str | None = None, rule: int | None = None,
+                        product_set_id: str | None = None, limit: int = Query(50, ge=1, le=500),
+                        cursor: str | None = None) -> Any:
+        filters = {"seed": seed, "strategy": strategy, "rule": rule, "product_set_id": product_set_id}
+        rows, next_cursor = await asyncio.to_thread(runtime.results.list_runs, filters, limit, cursor)
+        return {"runs": rows, "next_cursor": next_cursor}
+
+    @app.get("/runs/{run_id}", response_model=RunRecord, tags=["runs-history"], responses=errors.responses(404))
+    async def get_run(run_id: str) -> Any:
+        found = await asyncio.to_thread(runtime.results.get_run, run_id)
+        if found is None:
+            raise RunNotFound(f"run {run_id!r} does not exist")
+        return found
+
+    @app.get("/runs/{run_id}/decisions", response_model=list[dict[str, Any]], tags=["runs-history"],
+             responses=errors.responses(404))
+    async def get_run_decisions(run_id: str) -> Any:
+        if await asyncio.to_thread(runtime.results.get_run, run_id) is None:
+            raise RunNotFound(f"run {run_id!r} does not exist")
+        return await asyncio.to_thread(runtime.results.get_decisions, run_id)
 
     # ----- product sets (L5.6) -----
 

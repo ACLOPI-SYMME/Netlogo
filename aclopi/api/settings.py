@@ -49,6 +49,11 @@ class Settings:
     agent_decide_timeout_s: float = 2.0
     agent_health_interval_s: float = 30.0
     fast_decision_timeout_s: float = 90.0
+    # Results store (L5.7): "memory" or "dynamodb" (default dynamodb when an endpoint is given)
+    results_store: str = "memory"
+    dynamodb_endpoint: str | None = None
+    dynamodb_table_prefix: str = "aclopi_"
+    create_tables: bool = False
     whatif_diag_dir: Path = field(default_factory=lambda: REPO_ROOT / "results" / "whatif_diagnostics")
 
     def run_options(self) -> dict[str, float | int]:
@@ -84,6 +89,11 @@ class Settings:
             agent_decide_timeout_s=_float(env, "ACLOPI_AGENT_DECIDE_TIMEOUT_S", 2.0),
             agent_health_interval_s=_float(env, "ACLOPI_AGENT_HEALTH_INTERVAL_S", 30.0),
             fast_decision_timeout_s=_float(env, "ACLOPI_FAST_DECISION_TIMEOUT_S", 90.0),
+            results_store=(env.get("ACLOPI_RESULTS_STORE", "").strip().lower()
+                           or ("dynamodb" if env.get("ACLOPI_DYNAMODB_ENDPOINT", "").strip() else "memory")),
+            dynamodb_endpoint=env.get("ACLOPI_DYNAMODB_ENDPOINT", "").strip() or None,
+            dynamodb_table_prefix=env.get("ACLOPI_DYNAMODB_TABLE_PREFIX", "").strip() or "aclopi_",
+            create_tables=env.get("ACLOPI_CREATE_TABLES", "").strip() in ("1", "true", "yes"),
             whatif_diag_dir=Path(env["ACLOPI_WHATIF_DIAG_DIR"]) if env.get("ACLOPI_WHATIF_DIAG_DIR", "").strip()
             else REPO_ROOT / "results" / "whatif_diagnostics",
         )

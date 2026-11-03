@@ -1,0 +1,64 @@
+# ACLOPI local stack (L5.7): platform API + DynamoDB Local + mock agent. docs/deploy-local.md.
+# Only the platform publishes a port (8000); the other services live on the internal network.
+# ACLOPI_AGENT_TOKEN comes from .env (not in git; see .env.example).
+name: aclopi
+
+services:
+  platform:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    image: aclopi-sim
+    command: ["python", "-m", "aclopi.api"]
+    ports:
+      - "8000:8000"
+    environment:
+      ACLOPI_AGENT_URL: http://agent-mock:8100
+      ACLOPI_AGENT_TOKEN: ${ACLOPI_AGENT_TOKEN:-}
+      ACLOPI_DYNAMODB_ENDPOINT: http://dynamodb-local:8000
+      ACLOPI_CREATE_TABLES: "1"
+      AWS_ACCESS_KEY_ID: local
+      AWS_SECRET_ACCESS_KEY: local
+    volumes:
+      - ./results:/app/results
+    depends_on:
+      dynamodb-local:
+        condition: service_started
+    restart: unless-stopped
+    cpus: 4
+    cpuset: "0-3"
+    mem_limit: 6g
+    memswap_limit: 6g
+    healthcheck:
+      test: ["CMD", "python", "-c", "import sys, urllib.request; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=4).status == 200 else 1)"]
+      interval: 15s
+      timeout: 5s
+      start_period: 180s
+      retries: 3
+    networks: [internal]
+
+  agent-mock:
+    image: aclopi-sim
+    command: ["python", "-m", "aclopi.agent_mock"]
+    environment:
+      ACLOPI_PLATFORM_URL: http://platform:8000
+      ACLOPI_AGENT_TOKEN: ${ACLOPI_AGENT_TOKEN:-}
+      ACLOPI_MOCK_PORT: "8100"
+      ACLOPI_MOCK_SEED: "1"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import sys, urllib.request; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8100/health', timeout=4).status == 200 else 1)"]
+      interval: 15s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+    networks: [internal]
+
+  dynamodb-local:
+    image: amazon/dynamodb-local:2.5.2
+    command: ["-jar", "DynamoDBLocal.jar", "-inMemory", "-sharedDb"]
+    restart: unless-stopped
+    networks: [internal]
+
+networks:
+  internal: {}

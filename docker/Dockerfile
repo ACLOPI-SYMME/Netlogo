@@ -54,4 +54,5 @@ EXPOSE 8000
 # Liveness only (answers during the ~1.5 min pool startup too); readiness is /health/ready.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD python -c "import os, sys, urllib.request; port = os.environ.get('ACLOPI_API_PORT') or '8000'; sys.exit(0 if urllib.request.urlopen(f'http://127.0.0.1:{port}/health/live', timeout=4).status == 200 else 1)"
-CMD ["python", "scripts/smoke_test.py"]
+# The API (docker-compose.yml runs it; docker/run.ps1 passes its own commands).
+CMD ["python", "-m", "aclopi.api"]
