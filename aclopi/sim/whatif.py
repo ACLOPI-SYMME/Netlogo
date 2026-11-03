@@ -35,11 +35,11 @@ from pathlib import Path
 from typing import Any
 
 from aclopi.contracts.candidates import CandidateParams, ModelStatic
-from aclopi.sim.candidates import _op_time, machine_loads
+from aclopi.sim.candidates import _op_time, machine_loads, travel_time
 from aclopi.sim.decisions import set_next_machine
 from aclopi.sim.session import netlogo_string
 
-CHUNK_TICKS = 150  # one status read per chunk; a stall is two quiet chunks
+CHUNK_TICKS = 150  # one status read per chunk (never longer than stall_ticks); a stall is two quiet chunks
 STALL_TICKS = 300
 
 # Nominal time of operation #i of the product in context (as aclopi.sim.kpis).
@@ -79,7 +79,7 @@ def _others_reporter(exclude: int, t0: float) -> str:
 
 def _status_reporter(product: int, seq: int, machine: str) -> str:
     """One read per chunk: [ticks, entered (0/1), entry time, operation end, positions of the alive
-    products, machines processing] (positions and processing count detect stalls)."""
+    products, machines processing] (positions detect stalls; the count goes to the diagnostic)."""
     entered = f"[length ProductRealStart] of turtle {product} > {seq}"
     return (
         "platform-local [ -> json-any (list ticks "
@@ -139,17 +139,36 @@ def others_metric(session: Any, exclude: int, t0: float, work0: float) -> dict[s
     }
 
 
-def estimate_entry(state: dict[str, Any], product: int, machine: str, operation: str,
-                   static: ModelStatic, params: CandidateParams = CandidateParams()) -> tuple[float, float]:
-    """(entry time, operation end time) estimated from a platform-state: the job in process on the
-    machine plus the processing times of the products queued at it or heading to it. The travel of
-    the product to the machine is not included (lower bound)."""
+def _remaining(m: dict[str, Any]) -> float:
+    return float(m["remaining"]) if m.get("state") == "Machine.Processing" and m.get("remaining") is not None else 0.0
+
+
+def estimate_entry(state: dict[str, Any], product: int, machine: str, operation: str, static: ModelStatic,
+                   params: CandidateParams = CandidateParams(), origin: str | None = None,
+                   left_time: float | None = None) -> tuple[float, float]:
+    """(entry time, operation end time) estimated from a platform-state.
+
+    The product can enter when it has arrived AND the machine is free:
+      arrival = now + what is left of its own operation (if it is in a machine)
+                    + travel from its machine to the tested one (distances / conveyor speed)
+      free    = now + what is left of the machine's job + processing times of its load
+      entry   = max(arrival, free)
+    A product already travelling (not in a machine) needs `origin` (its last machine) and
+    `left_time` (when it left it); the travel already done is subtracted.
+    TODO(Línea A): when the real candidates arrives, use its estimated start instead of this.
+    """
     now = float(state["time"])
-    m = next(x for x in state["machines"] if x["name"] == machine)
-    remaining = float(m["remaining"]) if m.get("state") == "Machine.Processing" and m.get("remaining") is not None else 0.0
+    machines = {m["name"]: m for m in state["machines"]}
+    current = next((m for m in state["machines"] if m.get("product") == product), None)
+    if current is not None:  # being processed: waits for its own operation, then travels
+        own, origin, travelled = _remaining(current), current["name"], 0.0
+    else:
+        own, travelled = 0.0, max(0.0, now - left_time) if left_time is not None else 0.0
+    arrival = now + own + max(0.0, travel_time(static, origin, machine) - travelled)
     queued = sum(_op_time(static, params, machine, str(q.get("next_operation")))
                  for q in machine_loads(state, exclude=product)[machine])
-    entry = now + remaining + queued
+    free = now + _remaining(machines[machine]) + queued
+    entry = max(arrival, free)
     return entry, entry + _op_time(static, params, machine, operation)
 
 
@@ -186,6 +205,7 @@ def run_option(
     cap_tick = start_tick + max_ticks
     entered_cond = f"[length ProductRealStart] of turtle {product} > {seq}"
     status = _status_reporter(product, seq, machine)
+    chunk_ticks = max(1, min(chunk_ticks, stall_ticks))
     last_activity: Any = None
     quiet = 0
     tick = start_tick
@@ -223,8 +243,9 @@ def run_option(
             if not out.entered:
                 out.stop_reason = "horizon"
             break
-        # Stall: no product moved and no machine processed for stall_ticks.
-        if processing == 0 and positions == last_activity:
+        # Stall: no product moved for stall_ticks (positions compared between chunks, which are
+        # never longer than stall_ticks). `processing` is kept for the diagnostic only.
+        if positions == last_activity:
             quiet += tick - previous
         else:
             quiet = 0
@@ -232,14 +253,20 @@ def run_option(
         if quiet >= stall_ticks and not out.entered:
             out.stop_reason, out.stalled = "stalled", True
             if diagnostic is not None:
-                out.diagnostic_file = _save_diagnostic(*diagnostic, machine=machine, tick=tick)
+                out.diagnostic_file = _save_diagnostic(*diagnostic, machine=machine, tick=tick,
+                                                        quiet_ticks=quiet, machines_processing=processing)
             break
     out.stop_tick = tick
     out.ticks_simulated = tick - start_tick
     out.others = others_metric(session, product, t0, work0)
     if not out.entered:
         state = session.state()
-        entry, end = estimate_entry(state, product, machine, operation, static)
+        # If it already left its machine: where from and when (for the travel still to do).
+        last_machine, left = json.loads(str(session._report(
+            f"platform-local [ -> json-any [(list (ifelse-value empty? Machine.Used [\"\"] [last Machine.Used]) "
+            f"(ifelse-value empty? ProductRealCompletion [-1] [last ProductRealCompletion]))] of turtle {product} ]")))
+        entry, end = estimate_entry(state, product, machine, operation, static, origin=str(last_machine) or None,
+                                    left_time=float(left) if float(left) >= 0 else None)
         tick_time = static.tick_time
         out.entry_time, out.op_end_time = round(entry, 4), round(end, 4)
         out.entry_tick = tick + int(round((entry - float(state["time"])) / tick_time))
@@ -248,11 +275,13 @@ def run_option(
     return out
 
 
-def _save_diagnostic(snapshot: Path, folder: Path, info: dict[str, Any], machine: str, tick: int) -> str:
+def _save_diagnostic(snapshot: Path, folder: Path, info: dict[str, Any], machine: str, tick: int,
+                     quiet_ticks: int, machines_processing: int) -> str:
     folder.mkdir(parents=True, exist_ok=True)
     stem = f"stall_{info.get('session_id', 'session')}_{info.get('snapshot_tick')}_{machine}_{int(time.time())}"
     target = folder / f"{stem}.csv"
     shutil.copyfile(snapshot, target)
-    (folder / f"{stem}.json").write_text(json.dumps({**info, "machine": machine, "stall_tick": tick}, indent=1),
+    (folder / f"{stem}.json").write_text(json.dumps({**info, "machine": machine, "stall_tick": tick, "quiet_ticks": quiet_ticks,
+                                                     "machines_processing": machines_processing}, indent=1),
                                          encoding="utf-8")
     return str(target)

@@ -28,6 +28,11 @@ class ModelStatic:
     nominal_times: dict[str, float]  # operation -> OperationDuration
     modeling_type: str
     tick_time: float = 0.31  # simulated time units per tick
+    # Conveyor distance between machines, distances[from][to] (model global `distances`,
+    # Set.distances.Machines), and the conveyor speed in the same units per tick (jump 0.300 x
+    # speed-factor on straight conveyors). See docs/whatif.md, "Viaje".
+    distances: dict[str, dict[str, float]] = field(default_factory=dict)
+    conveyor_speed: float = 0.3
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)

@@ -42,8 +42,7 @@ class Settings:
     # What-if (L5.4)
     whatif_stall_ticks: int = 300
     whatif_chunk_ticks: int = 150
-    whatif_saturation_queue: int = 3
-    whatif_saturation_enforce: bool = False
+    whatif_skip_beyond_cap: bool = False
     whatif_diag_dir: Path = field(default_factory=lambda: REPO_ROOT / "results" / "whatif_diagnostics")
 
     def run_options(self) -> dict[str, float | int]:
@@ -73,8 +72,7 @@ class Settings:
             ws_queue=_int(env, "ACLOPI_WS_QUEUE", 32),
             whatif_stall_ticks=_int(env, "ACLOPI_WHATIF_STALL_TICKS", 300),
             whatif_chunk_ticks=_int(env, "ACLOPI_WHATIF_CHUNK_TICKS", 150),
-            whatif_saturation_queue=_int(env, "ACLOPI_WHATIF_SATURATION_QUEUE", 3),
-            whatif_saturation_enforce=env.get("ACLOPI_WHATIF_SATURATION_ENFORCE", "").strip() in ("1", "true", "yes"),
+            whatif_skip_beyond_cap=env.get("ACLOPI_WHATIF_SKIP_BEYOND_CAP", "").strip() in ("1", "true", "yes"),
             whatif_diag_dir=Path(env["ACLOPI_WHATIF_DIAG_DIR"]) if env.get("ACLOPI_WHATIF_DIAG_DIR", "").strip()
             else REPO_ROOT / "results" / "whatif_diagnostics",
         )

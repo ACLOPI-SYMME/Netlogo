@@ -1049,6 +1049,21 @@
       },
       "WhatIfResponse": {
         "properties": {
+          "estimated_entry_ticks": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "integer"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Estimated ticks from the snapshot until the product enters each machine (own remaining operation + travel, or the machine's load); the earlier one runs first",
+            "title": "Estimated Entry Ticks"
+          },
           "loads": {
             "anyOf": [
               {
@@ -1061,6 +1076,7 @@
                 "type": "null"
               }
             ],
+            "description": "Products queued at or heading to each machine",
             "title": "Loads"
           },
           "operation": {
@@ -1087,17 +1103,6 @@
             },
             "title": "Run Order",
             "type": "array"
-          },
-          "saturation_queue": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Saturation Queue"
           },
           "skipped_reason": {
             "anyOf": [

@@ -6,11 +6,11 @@
 2. borrow a what-if worker without queueing: skipped "no-free-worker" if none is free;
 3. session worker, between blocks (the run is not stopped): validate both options
    (platform-check-next-machine), measure the load of the two machines and export ONE snapshot;
-   entry-beyond-cap (criterion to be replaced in step 2; today: both machines have >=
-   ACLOPI_WHATIF_SATURATION_QUEUE products queued or on their way). For now only recorded
-   (would_skip_entry_beyond_cap); it skips the what-if only with ACLOPI_WHATIF_SATURATION_ENFORCE=1;
-4. the options run one after the other on the borrowed worker, the one with the shorter
-   estimated wait first; the first one's stop tick is the comparison window of the second, which
+   entry-beyond-cap: the estimated entry (own remaining operation + travel, or the machine's load)
+   of BOTH options is beyond max_ticks. For now only recorded (would_skip_entry_beyond_cap); it
+   skips the what-if only with ACLOPI_WHATIF_SKIP_BEYOND_CAP=1;
+4. the options run one after the other on the borrowed worker, the one with the earlier
+   estimated entry first; the first one's stop tick is the comparison window of the second, which
    is pruned there if its product has not entered yet (aclopi.sim.whatif);
 5. the whole request is bounded by the request's budget_ms (default 10 s, 2-15 s; the agent sets it
    from its decision deadline): what is ready is returned with status "timeout".
@@ -89,7 +89,7 @@ async def run_whatif(registry: Any, settings: Any, session_id: str, product: int
     try:
         record, snap = await registry.call(
             session_id, "whatif_snapshot", product=product, seq=seq, options=options,
-            saturation_queue=settings.whatif_saturation_queue, enforce_saturation=settings.whatif_saturation_enforce)
+            max_ticks=max_ticks, skip_beyond_cap=settings.whatif_skip_beyond_cap)
         if not snap["valid"]:
             metrics.counts["invalid"] += 1
             bad = {m: r for m, r in snap["reasons"].items() if r != "ok"}
@@ -99,13 +99,13 @@ async def run_whatif(registry: Any, settings: Any, session_id: str, product: int
             if any(r in NOT_PENDING for r in bad.values()):
                 raise DecisionNotPending(detail, session_id)
             raise InvalidOption(detail, session_id)
-        saturation = {"would_skip_entry_beyond_cap": bool(snap["saturated"]), "loads": snap["loads"],
-                      "saturation_queue": settings.whatif_saturation_queue}
-        if snap["saturated"]:
+        estimate = {"would_skip_entry_beyond_cap": bool(snap["beyond_cap"]), "loads": snap["loads"],
+                      "estimated_entry_ticks": snap["estimated_entry_ticks"]}
+        if snap["beyond_cap"]:
             metrics.counts["would_skip_entry_beyond_cap"] += 1
         if snap.get("path") is None:  # skipped by the entry-beyond-cap criterion (enforced)
             metrics.skipped["entry-beyond-cap"] += 1
-            return _skipped("entry-beyond-cap", t0, snapshot_tick=snap["tick"], **saturation)
+            return _skipped("entry-beyond-cap", t0, snapshot_tick=snap["tick"], **estimate)
         path = Path(snap["path"])
         record.whatif_used.add(key)
         deadline = time.time() + budget_ms / 1000.0 - (time.perf_counter() - t0)
@@ -162,7 +162,7 @@ async def run_whatif(registry: Any, settings: Any, session_id: str, product: int
         "timings_ms": {"export": export_ms, "import": round(import_ms, 1), "advance": round(advance_ms, 1),
                        "total": total_ms},
         "options": opts,
-        **saturation,
+        **estimate,
     }
 
 

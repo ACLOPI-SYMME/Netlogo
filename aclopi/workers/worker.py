@@ -196,10 +196,11 @@ class WorkerState:
             self.static = read_model_static(self.session)
         return candidates_for_session(self.session, int(product), int(seq), self.static).as_dict()
 
-    def op_whatif_snapshot(self, product: int, seq: int, options: list[str], saturation_queue: int = 0,
-                           enforce_saturation: bool = False) -> dict[str, Any]:
-        """Session worker: validate the options, measure the load of the tested machines and, if
-        everything is valid (and not skipped for saturation), export ONE snapshot of the world."""
+    def op_whatif_snapshot(self, product: int, seq: int, options: list[str], max_ticks: int = 3000,
+                           skip_beyond_cap: bool = False) -> dict[str, Any]:
+        """Session worker: validate the options, estimate when the product would enter each machine
+        (with travel) and, if everything is valid (and not skipped by entry-beyond-cap: both
+        estimated entries beyond max_ticks), export ONE snapshot of the world."""
         self._require_configured()
         if self.static is None:
             self.static = read_model_static(self.session)
@@ -212,14 +213,18 @@ class WorkerState:
         state = s.state()
         loads = machine_loads(state, exclude=int(product))
         operation = next(str(p["operations"][int(seq)]) for p in state["products"] if p["id"] == int(product))
+        now = float(state["time"])
+        entry = {m: estimate_entry(state, int(product), m, operation, self.static)[0] for m in options}
+        entry_ticks = {m: int(round((t - now) / self.static.tick_time)) for m, t in entry.items()}
         result.update({
-            "time": float(state["time"]),
+            "time": now,
             "operation": operation,
             "loads": {m: len(loads[m]) for m in options},
-            "estimated_entry": {m: estimate_entry(state, int(product), m, operation, self.static)[0] for m in options},
+            "estimated_entry": entry,
+            "estimated_entry_ticks": entry_ticks,
+            "beyond_cap": all(t > int(max_ticks) for t in entry_ticks.values()),
         })
-        result["saturated"] = bool(saturation_queue) and all(n >= saturation_queue for n in result["loads"].values())
-        if result["saturated"] and enforce_saturation:
+        if result["beyond_cap"] and skip_beyond_cap:
             return result
         t0 = time.perf_counter()
         path = s.export_world(self.worlds_dir / f"whatif_{self.config.name}_{uuid.uuid4().hex}.csv")

@@ -217,8 +217,10 @@ class WhatIfResponse(BaseModel):
     timings_ms: WhatIfTimings
     options: list[WhatIfOption]
     would_skip_entry_beyond_cap: bool | None = None
-    loads: dict[str, int] | None = None
-    saturation_queue: int | None = None
+    loads: dict[str, int] | None = Field(None, description="Products queued at or heading to each machine")
+    estimated_entry_ticks: dict[str, int] | None = Field(
+        None, description="Estimated ticks from the snapshot until the product enters each machine "
+                          "(own remaining operation + travel, or the machine's load); the earlier one runs first")
 
 
 class SessionMetrics(BaseModel):

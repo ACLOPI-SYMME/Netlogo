@@ -57,7 +57,7 @@ La lista viene ordenada por `estimated_wait`.
 2. **Worker libre.** Toma prestado un worker de what-if **sin cola**: si no hay uno libre, responde `skipped` con `no-free-worker` en pocos milisegundos.
 3. **Foto y validación.** El worker de la sesión, entre dos bloques, valida las dos opciones con `platform-check-next-machine`, mide la carga de las dos máquinas y toma **una sola foto** (export) del mundo. La sesión real no se detiene: en vivo sigue corriendo.
 4. **Copias, una tras otra.** Cada copia se ejecuta en el worker prestado: importa la foto, fuerza la opción con `platform-set-next-machine` y avanza.
-   - Corre primero la opción con menor espera estimada.
+   - Corre primero la opción con **menor entrada estimada** (con viaje; ver "Estimación de la entrada").
    - Dentro de la copia nunca se llama al agente: las demás decisiones las toma el código de la regla 3, y las peticiones de la copia no salen del worker.
 5. **Parada de cada copia:**
 
@@ -65,12 +65,42 @@ La lista viene ordenada por `estimated_wait`.
    |---|---|
    | `entered` | El producto **entra** a la máquina probada. Se leen el tick, el tiempo de entrada y el fin de la operación (`Next.Completion`), que se fija al entrar, con su parte aleatoria incluida |
    | `cap` | Llegó a `max_ticks` sin entrar |
-   | `stalled` | Bloqueo: en 300 ticks ningún producto se movió y ninguna máquina estuvo procesando |
+   | `stalled` | Bloqueo: ningún producto cambió de posición durante `ACLOPI_WHATIF_STALL_TICKS` ticks (300; las posiciones se comparan cada `min(150, stall_ticks)` ticks) |
    | `pruned` | Solo la segunda copia: llegó a la ventana común sin entrar, así que ya es peor que la primera |
    | `timeout` | Se acabó `budget_ms` |
    | `horizon` | Terminó la corrida |
 
-   Si el producto no entró, la entrada y el fin se **estiman** (`entry_estimated`) y la copia queda marcada. La estimación es: tiempo de la parada + lo que le falta al trabajo en curso de la máquina + los tiempos de los productos en su cola o en camino. No incluye el viaje del producto, así que es una cota inferior.
+   Si el producto no entró, la entrada y el fin se **estiman** (`entry_estimated`) sobre el estado de la copia en la parada, con la fórmula de "Estimación de la entrada", y la copia queda marcada.
+
+   El JSON del diagnóstico de un bloqueo incluye el pedido, la máquina, el tick, `quiet_ticks` y cuántas máquinas estaban procesando.
+
+### Estimación de la entrada (con viaje)
+
+El producto puede entrar a la máquina probada cuando **llegó** y la máquina está **libre**:
+
+```
+llegada = ahora + lo que le falta a su operación actual (si está en una máquina)
+                + viaje desde su máquina hasta la probada − viaje ya hecho (si ya salió)
+libre   = ahora + lo que le falta al trabajo en curso de la máquina probada
+                + tiempos de proceso de los productos en su cola o en camino (+10 en M2–M7 en Stochastic)
+entrada = max(llegada, libre)        fin = entrada + tiempo de la operación en esa máquina
+```
+
+**Viaje**, verificado en `model/Paper.nlogo`:
+
+| Dato | Fuente en el modelo |
+|---|---|
+| Distancias `distances[origen][destino]` entre máquinas, filas y columnas M1…M7 | Global `distances`, cargada en `Set.distances.Machines` (líneas 2637–2646; la fila es la máquina de origen, como dice el comentario `; M1 to rest`) |
+| Uso como `[origen][destino]` | La regla 3: `item (destino − 1) (item (origen − 1) distances)` (línea 622 y sus copias; línea 3018 para la regla 4) |
+| Velocidad del transportador: `0,3` por tick en tramos rectos | `jump (0.300 * speed-factor)` en `Product.Movement` (línea 1031) |
+| `speed-factor` = 1 para todos los productos | `create.product` (línea 528) |
+| Las curvas avanzan algo menos por tick | `Curved.Move` (líneas 454–473), por ejemplo `2.2 * 4 * sin(1,2°) ≈ 0,18` en `curve1` |
+
+`ticks de viaje = distances[origen][destino] / 0,3` y `tiempo = ticks × 0,31`.
+
+- **Origen:** la máquina en la que está el producto (`product` de la máquina en `platform-state`) o, si ya salió, la última de `Machine.Used`. En ese caso el viaje ya hecho sale de `ahora − última ProductRealCompletion` (líneas 599 y 603).
+- **Qué no incluye:** las esperas en compuertas, el bloqueo detrás de otros productos (`in-cone`, línea 1027) ni las curvas más lentas. Por eso suele quedarse corta; el error medido está en el resumen del script.
+- **TODO:** cuando llegue el `candidates` real de la Línea A, se usa su estimación de inicio en lugar de esta.
 
    Con un bloqueo, la foto y el pedido se guardan en `results/whatif_diagnostics/` (`ACLOPI_WHATIF_DIAG_DIR`) y la ruta viene en `diagnostic_file`.
 
@@ -103,7 +133,7 @@ La plataforma no combina estas cantidades ni ordena las opciones: eso lo decide 
  "snapshot_tick": 1012, "snapshot_time": 313.72, "operation": "O1",
  "window_tick": 1987, "run_order": ["M3", "M2"],
  "timings_ms": {"export": 98, "import": 1010, "advance": 1630, "total": 2850},
- "would_skip_entry_beyond_cap": false, "loads": {"M2": 1, "M3": 0}, "saturation_queue": 3,
+ "would_skip_entry_beyond_cap": false, "loads": {"M2": 1, "M3": 0}, "estimated_entry_ticks": {"M2": 995, "M3": 694},
  "options": [                        // en el orden del pedido
    {"machine": "M2", "entered": true, "stop_reason": "entered",
     "entry_tick": 1987, "entry_time": 615.97, "entry_estimated": false,
@@ -129,9 +159,10 @@ La plataforma no combina estas cantidades ni ordena las opciones: eso lo decide 
 
 ### Entrada más allá del tope: `entry-beyond-cap` (POR CONFIRMAR, solo se registra)
 
-- **Criterio actual (provisional, se reemplaza en el paso 2):** las **dos** máquinas probadas tienen `N` o más productos en cola o en camino hacia ellas (`ACLOPI_WHATIF_SATURATION_QUEUE`). El script `scripts/l5/whatif_saturation.py` mostró que con la regla 3 las colas casi nunca existen y que lo que alarga un what-if es el tiempo hasta la entrada.
-- **Datos:** salen de `platform-state` (`heading_workstation` de cada producto y `product` de cada máquina), sin consumir azar. No hizo falta agregar nada al modelo.
-- **Comportamiento actual:** el what-if **no** se salta. Se registra `would_skip_entry_beyond_cap: true` en la respuesta y en las métricas. Para que se salte (`skipped` con `entry-beyond-cap`) hay que poner `ACLOPI_WHATIF_SATURATION_ENFORCE=1`.
+- **Criterio:** la entrada estimada **con viaje** (ver "Estimación de la entrada") de **las dos** opciones queda más allá de `max_ticks`. En ese caso ninguna copia llegaría a ver la entrada y el what-if solo devolvería estimaciones.
+- **Comportamiento actual:** el what-if **no** se salta. Se registra `would_skip_entry_beyond_cap: true` en la respuesta y en las métricas. Para que se salte (`skipped` con `entry-beyond-cap`), poner `ACLOPI_WHATIF_SKIP_BEYOND_CAP=1` (apagado por defecto).
+- **Datos en la respuesta:** `estimated_entry_ticks` (por opción, desde la foto) y `loads`.
+- La calidad de la estimación y la frecuencia del criterio se miden con `scripts/l5/whatif_estimation.py`.
 
 ## `GET /sessions/{id}/metrics`
 
@@ -151,8 +182,7 @@ La plataforma no combina estas cantidades ni ordena las opciones: eso lo decide 
 |---|---|---|
 | `ACLOPI_WHATIF_STALL_TICKS` | 300 | Ticks sin movimiento ni proceso para declarar un bloqueo |
 | `ACLOPI_WHATIF_CHUNK_TICKS` | 150 | Ticks entre lecturas de control de la copia |
-| `ACLOPI_WHATIF_SATURATION_QUEUE` | 3 | N del criterio provisional de `entry-beyond-cap` |
-| `ACLOPI_WHATIF_SATURATION_ENFORCE` | 0 | 1 = saltar el what-if cuando se cumple el criterio |
+| `ACLOPI_WHATIF_SKIP_BEYOND_CAP` | 0 | 1 = saltar el what-if cuando la entrada estimada de las dos opciones supera `max_ticks` |
 | `ACLOPI_WHATIF_DIAG_DIR` | `results/whatif_diagnostics` | Fotos de los bloqueos |
 
 ## Diseño previsto para L5.5 (todavía no implementado)

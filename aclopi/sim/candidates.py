@@ -24,20 +24,35 @@ from aclopi.contracts.candidates import Candidate, CandidateParams, CandidatesRe
 # Static data of the model, read inside platform-local (no random numbers; machines in who order).
 STATIC_REPORTER = (
     "platform-local [ -> json-any (list operations OperationDuration Modeling.Type "
-    "(map [m -> [(list Machine.Name Machine.Operations.Type Machine.Operations.Time)] of m] sort machines)) ]"
+    "(map [m -> [(list Machine.Name Machine.Operations.Type Machine.Operations.Time)] of m] sort machines) "
+    "distances) ]"
 )
+
+# Conveyor speed per tick on straight conveyors: `jump (0.300 * speed-factor)` in Product.Movement,
+# with speed-factor 1 for every product (create.product). Curves move a little slower.
+CONVEYOR_SPEED = 0.3
 
 
 def read_model_static(session: Any) -> ModelStatic:
-    """Read the operations table and processing times (call once after each setup)."""
-    operations, nominal, modeling_type, machines = json.loads(str(session._report(STATIC_REPORTER)))
+    """Read the operations table, processing times and distances (call once after each setup)."""
+    operations, nominal, modeling_type, machines, distances = json.loads(str(session._report(STATIC_REPORTER)))
     names = [f"O{i + 1}" for i in range(len(operations))]
+    machine_names = [f"M{i + 1}" for i in range(len(distances))]  # rows and columns are M1..M7
     return ModelStatic(
         capable_machines={op: [str(m) for m in machines_] for op, machines_ in zip(names, operations)},
         operation_times={str(name): {str(o): float(t) for o, t in zip(types, times)} for name, types, times in machines},
         nominal_times={op: float(t) for op, t in zip(names, nominal)},
         modeling_type=str(modeling_type),
+        distances={a: {b: float(d) for b, d in zip(machine_names, row)} for a, row in zip(machine_names, distances)},
+        conveyor_speed=CONVEYOR_SPEED,
     )
+
+
+def travel_time(static: ModelStatic, origin: str | None, target: str) -> float:
+    """Simulated time to travel from machine `origin` to machine `target` (0 if unknown or the same)."""
+    if not origin or origin == target or origin not in static.distances:
+        return 0.0
+    return static.distances[origin].get(target, 0.0) / static.conveyor_speed * static.tick_time
 
 
 def machine_loads(state: dict[str, Any], exclude: int | None = None) -> dict[str, list[dict[str, Any]]]:
