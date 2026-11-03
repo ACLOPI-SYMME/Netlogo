@@ -53,6 +53,10 @@ globals [
   product-sequence-seed     ; seed of the fixed sequence, set from Python after setup (NetLogo cannot read the run seed)
   products-created          ; products created in this run; product n is the n-th created (n starts at 1)
 
+  ; Product list (docs/product-sets.md)
+  product-list?             ; true: product n takes type and priority from item (n - 1) of product-list (Setup: false)
+  product-list              ; [[type priority] ...] in entry order, set from Python; when it runs out, no more products
+
 ]
 
 breed [nodes node]
@@ -133,6 +137,8 @@ to Setup
   set fixed-product-sequence? false
   set product-sequence-seed 0
   set products-created 0
+  set product-list? false
+  set product-list []
 
   set terminado "No"
 
@@ -150,7 +156,12 @@ to Go
     let counter count products with [xcor >= 90 and xcor <= 115 and ycor >= 80 and ycor <= 110]
     if (simulated.time mod 100 <= 0.2 and count products with [Product.State != "death"] < 10 and counter = 0) [
       ; With the fixed sequence the type of product n does not come from the model's random numbers.
-      ifelse (fixed-product-sequence?) [create.product first Product.Sequence.Item (products-created + 1)] [create.product one-of PosibleProducts]
+      ; With a product list neither: product n is item (n - 1); when the list runs out nothing is created.
+      ifelse (product-list?) [
+        if (products-created < length product-list) [create.product first item products-created product-list]
+      ] [
+        ifelse (fixed-product-sequence?) [create.product first Product.Sequence.Item (products-created + 1)] [create.product one-of PosibleProducts]
+      ]
     ]
   ]
 
@@ -528,7 +539,9 @@ to Create.product [#1]
     set speed-factor 1
     set platoon-position 0 - 1
     set Machine.Used []
-    ifelse (fixed-product-sequence?) [set priority last Product.Sequence.Item products-created] [set priority random (100 - 60 + 1) + 60]
+    ifelse (product-list?) [set priority last item (products-created - 1) product-list] [
+      ifelse (fixed-product-sequence?) [set priority last Product.Sequence.Item products-created] [set priority random (100 - 60 + 1) + 60]
+    ]
   ]
 
 end
@@ -3099,6 +3112,9 @@ to-report platform-state
       (list "fixed_product_sequence" json-bool fixed-product-sequence?)
       (list "product_sequence_seed" json-num product-sequence-seed)
       (list "products_created" json-num products-created)
+      (list "product_list_active" json-bool product-list?)
+      (list "product_list_length" json-num length product-list)
+      (list "product_list_next" json-num products-created)
       (list "segments" platform-segments-json)
       (list "gates" json-list map [n -> platform-gate-json n] sort nodes with [not hidden? and (count my-out-conveyors = 2 or count my-in-conveyors = 2)])
       (list "machines" json-list map [m -> platform-machine-json m] sort machines)
