@@ -54,6 +54,8 @@ OPS = (
     "candidates", "whatif_snapshot", "whatif_option",
     # Agent decisions (L5.5): apply a next machine between blocks; end a run that waited too long
     "next_machine", "fail_run",
+    # Product sets (L5.6): the fixed sequence of a seed ("Generate from seed")
+    "product_sequence",
 )
 # Diagnostic operations: only with debug=True; never exposed by the API.
 DEBUG_OPS = ("command", "report")
@@ -84,6 +86,7 @@ OP_TIMEOUTS_S: dict[str, float] = {
     "whatif_option": 10.0,  # the option stops at the request's deadline (budget_ms <= 15 s)
     "next_machine": 10.0,
     "fail_run": 10.0,
+    "product_sequence": 10.0,
 }
 
 # Continuous runs: the API's watchdog treats a running session that sends no push for this long

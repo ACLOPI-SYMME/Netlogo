@@ -15,6 +15,10 @@ Definitions (agreed for the headless validation):
   (Simulated.Time - start) / (Next.Completion - start) x nominal, clipped to [0, 1]. The nominal
   time is used instead of the drawn one so that the random part of processing times neither
   rewards nor penalizes a strategy.
+- product list (docs/product-sets.md): products_total (length of the list, None without a list),
+  all_done (every product of the list created and finished), makespan_time (last
+  ProductRealCompletion of the finished products, from the start of the run; None unless all_done)
+  and makespan_ticks (makespan_time / 0.31, rounded).
 
 The reporters iterate agentsets with `of`, which shuffles agents with the model's RNG. They are
 evaluated in a single platform-local call, so the RNG is restored afterwards (KPIs can be read
@@ -65,6 +69,15 @@ sum map [p -> [
   ] of p] sort products
 """
 
+# Product-list KPIs, in their own platform-local call (no random numbers).
+LIST_REPORTER = (
+    "platform-local [ -> json-any (list (ifelse-value product-list? [1] [0]) (length product-list) products-created "
+    '(count products with [Product.State != "death"]) '
+    '(ifelse-value any? products with [Product.State = "death"] '
+    '[max [last ProductRealCompletion] of products with [Product.State = "death"]] [-1])) ]'
+)
+TICK_TIME = 0.31
+
 # One evaluation, in this order, inside with-local-randomness. Encoded as JSON because
 # pynetlogo cannot convert lists that mix numbers and strings. The work reporter goes last and
 # uses no random numbers, so the first three values are exactly as before it was added.
@@ -86,6 +99,10 @@ class Kpis:
     utilization: dict[str, float]
     created: int
     work_completed: float  # time units of nominal processing time (see module docstring)
+    products_total: int | None = None  # product list only
+    all_done: bool = False
+    makespan_ticks: int | None = None
+    makespan_time: float | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -116,4 +133,16 @@ def compute_kpis(netlogo: Any) -> Kpis:
         utilization=utilization,
         created=finished + wip,
         work_completed=float(work),
+        **list_kpis(netlogo),
     )
+
+
+def list_kpis(netlogo: Any) -> dict[str, Any]:
+    """products_total, all_done and makespan of a run with a product list (docs/product-sets.md)."""
+    active, length, created, alive, last_completion = json.loads(str(netlogo.report(LIST_REPORTER)))
+    if not active:
+        return {}
+    all_done = created >= length and alive == 0
+    makespan = float(last_completion) if all_done and last_completion >= 0 else None
+    return {"products_total": int(length), "all_done": bool(all_done), "makespan_time": makespan,
+            "makespan_ticks": int(round(makespan / TICK_TIME)) if makespan is not None else None}

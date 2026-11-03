@@ -273,6 +273,26 @@ class SimulationSession:
             ticks, advanced, finished = (int(v) for v in self._report(f"platform-step {int(n)}"))
         return StepResult(ticks=ticks, advanced=advanced, finished=finished == 1)
 
+    def step_product_list(self, n: int) -> tuple[StepResult, bool]:
+        """Like step(n), for a session with a product list: it stops at the exact go in which the
+        last product of the list finishes and never advances after that. Returns (result, all_done).
+
+        Why: the model's PrintData (in Go) computes means over the alive products and fails when
+        there are none, which only happens once every product of the list has finished. The
+        condition reads globals and `any? products with [...]` (no random numbers), so the run is
+        identical to step(n) up to that tick.
+        """
+        done = ('(product-list? and products-created >= length product-list '
+                'and not any? products with [Product.State != "death"])')
+        with self._lock:
+            self._require_params()
+            start = int(self._report("ticks"))
+            self._command(f'while [terminado = "No" and ticks < {start + int(n)} and not {done}] [ go ]')
+            self._command(f'if (terminado = "No" and ticks >= horizon-ticks and not {done}) [ go ]')
+            ticks, finished, all_done = (int(v) for v in self._report(
+                f'(list ticks (ifelse-value (terminado = "Si") [1] [0]) (ifelse-value {done} [1] [0]))'))
+        return StepResult(ticks=ticks, advanced=ticks - start, finished=finished == 1), all_done == 1
+
     def run_to_end(self) -> StepResult:
         """Run until ExportData (tick = horizon_ticks)."""
         params = self._require_params()
