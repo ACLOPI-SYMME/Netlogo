@@ -33,8 +33,10 @@ def test_candidates_match_the_rule4_hook() -> None:
                 assert isinstance(result, CandidatesResult) and result.valid, result
                 assert result.operation == req.operation
                 assert sorted(c.machine for c in result.candidates) == sorted(req.candidates)
-                waits = [c.estimated_wait for c in result.candidates]
-                assert waits == sorted(waits)
+                finishes = [c.finish for c in result.candidates]
+                assert finishes == sorted(finishes) and result.candidates[0].delta_finish == 0
+                for c in result.candidates:
+                    assert c.start >= c.arrival and c.finish > c.start and c.next_machine is None
                 checked += 1
             clear_decisions(s)
         state = s.state()

@@ -72,6 +72,39 @@ def _op_time(static: ModelStatic, params: CandidateParams, machine: str, operati
     return base + extra
 
 
+def _remaining(m: dict[str, Any]) -> float:
+    return float(m["remaining"]) if m.get("state") == "Machine.Processing" and m.get("remaining") is not None else 0.0
+
+
+def estimate_start(state: dict[str, Any], product: int, machine: str, operation: str, static: ModelStatic,
+                   params: CandidateParams = CandidateParams(), origin: str | None = None,
+                   left_time: float | None = None) -> dict[str, float]:
+    """When the product could start (and finish) the operation on `machine`, from a platform-state.
+
+      arrival    = now + own_remaining + travel (minus the travel already done, if it left)
+      queue_time = what is left of the machine's job + processing times of its load
+      start      = max(arrival, now + queue_time);  finish = start + processing time here
+    own_remaining: what is left of its operation if it is in a machine (origin = that machine);
+    otherwise `origin` (its last machine) and `left_time` (when it left) give the travel left.
+    The travel ignores gates and products ahead (docs/whatif.md, "Estimación de la entrada").
+    TODO(Línea A): replaced by the real candidates' estimated start when it arrives.
+    """
+    now = float(state["time"])
+    machines = {m["name"]: m for m in state["machines"]}
+    current = next((m for m in state["machines"] if m.get("product") == product), None)
+    if current is not None:
+        own, origin, travelled = _remaining(current), current["name"], 0.0
+    else:
+        own, travelled = 0.0, max(0.0, now - left_time) if left_time is not None else 0.0
+    travel = max(0.0, travel_time(static, origin, machine) - travelled)
+    queue = _remaining(machines[machine]) + sum(
+        _op_time(static, params, machine, str(q.get("next_operation"))) for q in machine_loads(state, exclude=product)[machine])
+    arrival = now + own + travel
+    start = max(arrival, now + queue)
+    return {"own_remaining": own, "travel": travel, "arrival": arrival, "queue_time": queue, "start": start,
+            "finish": start + _op_time(static, params, machine, operation)}
+
+
 def compute_candidates(
     state: dict[str, Any],
     product: int,
@@ -96,20 +129,12 @@ def compute_candidates(
     if not any(m.get("product") == product for m in state["machines"]):
         return invalid("not-in-machine", operation)
 
-    machines = {m["name"]: m for m in state["machines"]}
-    loads = machine_loads(state, exclude=product)
-    candidates = []
-    for name in static.capable_machines.get(operation, []):
-        m = machines[name]
-        busy = m.get("state") == "Machine.Processing"
-        remaining = float(m["remaining"]) if busy and m.get("remaining") is not None else 0.0
-        queued = sum(_op_time(static, params, name, str(q.get("next_operation"))) for q in loads[name])
-        candidates.append(Candidate(
-            machine=name, load=len(loads[name]), busy=busy, remaining_time=round(remaining, 4),
-            estimated_wait=round(remaining + queued, 4),
-            operation_time=round(_op_time(static, params, name, operation), 4),
-        ))
-    candidates.sort(key=lambda c: (c.estimated_wait, c.machine))
+    estimates = {name: estimate_start(state, product, name, operation, static, params)
+                 for name in static.capable_machines.get(operation, [])}
+    best = min((e["finish"] for e in estimates.values()), default=0.0)
+    candidates = [Candidate(machine=name, **{k: round(v, 4) for k, v in e.items()},
+                            delta_finish=round(e["finish"] - best, 4)) for name, e in estimates.items()]
+    candidates.sort(key=lambda c: (c.finish, c.machine))
     return CandidatesResult(product, seq, operation, tick, time, valid=True, candidates=candidates)
 
 
