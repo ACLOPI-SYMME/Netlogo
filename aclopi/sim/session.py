@@ -75,6 +75,26 @@ class RunParameters:
     fixed_product_sequence: bool = True  # docs/product-sequence.md
 
 
+PRODUCT_TYPES = ("A", "I", "P", "B", "E", "L", "T")  # PosibleProducts (Paper.nlogo, Setup)
+PRIORITY_MIN, PRIORITY_MAX = 60, 100  # range drawn by the model: random (100 - 60 + 1) + 60
+MAX_PRODUCT_LIST = 1000
+
+
+def validate_product_list(items: list[tuple[str, int]]) -> list[tuple[str, int]]:
+    """Normalized [(type, priority)]; raises ValueError with the first problem."""
+    if not 1 <= len(items) <= MAX_PRODUCT_LIST:
+        raise ValueError(f"a product list has 1 to {MAX_PRODUCT_LIST} products (got {len(items)})")
+    out = []
+    for n, (ptype, priority) in enumerate(items, start=1):
+        t = str(ptype).strip().upper()
+        if t not in PRODUCT_TYPES:
+            raise ValueError(f"product {n}: type must be one of {', '.join(PRODUCT_TYPES)} (got {ptype!r})")
+        if isinstance(priority, bool) or int(priority) != priority or not PRIORITY_MIN <= int(priority) <= PRIORITY_MAX:
+            raise ValueError(f"product {n}: priority must be an integer {PRIORITY_MIN}-{PRIORITY_MAX} (got {priority!r})")
+        out.append((t, int(priority)))
+    return out
+
+
 def netlogo_string(value: str) -> str:
     """Quote a Python string as a NetLogo string literal."""
     return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
@@ -132,6 +152,7 @@ class SimulationSession:
         self._lock = threading.RLock()
         self._closed = False
         self._params: RunParameters | None = None
+        self._product_list: list[tuple[str, int]] | None = None
         self._layout: dict[str, Any] | None = None
         self._world_counter = 0
         try:
@@ -180,12 +201,16 @@ class SimulationSession:
         modeling_type: str = "Stochastic",
         horizon_ticks: int = DEFAULT_HORIZON_TICKS,
         fixed_product_sequence: bool = True,
+        product_list: list[tuple[str, int]] | None = None,
     ) -> None:
         """Seed the RNG, set the run parameters and run the model's setup.
 
         fixed_product_sequence (default True): type and priority of the n-th product depend only
         on the seed and n, so every strategy gets the same products (docs/product-sequence.md).
         False reproduces the original model; only the baseline regressions use it.
+        product_list: [(type, priority), ...] in entry order (docs/product-sets.md): product n is
+        item n - 1 and no product is created after the last one. It takes precedence over the
+        fixed sequence; the seed still drives every other random number.
         """
         if rule not in RULES:
             raise ValueError(f"rule must be one of {sorted(RULES)}, got {rule!r}")
@@ -193,6 +218,7 @@ class SimulationSession:
             raise ValueError(f"modeling_type must be one of {MODELING_TYPES}, got {modeling_type!r}")
         if horizon_ticks < 1:
             raise ValueError("horizon_ticks must be >= 1")
+        items = None if product_list is None else validate_product_list(product_list)
         with self._lock:
             self._command(f"random-seed {int(seed)}")
             self._command(f"set Reactivity.rule {netlogo_string(RULES[rule])}")
@@ -203,7 +229,12 @@ class SimulationSession:
             # so that platform-product-sequence shows the sequence of this seed).
             self._command(f"set fixed-product-sequence? {'true' if fixed_product_sequence else 'false'}")
             self._command(f"set product-sequence-seed {int(seed)}")
+            if items is not None:
+                literal = " ".join(f"[{netlogo_string(t)} {int(pr)}]" for t, pr in items)
+                self._command(f"set product-list [{literal}]")
+                self._command("set product-list? true")
             self._params = RunParameters(int(seed), rule, modeling_type, int(horizon_ticks), bool(fixed_product_sequence))
+            self._product_list = items
             self._layout = self._report_json("platform-layout")
 
     def reset(self) -> None:
@@ -211,7 +242,23 @@ class SimulationSession:
         params = self._require_params()
         if params.seed is None:
             raise RuntimeError("reset() needs a seed; this session was loaded with import_world()")
-        self.setup(params.seed, params.rule, params.modeling_type, params.horizon_ticks, params.fixed_product_sequence)
+        self.setup(params.seed, params.rule, params.modeling_type, params.horizon_ticks, params.fixed_product_sequence,
+                   product_list=self._product_list)
+
+    def product_sequence(self, seed: int, count: int) -> list[tuple[str, int]]:
+        """The first `count` products of the fixed sequence of `seed` (platform-product-sequence,
+        no random numbers used). The session's own product-sequence-seed is restored afterwards."""
+        if not 1 <= int(count) <= MAX_PRODUCT_LIST:
+            raise ValueError(f"count must be between 1 and {MAX_PRODUCT_LIST}")
+        with self._lock:
+            self._require_open()
+            previous = int(self._report("product-sequence-seed"))
+            try:
+                self._command(f"set product-sequence-seed {int(seed)}")
+                items = self._report_json(f"platform-product-sequence 1 {int(count)}")
+            finally:
+                self._command(f"set product-sequence-seed {previous}")
+        return [(str(i["type"]), int(i["priority"])) for i in items]
 
     def step(self, n: int) -> StepResult:
         """Advance up to n ticks in a single NetLogo call (the model's platform-step reporter).
