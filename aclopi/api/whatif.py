@@ -1,19 +1,19 @@
 """What-if of a pending decision (L5.4). Documentation for Línea A: docs/whatif.md.
 
-    POST /sessions/{id}/what-if {product, seq, options: [2 machines], max_ticks}
+    POST /sessions/{id}/what-if {product, seq, options: [2 machines], max_ticks, budget_ms}
 
 1. skipped "already-used" if this session already ran a what-if for (product, seq);
 2. borrow a what-if worker without queueing: skipped "no-free-worker" if none is free;
 3. session worker, between blocks (the run is not stopped): validate both options
    (platform-check-next-machine), measure the load of the two machines and export ONE snapshot;
-   plant-saturated: both machines have >= ACLOPI_WHATIF_SATURATION_QUEUE products queued or on
-   their way. For now only recorded (would_skip_saturated); it skips the what-if only with
-   ACLOPI_WHATIF_SATURATION_ENFORCE=1;
+   entry-beyond-cap (criterion to be replaced in step 2; today: both machines have >=
+   ACLOPI_WHATIF_SATURATION_QUEUE products queued or on their way). For now only recorded
+   (would_skip_entry_beyond_cap); it skips the what-if only with ACLOPI_WHATIF_SATURATION_ENFORCE=1;
 4. the options run one after the other on the borrowed worker, the one with the shorter
    estimated wait first; the first one's stop tick is the comparison window of the second, which
    is pruned there if its product has not entered yet (aclopi.sim.whatif);
-5. the whole request is bounded by ACLOPI_WHATIF_TIMEOUT_S (5 s): what is ready is returned with
-   status "timeout".
+5. the whole request is bounded by the request's budget_ms (default 10 s, 2-15 s; the agent sets it
+   from its decision deadline): what is ready is returned with status "timeout".
 """
 
 from __future__ import annotations
@@ -47,10 +47,10 @@ class WhatIfMetrics:
     def __init__(self) -> None:
         self.counts: dict[str, int] = {
             "requests": 0, "ok": 0, "timeout": 0, "error": 0, "invalid": 0,
-            "would_skip_saturated": 0, "options_run": 0, "entered": 0, "cap_reached": 0,
+            "would_skip_entry_beyond_cap": 0, "options_run": 0, "entered": 0, "cap_reached": 0,
             "stalled": 0, "pruned": 0, "options_timed_out": 0,
         }
-        self.skipped: dict[str, int] = {"no-free-worker": 0, "already-used": 0, "plant-saturated": 0}
+        self.skipped: dict[str, int] = {"no-free-worker": 0, "already-used": 0, "entry-beyond-cap": 0}
         self.series: dict[str, list[float]] = {k: [] for k in (
             "duration_ms", "export_ms", "import_ms", "advance_ms", "ticks_to_entry", "ticks_simulated")}
 
@@ -66,7 +66,7 @@ def _skipped(reason: str, t0: float, **extra: Any) -> dict[str, Any]:
 
 
 async def run_whatif(registry: Any, settings: Any, session_id: str, product: int, seq: int,
-                     options: list[str], max_ticks: int) -> dict[str, Any]:
+                     options: list[str], max_ticks: int, budget_ms: int = 10000) -> dict[str, Any]:
     t0 = time.perf_counter()
     record = registry.get(session_id)
     registry._ensure_active(record)
@@ -99,19 +99,19 @@ async def run_whatif(registry: Any, settings: Any, session_id: str, product: int
             if any(r in NOT_PENDING for r in bad.values()):
                 raise DecisionNotPending(detail, session_id)
             raise InvalidOption(detail, session_id)
-        saturation = {"would_skip_saturated": bool(snap["saturated"]), "loads": snap["loads"],
+        saturation = {"would_skip_entry_beyond_cap": bool(snap["saturated"]), "loads": snap["loads"],
                       "saturation_queue": settings.whatif_saturation_queue}
         if snap["saturated"]:
-            metrics.counts["would_skip_saturated"] += 1
-        if snap.get("path") is None:  # skipped for saturation (enforced)
-            metrics.skipped["plant-saturated"] += 1
-            return _skipped("plant-saturated", t0, snapshot_tick=snap["tick"], **saturation)
+            metrics.counts["would_skip_entry_beyond_cap"] += 1
+        if snap.get("path") is None:  # skipped by the entry-beyond-cap criterion (enforced)
+            metrics.skipped["entry-beyond-cap"] += 1
+            return _skipped("entry-beyond-cap", t0, snapshot_tick=snap["tick"], **saturation)
         path = Path(snap["path"])
         record.whatif_used.add(key)
-        deadline = time.time() + settings.whatif_timeout_s - (time.perf_counter() - t0)
+        deadline = time.time() + budget_ms / 1000.0 - (time.perf_counter() - t0)
         order = sorted(options, key=lambda m: (snap["estimated_entry"][m], options.index(m)))
         info = {"session_id": session_id, "snapshot_tick": snap["tick"], "product": product, "seq": seq,
-                "options": options, "max_ticks": max_ticks}
+                "options": options, "max_ticks": max_ticks, "budget_ms": budget_ms}
         results: dict[str, dict[str, Any]] = {}
         window: int | None = None
         status = "ok"

@@ -26,9 +26,7 @@ from test_live import Watcher
 @pytest.fixture(scope="module")
 def api(tmp_path_factory: pytest.TempPathFactory) -> Any:
     # Warmed-up workers, as in production: a cold JVM runs the copies several times slower.
-    # The 5 s budget is checked by test_timeout_returns_what_is_ready and measured in the container
-    # (scripts/l5/bench_whatif.py); here a loaded laptop must not turn exactness checks into timeouts.
-    server = start_server(tmp_path_factory.mktemp("whatif"), 2, 2, warm=True, idle_s=600, whatif_timeout_s=20.0)
+    server = start_server(tmp_path_factory.mktemp("whatif"), 2, 2, warm=True, idle_s=600)
     yield server
     server.stop()
 
@@ -75,9 +73,12 @@ def api_session(c: httpx.Client, seed: int, tick: int, rule: int = 4, horizon: i
     return sid
 
 
-def whatif(c: httpx.Client, sid: str, req: DecisionRequest, options: list[str], max_ticks: int = 2000) -> httpx.Response:
-    return c.post(f"/sessions/{sid}/what-if",
-                  json={"product": req.who, "seq": req.seq, "options": options, "max_ticks": max_ticks})
+def whatif(c: httpx.Client, sid: str, req: DecisionRequest, options: list[str], max_ticks: int = 3000,
+           budget_ms: int = 15000) -> httpx.Response:
+    # The largest budget: a loaded laptop must not turn exactness checks into timeouts (the budget
+    # itself is checked by test_timeout_returns_what_is_ready and measured in the container).
+    return c.post(f"/sessions/{sid}/what-if", json={"product": req.who, "seq": req.seq, "options": options,
+                                                    "max_ticks": max_ticks, "budget_ms": budget_ms})
 
 
 # ----- a) exactness and c) two options -----
@@ -111,7 +112,7 @@ def test_a_c_exact_prediction_and_common_window(client: httpx.Client) -> None:
             assert second["pruned"] and second["stop_reason"] == "pruned" and second["entry_estimated"]
             assert s_tick > body["window_tick"]  # pruning was right: it enters later
         for o in body["options"]:
-            assert {"work", "wait", "finished", "score"} <= set(o["others"])
+            assert set(o["others"]) == {"window_tick", "work", "wait", "presence", "finished"}
         # the real session did not move and the same decision cannot be tested twice
         assert client.get(f"/sessions/{sid}").json()["ticks"] == tick
         again = whatif(client, sid, req, options).json()
@@ -153,7 +154,7 @@ def test_e_no_free_worker_answers_at_once(api: ApiServer, client: httpx.Client) 
     async def scenario() -> tuple[list[httpx.Response], httpx.Response, float]:
         async with httpx.AsyncClient(base_url=api.url, timeout=120) as ac:
             def body(req: DecisionRequest) -> dict[str, Any]:
-                return {"product": req.who, "seq": req.seq, "options": list(req.candidates[2:4]), "max_ticks": 2000}
+                return {"product": req.who, "seq": req.seq, "options": list(req.candidates[2:4]), "budget_ms": 15000}
             busy = [asyncio.create_task(ac.post(f"/sessions/{sid}/what-if", json=body(req)))
                     for sid, req in ((sid1, req1), (sid2, req2))]
             await asyncio.sleep(0.4)  # both have borrowed their worker
@@ -205,6 +206,9 @@ def test_f_validation(client: httpx.Client) -> None:
     assert post(options=[ok[0], ok[0]]).status_code == 422  # must be two different machines
     assert post(options=[ok[0]]).status_code == 422  # exactly two
     assert post(options=["M2", "M3", "M5"]).status_code == 422
+    for budget in (1999, 15001):
+        assert post(budget_ms=budget).status_code == 422
+    assert post(max_ticks=5001).status_code == 422
     rule3 = api_session(client, 42, tick, rule=3)
     r = client.post(f"/sessions/{rule3}/what-if", json={"product": req.who, "seq": req.seq, "options": ok})
     assert r.status_code == 409 and r.json()["code"] == "rule4_required"
@@ -218,16 +222,10 @@ def test_timeout_returns_what_is_ready(api: ApiServer, client: httpx.Client) -> 
     tick, req, snapshot = find_decision(seed=42, nth=4)
     snapshot.unlink()
     sid = api_session(client, 42, tick)
-    settings = api.app.state.settings
-    previous = settings.whatif_timeout_s
-    object.__setattr__(settings, "whatif_timeout_s", 0.6)
-    try:
-        body = whatif(client, sid, req, list(req.candidates[:2])).json()
-    finally:
-        object.__setattr__(settings, "whatif_timeout_s", previous)
+    body = whatif(client, sid, req, list(req.candidates[:2]), budget_ms=2000).json()
     assert body["status"] == "timeout"
     assert any(o["timed_out"] for o in body["options"])
-    assert body["timings_ms"]["total"] < 600 + 2500  # import + one chunk past the deadline at most
+    assert body["timings_ms"]["total"] < 2000 + 2500  # import + one chunk past the deadline at most
     client.delete(f"/sessions/{sid}")
 
 

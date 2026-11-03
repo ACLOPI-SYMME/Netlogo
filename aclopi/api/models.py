@@ -149,7 +149,11 @@ class WhatIfRequest(BaseModel):
     product: int = Field(ge=0, description="who of the product being processed")
     seq: int = Field(ge=0, description="Index in ProductOperations of the operation to decide (CurrentSequenceOrder + 1)")
     options: list[str] = Field(min_length=2, max_length=2, description="Exactly two different machines to test")
-    max_ticks: int = Field(2000, ge=1, le=5000, description="Cap of ticks simulated per copy")
+    max_ticks: int = Field(3000, ge=1, le=5000, description="Cap of ticks simulated per copy")
+    budget_ms: int = Field(10000, ge=2000, le=15000,
+                           description="Time budget of the whole what-if (both copies, in series). The agent sets it "
+                                       "from its decision deadline: ~10 s fits from M2-M7; from M1 (~8 s) it does not "
+                                       "fit together with the LLM calls")
 
     @field_validator("options")
     @classmethod
@@ -163,8 +167,8 @@ class OthersMetric(BaseModel):
     window_tick: int
     work: float = Field(description="Nominal processing work done by the other products in the window")
     wait: float = Field(description="Time the other products spent in the plant without being processed")
+    presence: float = Field(description="Time the other products spent in the plant during the window")
     finished: int
-    score: float = Field(description="work - wait (higher is better)")
 
 
 class WhatIfOption(BaseModel):
@@ -204,7 +208,7 @@ class WhatIfTimings(BaseModel):
 
 class WhatIfResponse(BaseModel):
     status: Literal["ok", "timeout", "skipped", "error"]
-    skipped_reason: Literal["no-free-worker", "already-used", "plant-saturated"] | None = None
+    skipped_reason: Literal["no-free-worker", "already-used", "entry-beyond-cap"] | None = None
     snapshot_tick: int | None = None
     snapshot_time: float | None = None
     operation: str | None = None
@@ -212,7 +216,7 @@ class WhatIfResponse(BaseModel):
     run_order: list[str]
     timings_ms: WhatIfTimings
     options: list[WhatIfOption]
-    would_skip_saturated: bool | None = None
+    would_skip_entry_beyond_cap: bool | None = None
     loads: dict[str, int] | None = None
     saturation_queue: int | None = None
 

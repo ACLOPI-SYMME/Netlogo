@@ -6,7 +6,9 @@ Estos dos endpoints permiten al código del agente (Línea A) evaluar una decisi
 
 - **Cuándo decide el agente.** Mientras el producto se procesa en una máquina: la petición se crea al **entrar** a la máquina y la respuesta se usa cuando la operación termina.
 - **Plazo de decisión en vivo.** Es lo que le falta al producto en su máquina actual menos ~2 s de margen: **~8 s desde M1** y **~18 s desde M2–M7**.
-- **Duración del what-if.** Como mucho 5 s (`ACLOPI_WHATIF_TIMEOUT_S`), así que cabe en esos plazos.
+- **Duración del what-if.** La fija el agente con `budget_ms` en cada pedido (10 s por defecto, de 2 a 15 s), a partir de su plazo de decisión y del tiempo que necesitan sus llamadas al LLM:
+  - **desde M2–M7** (~18 s) cabe un what-if de ~10 s;
+  - **desde M1** (~8 s) el what-if **no cabe** junto con las llamadas al LLM, así que el agente no debería pedirlo.
 - **Meta de concurrencia.** **5 sesiones simultáneas**, con 2 workers de what-if compartidos.
 - **Sesiones válidas.** Solo las de **regla 4**. La regla 4 sin decisor es exactamente la regla 3.
 
@@ -42,11 +44,12 @@ La lista viene ordenada por `estimated_wait`.
 ## `POST /sessions/{id}/what-if`
 
 ```json
-{"product": 201, "seq": 1, "options": ["M2", "M3"], "max_ticks": 2000}
+{"product": 201, "seq": 1, "options": ["M2", "M3"], "max_ticks": 3000, "budget_ms": 10000}
 ```
 
 - **`options`:** exactamente **2 máquinas distintas**, elegidas por el código del agente. Si son iguales, o si no son exactamente dos, la API responde 422.
-- **`max_ticks`:** tope de ticks por copia, de 1 a 5000 (2000 por defecto).
+- **`max_ticks`:** tope de ticks por copia, de 1 a 5000 (3000 por defecto).
+- **`budget_ms`:** tiempo máximo del pedido completo (las dos copias, en serie en un solo worker), de 2000 a 15000 ms (10000 por defecto). Fuera de rango → 422. Al agotarse, la API devuelve lo que haya con `status: "timeout"`.
 
 ### Qué hace
 
@@ -64,7 +67,7 @@ La lista viene ordenada por `estimated_wait`.
    | `cap` | Llegó a `max_ticks` sin entrar |
    | `stalled` | Bloqueo: en 300 ticks ningún producto se movió y ninguna máquina estuvo procesando |
    | `pruned` | Solo la segunda copia: llegó a la ventana común sin entrar, así que ya es peor que la primera |
-   | `timeout` | Se acabó el plazo de 5 s |
+   | `timeout` | Se acabó `budget_ms` |
    | `horizon` | Terminó la corrida |
 
    Si el producto no entró, la entrada y el fin se **estiman** (`entry_estimated`) y la copia queda marcada. La estimación es: tiempo de la parada + lo que le falta al trabajo en curso de la máquina + los tiempos de los productos en su cola o en camino. No incluye el viaje del producto, así que es una cota inferior.
@@ -87,23 +90,25 @@ Así las dos métricas se miden en el mismo tick, y la poda coincide con la vent
 |---|---|
 | `work` | Trabajo de proceso **nominal** hecho en la ventana: una operación completada suma su `OperationDuration` y la que está en curso, la fracción procesada (igual que el KPI `work_completed`) |
 | `wait` | Tiempo en planta dentro de la ventana menos el tiempo de proceso recibido: viajando o en cola |
+| `presence` | Tiempo que los demás productos estuvieron en planta dentro de la ventana (`wait` = `presence` − proceso recibido) |
 | `finished` | Productos terminados dentro de la ventana |
-| `score` | `work − wait`; mayor es mejor |
+
+La plataforma no combina estas cantidades ni ordena las opciones: eso lo decide el agente.
 
 ### Respuesta (siempre 200, salvo validación)
 
 ```jsonc
 {"status": "ok",                     // ok | timeout | skipped | error
- "skipped_reason": null,             // no-free-worker | already-used | plant-saturated
+ "skipped_reason": null,             // no-free-worker | already-used | entry-beyond-cap
  "snapshot_tick": 1012, "snapshot_time": 313.72, "operation": "O1",
  "window_tick": 1987, "run_order": ["M3", "M2"],
  "timings_ms": {"export": 98, "import": 1010, "advance": 1630, "total": 2850},
- "would_skip_saturated": false, "loads": {"M2": 1, "M3": 0}, "saturation_queue": 3,
+ "would_skip_entry_beyond_cap": false, "loads": {"M2": 1, "M3": 0}, "saturation_queue": 3,
  "options": [                        // en el orden del pedido
    {"machine": "M2", "entered": true, "stop_reason": "entered",
     "entry_tick": 1987, "entry_time": 615.97, "entry_estimated": false,
     "op_end_time": 829.1, "op_end_estimated": false,
-    "others": {"window_tick": 1987, "work": 431.2, "wait": 38.4, "finished": 0, "score": 392.8},
+    "others": {"window_tick": 1987, "work": 431.2, "wait": 38.4, "presence": 612.3, "finished": 0},
     "ticks_simulated": 975, "stop_tick": 1987, "cap_reached": false, "stalled": false,
     "pruned": false, "timed_out": false, "skipped": false,
     "duration_ms": 1350, "import_ms": 505, "advance_ms": 845, "diagnostic_file": null, "error": null},
@@ -120,13 +125,13 @@ Así las dos métricas se miden en el mismo tick, y la poda coincide con la vent
 | 422 | `invalid_option` | Producto inexistente, máquina desconocida o no capaz de la operación, `seq` fuera de rango. `detail` dice el motivo de cada opción |
 | 409 | `decision_not_pending` | Producto terminado (`product-finished`), fuera de una máquina (`not-in-machine`) o `seq` que no es la pendiente (`seq-mismatch`, `stale-seq`) |
 | 409 | `rule4_required` | La sesión no tiene regla 4 |
-| 422 | – | Formato inválido (no son 2 opciones, opciones iguales, `max_ticks` fuera de rango) |
+| 422 | – | Formato inválido (no son 2 opciones, opciones iguales, `max_ticks` o `budget_ms` fuera de rango) |
 
-### Planta saturada (POR CONFIRMAR, solo se registra)
+### Entrada más allá del tope: `entry-beyond-cap` (POR CONFIRMAR, solo se registra)
 
-- **Criterio propuesto:** las **dos** máquinas probadas tienen `N` o más productos en cola o en camino hacia ellas (`ACLOPI_WHATIF_SATURATION_QUEUE`; ver el resumen de `scripts/l5/whatif_saturation.py`).
+- **Criterio actual (provisional, se reemplaza en el paso 2):** las **dos** máquinas probadas tienen `N` o más productos en cola o en camino hacia ellas (`ACLOPI_WHATIF_SATURATION_QUEUE`). El script `scripts/l5/whatif_saturation.py` mostró que con la regla 3 las colas casi nunca existen y que lo que alarga un what-if es el tiempo hasta la entrada.
 - **Datos:** salen de `platform-state` (`heading_workstation` de cada producto y `product` de cada máquina), sin consumir azar. No hizo falta agregar nada al modelo.
-- **Comportamiento actual:** el what-if **no** se salta. Se registra `would_skip_saturated: true` en la respuesta y en las métricas. Para que se salte (`skipped` con `plant-saturated`) hay que poner `ACLOPI_WHATIF_SATURATION_ENFORCE=1`.
+- **Comportamiento actual:** el what-if **no** se salta. Se registra `would_skip_entry_beyond_cap: true` en la respuesta y en las métricas. Para que se salte (`skipped` con `entry-beyond-cap`) hay que poner `ACLOPI_WHATIF_SATURATION_ENFORCE=1`.
 
 ## `GET /sessions/{id}/metrics`
 
@@ -135,7 +140,7 @@ Así las dos métricas se miden en el mismo tick, y la poda coincide con la vent
 | Grupo | Campos |
 |---|---|
 | Pedidos | `requests`, `ok`, `timeout`, `error`, `invalid` |
-| Saltados | `skipped` por motivo, `would_skip_saturated` |
+| Saltados | `skipped` por motivo (`no-free-worker`, `already-used`, `entry-beyond-cap`), `would_skip_entry_beyond_cap` |
 | Opciones | `options_run`, `entered`, `cap_reached`, `stalled`, `pruned`, `options_timed_out` |
 | Tiempos (media, p95, máx., n) | `duration_ms`, `export_ms`, `import_ms`, `advance_ms` |
 | Ticks (media, p95, máx., n) | `ticks_to_entry`, `ticks_simulated` |
@@ -144,11 +149,10 @@ Así las dos métricas se miden en el mismo tick, y la poda coincide con la vent
 
 | Variable | Por defecto | |
 |---|---|---|
-| `ACLOPI_WHATIF_TIMEOUT_S` | 5 | Tiempo máximo del pedido completo |
 | `ACLOPI_WHATIF_STALL_TICKS` | 300 | Ticks sin movimiento ni proceso para declarar un bloqueo |
 | `ACLOPI_WHATIF_CHUNK_TICKS` | 150 | Ticks entre lecturas de control de la copia |
-| `ACLOPI_WHATIF_SATURATION_QUEUE` | 3 | N del criterio de planta saturada |
-| `ACLOPI_WHATIF_SATURATION_ENFORCE` | 0 | 1 = saltar el what-if si la planta está saturada |
+| `ACLOPI_WHATIF_SATURATION_QUEUE` | 3 | N del criterio provisional de `entry-beyond-cap` |
+| `ACLOPI_WHATIF_SATURATION_ENFORCE` | 0 | 1 = saltar el what-if cuando se cumple el criterio |
 | `ACLOPI_WHATIF_DIAG_DIR` | `results/whatif_diagnostics` | Fotos de los bloqueos |
 
 ## Diseño previsto para L5.5 (todavía no implementado)

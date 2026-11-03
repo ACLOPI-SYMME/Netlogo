@@ -86,7 +86,7 @@ def whatif_load(http: Any, live: list[str], duration: float) -> dict[str, Any]:
         "requests": len(results) + len(errors),
         "status": {s: sum(r["status"] == s for r in results) for s in ("ok", "timeout", "skipped", "error")},
         "skipped_reasons": {k: sum(r.get("skipped_reason") == k for r in results)
-                            for k in ("no-free-worker", "already-used", "plant-saturated")},
+                            for k in ("no-free-worker", "already-used", "entry-beyond-cap")},
         "http_errors": errors,
         "duration_2_options_ms": stats([r["timings_ms"]["total"] for r in ran]),
         "duration_first_option_ms": stats([o["duration_ms"] for o in firsts if o.get("duration_ms")]),
@@ -100,7 +100,7 @@ def whatif_load(http: Any, live: list[str], duration: float) -> dict[str, Any]:
         "stalled": sum(o["stalled"] for o in options),
         "pruned": sum(o["pruned"] for o in options),
         "timed_out": sum(o["timed_out"] for o in options),
-        "would_skip_saturated": sum(bool(r.get("would_skip_saturated")) for r in ran),
+        "would_skip_entry_beyond_cap": sum(bool(r.get("would_skip_entry_beyond_cap")) for r in ran),
         "live_ticks_per_s": {"min": min(rates.values()), "max": max(rates.values()),
                              "mean": round(statistics.fmean(rates.values()), 2)},
     }

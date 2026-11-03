@@ -311,9 +311,9 @@
             "title": "Finished",
             "type": "integer"
           },
-          "score": {
-            "description": "work - wait (higher is better)",
-            "title": "Score",
+          "presence": {
+            "description": "Time the other products spent in the plant during the window",
+            "title": "Presence",
             "type": "number"
           },
           "wait": {
@@ -335,8 +335,8 @@
           "window_tick",
           "work",
           "wait",
-          "finished",
-          "score"
+          "presence",
+          "finished"
         ],
         "title": "OthersMetric",
         "type": "object"
@@ -1000,8 +1000,16 @@
       "WhatIfRequest": {
         "additionalProperties": false,
         "properties": {
+          "budget_ms": {
+            "default": 10000,
+            "description": "Time budget of the whole what-if (both copies, in series). The agent sets it from its decision deadline: ~10 s fits from M2-M7; from M1 (~8 s) it does not fit together with the LLM calls",
+            "maximum": 15000.0,
+            "minimum": 2000.0,
+            "title": "Budget Ms",
+            "type": "integer"
+          },
           "max_ticks": {
-            "default": 2000,
+            "default": 3000,
             "description": "Cap of ticks simulated per copy",
             "maximum": 5000.0,
             "minimum": 1.0,
@@ -1097,7 +1105,7 @@
                 "enum": [
                   "no-free-worker",
                   "already-used",
-                  "plant-saturated"
+                  "entry-beyond-cap"
                 ],
                 "type": "string"
               },
@@ -1153,7 +1161,7 @@
             ],
             "title": "Window Tick"
           },
-          "would_skip_saturated": {
+          "would_skip_entry_beyond_cap": {
             "anyOf": [
               {
                 "type": "boolean"
@@ -1162,7 +1170,7 @@
                 "type": "null"
               }
             ],
-            "title": "Would Skip Saturated"
+            "title": "Would Skip Entry Beyond Cap"
           }
         },
         "required": [
@@ -2592,7 +2600,7 @@
     },
     "/sessions/{session_id}/what-if": {
       "post": {
-        "description": "Rule 4 sessions only. One snapshot of the session (the run is not stopped), one copy per option on a borrowed what-if worker, at most ACLOPI_WHATIF_TIMEOUT_S seconds. status 'skipped' (no-free-worker, already-used, plant-saturated) is a normal answer (200). See docs/whatif.md.",
+        "description": "Rule 4 sessions only. One snapshot of the session (the run is not stopped), one copy per option on a borrowed what-if worker, within the request's budget_ms. status 'skipped' (no-free-worker, already-used, entry-beyond-cap) is a normal answer (200). See docs/whatif.md.",
         "operationId": "what_if_sessions__session_id__what_if_post",
         "parameters": [
           {

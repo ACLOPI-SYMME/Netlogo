@@ -40,7 +40,6 @@ class Settings:
     fast_yield: float = 0.0
     ws_queue: int = 32
     # What-if (L5.4)
-    whatif_timeout_s: float = 5.0
     whatif_stall_ticks: int = 300
     whatif_chunk_ticks: int = 150
     whatif_saturation_queue: int = 3
@@ -72,7 +71,6 @@ class Settings:
             fast_block_ticks=_int(env, "ACLOPI_FAST_BLOCK_TICKS", 1000),
             fast_yield=_float(env, "ACLOPI_FAST_YIELD", 0.0),
             ws_queue=_int(env, "ACLOPI_WS_QUEUE", 32),
-            whatif_timeout_s=_float(env, "ACLOPI_WHATIF_TIMEOUT_S", 5.0),
             whatif_stall_ticks=_int(env, "ACLOPI_WHATIF_STALL_TICKS", 300),
             whatif_chunk_ticks=_int(env, "ACLOPI_WHATIF_CHUNK_TICKS", 150),
             whatif_saturation_queue=_int(env, "ACLOPI_WHATIF_SATURATION_QUEUE", 3),

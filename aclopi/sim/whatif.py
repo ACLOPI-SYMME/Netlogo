@@ -20,9 +20,9 @@ Metric of the other products over [T0, stop] (time units, all products except W)
   work     nominal processing work done in the window (as the work_completed KPI: completed
            operations add OperationDuration, the one in progress its processed fraction)
   wait     time in the system during the window minus processing time received in it
+  presence time the other products spent in the plant during the window
   finished products finished in the window
-  score    work - wait (higher is better)
-Both copies of a request are measured at the same tick (the window), so totals compare fairly.
+The agent combines them; the platform does not rank the options. Both copies of a request are measured at the same tick (the window), so totals compare fairly.
 """
 
 from __future__ import annotations
@@ -134,8 +134,8 @@ def others_metric(session: Any, exclude: int, t0: float, work0: float) -> dict[s
         "window_tick": _ticks(session),
         "work": round(work_window, 4),
         "wait": round(wait, 4),
+        "presence": round(float(presence), 4),
         "finished": int(finished),
-        "score": round(work_window - wait, 4),
     }
 
 

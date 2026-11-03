@@ -380,13 +380,13 @@ def create_app(
     @app.post("/sessions/{session_id}/what-if", response_model=WhatIfResponse, tags=["decisions"],
               summary="Test two assignments of a pending decision in copies of the simulation",
               description="Rule 4 sessions only. One snapshot of the session (the run is not stopped), one copy "
-                          "per option on a borrowed what-if worker, at most ACLOPI_WHATIF_TIMEOUT_S seconds. "
-                          "status 'skipped' (no-free-worker, already-used, plant-saturated) is a normal answer "
+                          "per option on a borrowed what-if worker, within the request's budget_ms. "
+                          "status 'skipped' (no-free-worker, already-used, entry-beyond-cap) is a normal answer "
                           "(200). See docs/whatif.md.",
               responses=errors.responses(404, 409, 410, 500, 504))
     async def what_if(body: WhatIfRequest, session_id: str = session_id_path) -> Any:
         return await run_whatif(runtime.sessions, settings, session_id, body.product, body.seq, body.options,
-                                body.max_ticks)
+                                body.max_ticks, body.budget_ms)
 
     @app.get("/sessions/{session_id}/metrics", response_model=SessionMetrics, tags=["decisions"],
              summary="Per-session metrics: what-ifs run, skipped, caps, stalls and timings",

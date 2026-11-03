@@ -50,7 +50,7 @@ OPS = (
     # Continuous runs (L5.3, runner.py)
     "run", "pause", "resume", "stop", "snapshot",
     # Decisions (L5.4): candidates on the session worker; what-if snapshot (session worker) and
-    # one option per request on a borrowed what-if worker (each well under the 5 s what-if budget)
+    # one option per request on a borrowed what-if worker (each within the what-if's budget_ms, 2-15 s)
     "candidates", "whatif_snapshot", "whatif_option",
 )
 # Diagnostic operations: only with debug=True; never exposed by the API.
@@ -79,7 +79,7 @@ OP_TIMEOUTS_S: dict[str, float] = {
     "snapshot": 10.0,
     "candidates": 10.0,
     "whatif_snapshot": 10.0,
-    "whatif_option": 10.0,  # the option itself stops at the request's deadline (5 s per what-if)
+    "whatif_option": 10.0,  # the option stops at the request's deadline (budget_ms <= 15 s)
 }
 
 # Continuous runs: the API's watchdog treats a running session that sends no push for this long
