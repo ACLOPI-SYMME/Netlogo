@@ -84,3 +84,34 @@ def test_exact_stop_is_identical_to_step() -> None:
         while left > 0:
             left -= s.step(min(left, 2000)).advanced
         assert s.kpis().as_dict() == kpis
+
+
+def test_p11_printdata_with_no_product_alive() -> None:
+    """P11: PrintData with no product alive (a list that ran out) writes 0 instead of failing.
+    Forced twice: PrintData called by hand right after the last product finished, and the run
+    stepped on (plain step) across several PrintData ticks."""
+    with SimulationSession() as s:
+        s.setup(seed=7, rule=3, horizon_ticks=40000, product_list=[("A", 80)])
+        done = False
+        while not done:
+            _, done = s.step_product_list(2000)
+        assert s.kpis().as_dict()["all_done"] is True
+        rows = int(s._report("length DataFrameInfo"))
+        s._command("PrintData")  # the last product just finished: nobody alive
+        s.step(1000)  # ~3 PrintData ticks (every Interval.Logs) with no product alive
+        assert int(s._report("length DataFrameInfo")) >= rows + 3
+        last = json.loads(str(s._report("platform-local [ -> json-any last DataFrameInfo ]")))
+        assert last[3] == 0  # alive products
+        assert last[7:11] == [0, 0, 0, 0]  # mean / standard deviation of x and y
+        kpis = s.kpis().as_dict()
+        assert kpis["all_done"] is True and kpis["finished"] == 1 and kpis["wip"] == 0
+
+
+def test_kpis_without_finished_products() -> None:
+    with SimulationSession() as s:
+        s.setup(seed=42, rule=3)
+        k = s.kpis().as_dict()  # tick 0: no product yet
+        assert k["finished"] == 0 and k["mean_flow_time"] is None and k["throughput"] == 0.0
+        s.step(600)  # the first product is created at ~100 u.t. (tick ~323)
+        k = s.kpis().as_dict()
+        assert k["finished"] == 0 and k["mean_flow_time"] is None and k["wip"] >= 1

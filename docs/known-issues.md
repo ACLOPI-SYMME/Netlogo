@@ -59,3 +59,31 @@ Descripción original del problema:
 ## 6. Plataforma: finales de línea de los CSV según el sistema operativo
 
 NetLogo escribe los CSV con el separador de línea del sistema: CRLF en Windows y LF en Linux. La línea base se generó en Windows. `compare_baseline.py` compara el SHA-256 del contenido con los finales de línea normalizados a LF, de modo que la regresión vale en las dos plataformas.
+
+## 7. ✅ RESUELTO (P11, rama `model/p11-printdata`). `PrintData` fallaba sin productos vivos
+
+**Qué pasaba.** `PrintData`, que agrega una fila al CSV de Data cada `Interval.Logs` u.t. (`Go`, línea 173), calcula medias sobre los productos vivos. Con un set de productos que se termina (`docs/product-sets.md`) puede no quedar ninguno, y NetLogo falla con `Can't find the mean of a list with no numbers`. Con la llegada normal de productos nunca pasa, porque siempre hay alguno vivo.
+
+**Cálculos afectados**, todos en `PrintData`:
+
+| Línea (antes del cambio) | Cálculo | Columnas de Data (desde 0) |
+|---|---|---|
+| 281, 283 | `mean [xcor]` y `mean [ycor]` de los vivos | 7 y 9 |
+| 282, 284 | Desviación estándar de x e y (`mean` dentro de `sqrt`) | 8 y 10 |
+| 319 | Relación media de operaciones completadas: suma ÷ `count` de los vivos (división por 0) | Bloque 2, última columna |
+| 427–430 | Las mismas medias y desviaciones del bloque 5 (KPI) | Las cuatro columnas correspondientes del bloque 5 |
+
+El resto ya funciona con un conjunto vacío:
+- las sumas y los conteos dan 0;
+- la entropía itera una lista vacía;
+- `EventPassing` está protegido con `any?`;
+- `PotentialFields` y las colas usan listas vacías;
+- `ExportData` solo escribe.
+
+En Python, `aclopi/sim/kpis.py` ya devolvía `mean_flow_time = None` sin terminados (`ifelse-value any?`).
+
+**Cambio.** Cada uno de esos valores es `ifelse-value (any? products with [Product.State != "death"]) [expresión original] [0]`. Esas columnas valen **0** en las filas de Data escritas cuando no hay productos vivos, lo que solo pasa al final de una corrida con set de productos.
+
+**Garantía:** con productos vivos la expresión es la original y `any?` no usa números aleatorios, así que la línea base no cambia (`compare_baseline.py` OK).
+
+**Plataforma.** Las sesiones con lista siguen terminando en el `go` exacto en que termina el último producto (`SimulationSession.step_product_list`, `run_reason: "all_products_done"`). Ya no es para evitar este error, sino para que la corrida termine en el tick correcto. Test: `tests/test_product_list.py::test_p11_printdata_with_no_product_alive`.

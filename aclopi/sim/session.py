@@ -277,10 +277,11 @@ class SimulationSession:
         """Like step(n), for a session with a product list: it stops at the exact go in which the
         last product of the list finishes and never advances after that. Returns (result, all_done).
 
-        Why: the model's PrintData (in Go) computes means over the alive products and fails when
-        there are none, which only happens once every product of the list has finished. The
-        condition reads globals and `any? products with [...]` (no random numbers), so the run is
-        identical to step(n) up to that tick.
+        The run ends at the tick the list is done (all_products_done), not at the end of a block.
+        (It also used to avoid the model's PrintData failing with no product alive; fixed in the
+        model since P11, docs/known-issues.md.) The condition reads globals and
+        `any? products with [...]` (no random numbers), so the run is identical to step(n) up to
+        that tick.
         """
         done = ('(product-list? and products-created >= length product-list '
                 'and not any? products with [Product.State != "death"])')
