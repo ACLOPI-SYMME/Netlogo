@@ -97,10 +97,10 @@ Es un mensaje ligero: el detalle está en `GET /sessions/{id}/metrics` (`decisio
 ### `finished`: la corrida llegó al horizonte
 
 ```json
-{"type": "finished", "seq": 120, "tick": 10000, "kpis": { ...KPIs finales... }}
+{"type": "finished", "seq": 120, "tick": 10000, "reason": "horizon", "kpis": { ...KPIs finales... }}
 ```
 
-Le sigue un `run_state` con `finished`.
+`reason` vale `horizon`, o `all_products_done` con un set de productos (L5.6). Le sigue un `run_state` con `finished` y el mismo `reason`.
 
 ### `run_error`: un bloque falló dentro de NetLogo
 

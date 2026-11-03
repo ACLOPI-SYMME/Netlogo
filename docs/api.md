@@ -58,6 +58,15 @@ Si el arranque falla, el log JSON indica qué worker falló y por qué. Luego el
 | `GET /sessions/{id}/metrics` | Métricas de la sesión: what-if (`whatif`) y decisiones (`decisions`, L5.5) |
 | `POST /sessions/{id}/next-machine` | Decisión del agente para una petición pendiente (regla 4; `docs/agent-api.md`, PROPUESTA) |
 
+**Resultados (L5.7).**
+- Cada corrida se guarda al terminar, fallar o detenerse, en memoria o en DynamoDB según `ACLOPI_DYNAMODB_ENDPOINT` / `ACLOPI_RESULTS_STORE`.
+- Rutas:
+  - `GET /runs`, con filtros `seed`, `strategy`, `rule`, `product_set_id`, `limit` y `cursor`;
+  - `GET /runs/{id}`;
+  - `GET /runs/{id}/decisions`.
+- `SessionInfo.last_run_id` dice la última corrida guardada de la sesión.
+- Detalle en `docs/deploy-local.md`.
+
 **Sets de productos y semilla opcional (L5.6).**
 - `POST /sessions` acepta `product_set_id` o `products`, y `seed` es opcional: sin ella se sortea, y queda en `parameters.seed` con `seed_source`.
 - Rutas `/product-sets*`.
