@@ -52,6 +52,8 @@ OPS = (
     # Decisions (L5.4): candidates on the session worker; what-if snapshot (session worker) and
     # one option per request on a borrowed what-if worker (each within the what-if's budget_ms, 2-15 s)
     "candidates", "whatif_snapshot", "whatif_option",
+    # Agent decisions (L5.5): apply a next machine between blocks; end a run that waited too long
+    "next_machine", "fail_run",
 )
 # Diagnostic operations: only with debug=True; never exposed by the API.
 DEBUG_OPS = ("command", "report")
@@ -80,6 +82,8 @@ OP_TIMEOUTS_S: dict[str, float] = {
     "candidates": 10.0,
     "whatif_snapshot": 10.0,
     "whatif_option": 10.0,  # the option stops at the request's deadline (budget_ms <= 15 s)
+    "next_machine": 10.0,
+    "fail_run": 10.0,
 }
 
 # Continuous runs: the API's watchdog treats a running session that sends no push for this long

@@ -19,9 +19,18 @@ Results never depend on speed or block size: platform-step n is n calls to go, a
 Run states: idle -> running_live | running_fast <-> paused; -> finished at the horizon; any ->
 idle on setup/reset/import_world/stop.
 
-L5.5 (rule 4 decisions): `advance` becomes platform-run-until-decision. When a block stops with
-pending decision requests (BlockResult.stop_reason == "decision") the controller will enter a
-"waiting_decision" state and push "decision_required"; the worker loop does not change.
+Rule 4 with a decider (L5.5, `decisions=True` in start):
+- live: after every block the decision requests queued in the model (decision-queue) are read,
+  cleared and pushed with the "tick" message; the run never waits (if the agent answers late the
+  model applies rule 3 when the operation ends: rule3-fallback);
+- fast: blocks use platform-run-until-decision; when a block stops with pending requests the
+  controller enters "waiting_decision", pushes "decision_required" and runs no block until
+  next_machine() has been called for every pending request. The waiting itself (timeout, calls to
+  the agent) lives in the API; meanwhile the worker keeps serving requests and pushes a
+  "heartbeat" every HEARTBEAT_S so the API watchdog does not take it for a hung worker.
+- the model's decision log (Decision.Source of every rule-4 assignment) is read and cleared after
+  every block and pushed as "assignments" (also without a decider: strategy none).
+- fail(reason) ends the run with run state "failed" (e.g. agent_unavailable).
 """
 
 from __future__ import annotations
@@ -29,11 +38,18 @@ from __future__ import annotations
 import time
 from collections import deque
 from dataclasses import dataclass
+from dataclasses import asdict
 from typing import Any, Callable
+
+from aclopi.sim.decisions import (
+    clear_decisions, decision_log, pending_decisions, run_until_decision, set_next_machine,
+)
 
 BASE_RATE = 32.0  # ticks/s at speed 1
 SPEEDS = (0.5, 1.0, 2.0, 4.0)
-RUNNING = ("running_live", "running_fast")
+RUNNING = ("running_live", "running_fast", "waiting_decision")
+HEARTBEAT_S = 2.0
+ENDED = ("idle", "finished", "failed")
 MAX_LAG_S = 1.0
 RATE_WINDOW_S = 1.0
 
@@ -80,6 +96,11 @@ class RunController:
         self._last_state = 0.0
         self.state_interval_s = 1.0  # fast mode: platform-state in "progress" at most this often
         self._history: deque[tuple[float, int]] = deque()
+        self.rule4 = False  # read the decision log (and keep decision-queue empty) after each block
+        self.decisions = False  # rule 4 with a decider: hand the requests to the API
+        self.pending: set[tuple[int, int]] = set()  # fast mode: requests waiting for next_machine
+        self.reason: str | None = None  # why the run ended (failed: agent_unavailable)
+        self._last_heartbeat = 0.0
 
     # ----- state -----
 
@@ -88,18 +109,21 @@ class RunController:
         return self.state in RUNNING
 
     def info(self) -> dict[str, Any]:
-        return {"run_state": self.state, "mode": self.mode, "speed": self.speed}
+        return {"run_state": self.state, "mode": self.mode, "speed": self.speed, "reason": self.reason,
+                "pending_decisions": len(self.pending)}
 
-    def _set(self, state: str) -> tuple[str, Any]:
-        self.state = state
-        if state in ("idle", "finished"):
+    def _set(self, state: str, reason: str | None = None) -> tuple[str, Any]:
+        self.state, self.reason = state, reason
+        if state in ENDED:
             self.mode, self.speed = None, None
+            self.pending.clear()
         return push("run_state", {**self.info(), "tick": self._ticks()})
 
     def reset(self, finished: bool = False) -> list[tuple[str, Any]]:
         """After setup/reset/import_world/stop: not running."""
         previous = self.state
         new = "finished" if finished else "idle"
+        self.pending.clear()
         if previous == new:
             return []
         return [self._set(new)]
@@ -109,11 +133,18 @@ class RunController:
             return [self._set("finished")]
         return []
 
-    def start(self, mode: str, speed: float | None) -> list[tuple[str, Any]]:
+    def start(self, mode: str, speed: float | None, decisions: bool = False,
+              rule4: bool = False) -> list[tuple[str, Any]]:
         if mode not in ("live", "fast"):
             raise ValueError(f"mode must be 'live' or 'fast', got {mode!r}")
-        if self.state == "finished":
-            raise RunStateError("the run is finished; reset the session to run it again")
+        if self.state in ("finished", "failed"):
+            raise RunStateError(f"the run is {self.state}; reset the session to run it again")
+        if self.state == "waiting_decision":
+            raise RunStateError("the run is waiting for the agent's decisions")
+        self.rule4, self.decisions = bool(rule4 or decisions), bool(decisions)
+        if self.rule4:
+            clear_decisions(self.session)  # requests left by manual steps are stale
+        self.advance = self._until_decision if (self.decisions and mode == "fast") else self._platform_step
         if mode == "live":
             speed = 1.0 if speed is None else float(speed)
             if speed not in SPEEDS:
@@ -125,6 +156,8 @@ class RunController:
         return [self._set(f"running_{mode}")]
 
     def pause(self) -> list[tuple[str, Any]]:
+        if self.state == "waiting_decision":
+            raise RunStateError("cannot pause: the run is waiting for the agent's decisions")
         if not self.running:
             raise RunStateError(f"cannot pause: the session is {self.state}")
         return [self._set("paused")]
@@ -136,9 +169,27 @@ class RunController:
         return [self._set(f"running_{self.mode}")]
 
     def stop(self) -> list[tuple[str, Any]]:
-        if self.state in ("idle", "finished"):
+        if self.state in ENDED:
             return []
         return [self._set("idle")]
+
+    def fail(self, reason: str) -> list[tuple[str, Any]]:
+        """End the run as failed (e.g. agent_unavailable: no decision within the API's timeout)."""
+        if self.state in ENDED:
+            return []
+        return [self._set("failed", reason)]
+
+    def next_machine(self, product: int, seq: int, machine: str) -> tuple[str, list[tuple[str, Any]]]:
+        """Apply an agent's decision (platform-set-next-machine). In fast mode, when it was the last
+        pending request, the run goes on. Returns the model's answer ("ok" or the reason)."""
+        result = set_next_machine(self.session, int(product), str(machine), int(seq))
+        pushes: list[tuple[str, Any]] = []
+        if result == "ok":
+            self.pending.discard((int(product), int(seq)))
+            if self.state == "waiting_decision" and not self.pending:
+                self._restart_schedule()
+                pushes.append(self._set("running_fast"))
+        return result, pushes
 
     # ----- scheduling -----
 
@@ -161,6 +212,8 @@ class RunController:
         """Seconds until the next block is due (0 = now), or None when not running."""
         if not self.running:
             return None
+        if self.state == "waiting_decision":
+            return max(0.0, self._last_heartbeat + HEARTBEAT_S - self.clock())
         return max(0.0, self._next_due - self.clock())
 
     # ----- blocks -----
@@ -168,6 +221,23 @@ class RunController:
     def _platform_step(self, n: int) -> BlockResult:
         r = self.session.step(n)
         return BlockResult(ticks=r.ticks, advanced=r.advanced, finished=r.finished)
+
+    def _until_decision(self, n: int) -> BlockResult:
+        r = run_until_decision(self.session, n)
+        return BlockResult(ticks=r.ticks, advanced=r.advanced, finished=r.finished,
+                           stop_reason="decision" if r.pending and not r.finished else None)
+
+    def _decision_data(self, data: dict[str, Any]) -> list[dict[str, Any]]:
+        """Add the block's rule-4 assignments and, with a decider, its decision requests."""
+        if not self.rule4:
+            return []
+        data["assignments"] = [asdict(d) for d in decision_log(self.session, clear=True)]
+        requests = [dict(asdict(r), candidates=list(r.candidates)) for r in pending_decisions(self.session)]
+        clear_decisions(self.session)
+        if self.decisions:
+            data["decision_requests"] = requests
+            return requests
+        return []
 
     def _ticks(self) -> int | None:
         try:
@@ -196,6 +266,11 @@ class RunController:
         if not self.running:
             return []
         now = self.clock()
+        if self.state == "waiting_decision":
+            if now - self._last_heartbeat >= HEARTBEAT_S:
+                self._last_heartbeat = now
+                return [push("heartbeat", {"tick": self._ticks(), "pending_decisions": len(self.pending)})]
+            return []
         if now < self._next_due:
             return []
         if self.state == "running_live":
@@ -223,6 +298,7 @@ class RunController:
         }
         if kpis is not None:
             data["kpis"] = kpis
+        self._decision_data(data)  # live: requests go to the agent, the run does not wait
         pushes = [push("tick", data)]
         self._next_due = due + n / self.rate
         if done - self._next_due > MAX_LAG_S:  # starved: re-anchor instead of catching up
@@ -251,11 +327,17 @@ class RunController:
         if result.finished or done - self._last_state >= self.state_interval_s:
             self._last_state = done
             data["state"] = self.session.state_json()
+        requests = self._decision_data(data)
         pushes = [push("progress", data)]
         # Optional pause between fast blocks (fraction of the block time) to leave CPU to live runs.
         self._next_due = done + self.fast_yield * (done - now)
         if result.finished:
             pushes += self._finish(result, kpis)
+        elif requests:  # fast mode: no block runs until every request has its next_machine
+            self.pending = {(int(r["who"]), int(r["seq"])) for r in requests}
+            self._last_heartbeat = done
+            pushes += [push("decision_required", {"tick": result.ticks, "requests": requests}),
+                       self._set("waiting_decision")]
         return pushes
 
     def _finish(self, result: BlockResult, kpis: dict[str, Any] | None) -> list[tuple[str, Any]]:

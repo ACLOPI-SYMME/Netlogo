@@ -277,9 +277,12 @@ class WorkerState:
 
     # ----- continuous runs (runner.py) -----
 
-    def op_run(self, mode: str, speed: float | None = None) -> dict[str, Any]:
+    def op_run(self, mode: str, speed: float | None = None, decisions: bool = False,
+               rule4: bool = False) -> dict[str, Any]:
+        """decisions: rule 4 with a decider (requests go to the API; fast mode waits for them).
+        rule4: read the model's decision log after every block (also without a decider)."""
         self._require_configured()
-        self.pushes += self.runner.start(mode, speed)
+        self.pushes += self.runner.start(mode, speed, decisions=decisions, rule4=rule4)
         return self._params()
 
     def op_pause(self) -> dict[str, Any]:
@@ -291,6 +294,19 @@ class WorkerState:
         self._require_configured()
         self.pushes += self.runner.resume()
         return self._params()
+
+    def op_next_machine(self, product: int, seq: int, machine: str) -> dict[str, Any]:
+        """Apply an agent's decision between blocks (platform-set-next-machine). Never fails: the
+        model's answer ("ok" or the rejection reason) is returned."""
+        self._require_configured()
+        result, pushes = self.runner.next_machine(int(product), int(seq), str(machine))
+        self.pushes += pushes
+        return {"result": result, "tick": self.session.ticks, **self.runner.info()}
+
+    def op_fail_run(self, reason: str) -> dict[str, Any]:
+        """End the current run as failed (the API gave up waiting for the agent)."""
+        self.pushes += self.runner.fail(str(reason))
+        return self.runner.info()
 
     def op_stop(self) -> dict[str, Any]:
         """Stop any run (idle); used before the worker is released. Never fails."""
