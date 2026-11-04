@@ -13,7 +13,7 @@ services:
     ports:
       - "8000:8000"
     environment:
-      ACLOPI_AGENT_URL: http://agent-mock:8100
+      ACLOPI_AGENT_URL: ${ACLOPI_AGENT_URL:-http://agent-mock:8100}  # http://agent:8100 with --profile agent
       ACLOPI_AGENT_TOKEN: ${ACLOPI_AGENT_TOKEN:-}
       ACLOPI_DYNAMODB_ENDPOINT: http://dynamodb-local:8000
       ACLOPI_CREATE_TABLES: "1"
@@ -45,6 +45,35 @@ services:
       ACLOPI_AGENT_TOKEN: ${ACLOPI_AGENT_TOKEN:-}
       ACLOPI_MOCK_PORT: "8100"
       ACLOPI_MOCK_SEED: "1"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import sys, urllib.request; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8100/health', timeout=4).status == 200 else 1)"]
+      interval: 15s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+    networks: [internal]
+
+  # Línea A's agent. Off by default (the mock stays the default):
+  #   ACLOPI_AGENT_URL=http://agent:8100 docker compose --profile agent up
+  agent:
+    profiles: [agent]
+    build:
+      context: .
+      dockerfile: docker/agent.Dockerfile
+    image: aclopi-agent
+    environment:
+      ACLOPI_PLATFORM_URL: http://platform:8000
+      ACLOPI_AGENT_TOKEN: ${ACLOPI_AGENT_TOKEN:-}
+      ACLOPI_LLM_PROVIDER: ${ACLOPI_LLM_PROVIDER:-fake}
+      ACLOPI_LLM_MODEL: ${ACLOPI_LLM_MODEL:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ACLOPI_OLLAMA_URL: ${ACLOPI_OLLAMA_URL:-http://host.docker.internal:11434}
+      ACLOPI_BEDROCK_REGION: ${ACLOPI_BEDROCK_REGION:-us-east-1}
+      LLM_MAX_PARALLEL: ${LLM_MAX_PARALLEL:-2}
+      ACLOPI_AGENT_LOG: /app/results/agent/decisions.jsonl
+    volumes:
+      - ./results:/app/results
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import sys, urllib.request; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8100/health', timeout=4).status == 200 else 1)"]

@@ -62,6 +62,40 @@ cola ni en proceso en la candidata y van hacia ella: viajando o esperando salir 
 `Heading.Workstation` = candidata, o en proceso (también en la propia candidata, reproceso en el sitio)
 con `AI.Next.Machine` = candidata para su operación siguiente.
 
+## Fases 2–5 — filtro, LLM, flujo y servicio
+
+- `aclopi/agent/triage.py`, `strategies.py` (b1, b1b, nivel de código del agente), `local.py` (b1/b1b como
+  decisores de la regla 4 sobre `SimulationSession`, modo rápido, hilo principal).
+- `aclopi/agent/llm/` (fake, ollama, anthropic, bedrock) y `aclopi/agent/prompts/` (prompt mayor ≈ 800 tokens estimados).
+- `aclopi/agent/core.py`: flujo con plazos de vivo y rápido, what-if, respaldo y registro por decisión.
+- `aclopi/agent/service.py` (`python -m aclopi.agent`, puerto 8100), `docker/agent.Dockerfile`,
+  `requirements-agent.txt`, servicio `agent` en `docker-compose.yml` con `profiles: [agent]`,
+  `.env.agent.example`.
+
+## Comentarios de la Línea A sobre la propuesta (`docs/agent-api.md`, `aclopi/contracts/agent.py`)
+
+1. **De acuerdo** con `/decide` → 202, `next-machine`, niveles, token, 409/422 sin reintento y el registro.
+2. **`latencies`:** el agente puede mandar también `what_if_ms`; `Latencies` ya admite extras, pero convendría documentarlo.
+3. **`/decide` podría traer `own_remaining`, el tipo del producto y sus operaciones pendientes.** Hoy el agente
+   necesita `GET /state` además de `candidates` para el contexto del prompt (2 llamadas por decisión).
+4. **`CandidateInfo` tipa `available` como bool.** El agente lo mantiene (gancho `machine-available?`) y publica el tiempo
+   en `available_in`. Convendría declarar en el modelo de la API los campos nuevos (`available_in`, `proc_time`,
+   `travel_next`, `is_current_machine`, `queue`, `en_route` y, en el resultado, `best_by_*`, `gap_*`,
+   `current_machine`, `own_remaining`, `next_operation`, `travel_source`) para que aparezcan en el OpenAPI;
+   hoy pasan como extras.
+5. **`estimate_start` del what-if** calcula el viaje con `distances / 0,3 × 0,31`; el medido es `distances` (−3,3 %).
+6. **Plazo en rápido:** el agente usa 60 s de seguridad + what-if ≤ 15 s, por debajo de
+   `ACLOPI_FAST_DECISION_TIMEOUT_S` (90 s). Conviene mantener ese orden si se cambia alguno.
+7. **`/health` del agente** responde 200 con `{"llm": "ok"|"down"|"unknown"}`. Con el LLM caído b1/b1b siguen
+   y `agent` decide por `code-fallback`; la plataforma podría mostrar ese estado.
+8. **La API acepta solo las reglas 1–3 al crear sesiones** (si no cambió): para el agente hace falta la regla 4 con
+   `strategy` (ya está en la UI).
+9. **KPIs `created` y `work_completed`:** siguen sin estar en el modelo `Kpis` de la API (2 tests aceptados como fallo).
+
 ## Pendiente / bloqueado
 
-- Playwright (ver arriba).
+- **Playwright** (ver Fase 0).
+- **LangGraph no está instalado** (requiere internet). `core.py` usa `StateGraph` si está disponible y, si no,
+  un ejecutor mínimo con los mismos nodos y aristas; los tests corren con este último. Propuesta:
+  `pip install langgraph` (ya está en `requirements-agent.txt`).
+- **respx no está instalado;** los tests usan `httpx.MockTransport` (equivalente, sin dependencia nueva).
