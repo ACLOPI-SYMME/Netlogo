@@ -26,7 +26,7 @@ Con la **regla 4**, cuando un producto **entra** a una máquina y su siguiente o
 | `ticks_per_second` | 32 × velocidad en vivo; `null` en rápido, donde la corrida espera |
 | `tick`, `simulated_time` | Momento de la petición, que es la entrada a la máquina |
 | `operation`, `origin`, `candidates` | Operación a decidir (`seq`), máquina donde está y máquinas capaces |
-| `context_tick` | Tick del estado del que se leyó el contexto. En rápido es el de la petición; en vivo, el fin del bloque que la recogió (puede ser algo mayor que `tick`) |
+| `context_tick` | Tick del estado del que se leyó el contexto. En rápido es el fin del `go` en que se hizo la petición (`tick` o `tick + 1`, porque `ticks` avanza al final del `go`); en vivo, el fin del bloque que la recogió (puede ser algo mayor) |
 | `current_machine` | Máquina que procesa el producto (`null` si ya salió de ella) |
 | `current_operation` | Operación en proceso (`seq − 1`) |
 | `own_remaining` | Lo que le falta a la operación en proceso, en u.t. (0 si ya no está en una máquina) |

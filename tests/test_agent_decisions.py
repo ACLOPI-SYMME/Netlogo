@@ -189,7 +189,8 @@ def test_fast_b1_is_reproducible(stack: Any, client: httpx.Client) -> None:
     received = [r for r in stack[1].app.state.requests if r["session_id"] in sids]
     assert received and [{k: v for k, v in r.items() if k != "session_id"} for r in received if r["session_id"] == sids[0]] ==         [{k: v for k, v in r.items() if k != "session_id"} for r in received if r["session_id"] == sids[1]]
     for r in received:
-        assert r["context_tick"] == r["tick"]  # fast: read when the run stopped at the request
+        # fast: read at the end of the go that queued the request (ticks advances at the end of go)
+        assert r["context_tick"] in (r["tick"], r["tick"] + 1)
         assert r["pending_operations"][0] == r["operation"] and r["current_machine"] == r["origin"]
         assert r["current_operation"] is not None and r["own_remaining"] > 0
         assert r["next_operation"] == (r["pending_operations"][1] if len(r["pending_operations"]) > 1 else None)

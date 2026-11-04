@@ -54,7 +54,8 @@ class DecideRequest(BaseModel):
     candidates: list[str] | None = Field(None, description="Machines capable of the operation")
     # Agreed with Línea A on 4 Nov: product context and plant summary, read in the platform's worker
     # from one platform-state when the request is collected (no random numbers consumed). In live
-    # mode that is the end of the block that read the request (context_tick >= tick).
+    # mode that is the end of the block that read the request (context_tick >= tick); in fast mode the
+    # end of the go that queued it (tick or tick + 1).
     context_tick: int | None = Field(None, description="Tick of the state the context was read from")
     current_machine: str | None = Field(None, description="Machine processing the product (null if it left it)")
     current_operation: str | None = Field(None, description="Operation in process (seq - 1)")
