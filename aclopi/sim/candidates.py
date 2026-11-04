@@ -142,17 +142,19 @@ def _next_machine(static: ModelStatic, machine: str, operation: str | None) -> t
     return best, travel(static, machine, best)
 
 
-def _stay_operation(q: dict[str, Any], machine: str, counted_next: bool, static: ModelStatic) -> str | None:
-    """Operation that product q may still do on `machine` beyond what is already counted, if `machine`
-    can do it: the occupant's next operation (or the one after it, if the next one is already counted
-    because q's decision sent it here), or, for the first queued product, the operation after the
-    one it is queued for."""
+def _stay_operations(q: dict[str, Any], machine: str, counted_next: bool, static: ModelStatic, chain_max: int) -> list[str]:
+    """Operations that product q may still do on `machine` beyond what is already counted: the chain
+    of consecutive operations `machine` can do, starting at the occupant's next operation (or the one
+    after it, if the next one is already counted because q's decision sent it here) or, for the first
+    queued product, at the operation after the one it is queued for; up to chain_max operations."""
     ops = [str(o) for o in (q.get("operations") or [])]
     k = int(q["sequence_order"])  # occupant: operation in process; queued: operation it waits for
     k += 2 if counted_next else 1
-    if k >= len(ops) or machine not in static.capable_machines.get(ops[k], []):
-        return None
-    return ops[k]
+    chain: list[str] = []
+    while k < len(ops) and len(chain) < chain_max and machine in static.capable_machines.get(ops[k], []):
+        chain.append(ops[k])
+        k += 1
+    return chain
 
 
 def _remaining_at(machine: dict[str, Any], now: float) -> float:
@@ -244,10 +246,10 @@ def compute_candidates(
                 for q in (in_process.get(name), queue_ids[0] if queue_ids else None):  # occupant, first queued
                     if q is None or q == product or q not in products:
                         continue
-                    op_q = _stay_operation(products[q], name, q in route_ids, static)
-                    if op_q is not None:
+                    chain = _stay_operations(products[q], name, q in route_ids, static, params.occupant_chain_max)
+                    if chain:
                         stay_ids.append(int(q))
-                        stime += proc_time(static, name, op_q, params)
+                        stime += sum(proc_time(static, name, op, params) for op in chain)
             avail_in = cur_rem + qtime + rtime + stime
         start = now + max(own + trav, avail_in)
         finish = start + proc

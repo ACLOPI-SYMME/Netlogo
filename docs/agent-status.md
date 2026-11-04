@@ -136,8 +136,10 @@ Error de `estimated_finish` en b1 (10 productos, semilla 42; u.t., negativo = op
 | sin `occupant_may_stay` | −58,2 | 3,2 | 197,7 |
 | con `occupant_may_stay` | −31,0 | −2,2 | 46,2 |
 
-Quedan 4 casos > 100 u.t., todos (a): cadenas de varias operaciones en la misma máquina (p. ej. O1, O1, O1).
-Propuesta: contar la cadena completa de operaciones consecutivas que esa máquina puede hacer.
+| con cadena (`occupant_chain_max` = 3) | −12,9 | −0,3 | 23,4 |
+
+Cadena: el ocupante (y el primero de la cola) suma todas sus operaciones consecutivas que esa máquina puede
+hacer, hasta la primera que no puede o hasta `occupant_chain_max` (3).
 
 ## Pendiente / bloqueado
 

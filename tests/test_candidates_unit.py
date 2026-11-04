@@ -165,11 +165,21 @@ def test_occupant_and_first_queued_may_stay() -> None:
     # and its following one (index 2) is O1: both may be reprocessed in place.
     s = state({"M2": machine("M2", ME, 1100.0), "M3": machine("M3", 300, 1250.0, queue=[301])},
               [product(ME, OPS_E, 1, "M2"), product(300, OPS_E, 2, "M3"), product(301, OPS_E, 1, "M3")])
+    # Chains (cap 3): 300 does O1 O2 O2 (indices 3-5) on M3; 301 does O1 O1 O2 (indices 2-4).
     c = by_machine(compute_candidates(s, ME, 2, static()))["M3"]
-    assert c.stay == [300, 301] and c.stay_time == pytest.approx(420)
-    assert c.available_in == pytest.approx(250 + 210 + 420)
+    assert c.stay == [300, 301] and c.stay_time == pytest.approx(6 * 210)
+    assert c.available_in == pytest.approx(250 + 210 + 6 * 210)
+    one = by_machine(compute_candidates(s, ME, 2, static(), CandidateParams(occupant_chain_max=1)))["M3"]
+    assert one.stay_time == pytest.approx(2 * 210)  # only the next operation of each
     off = by_machine(compute_candidates(s, ME, 2, static(), NO_STAY))["M3"]
     assert off.stay == [] and off.available_in == pytest.approx(250 + 210)
+
+
+def test_chain_stops_at_the_first_operation_the_machine_cannot_do() -> None:
+    # 500 in M5 doing O3 (index 1); next O5 (M5 can), then O9 (M5 cannot): chain of 1.
+    s2 = state({"M3": machine("M3", ME, 1100.0), "M5": machine("M5", 500, 1250.0)},
+               [product(ME, ["O8", "O1", "O5", "O9"], 1, "M3"), product(500, ["O8", "O3", "O5", "O9"], 1, "M5")])
+    assert by_machine(compute_candidates(s2, ME, 2, static()))["M5"].stay_time == pytest.approx(210)
 
 
 def test_stay_skips_an_operation_already_counted_and_needs_a_capable_machine() -> None:
@@ -177,7 +187,8 @@ def test_stay_skips_an_operation_already_counted_and_needs_a_capable_machine() -
     s = state({"M2": machine("M2", ME, 1100.0), "M3": machine("M3", 300, 1250.0)},
               [product(ME, OPS_E, 1, "M2"), product(300, OPS_E, 2, "M3", ai="M3", ai_seq=3)])
     c = by_machine(compute_candidates(s, ME, 2, static()))["M3"]
-    assert c.en_route == [300] and c.stay == [300] and c.available_in == pytest.approx(250 + 210 + 210)
+    # Chain from index 4: O2 O2 (M3), then O4 (M3 cannot) -> 2 operations.
+    assert c.en_route == [300] and c.stay == [300] and c.available_in == pytest.approx(250 + 210 + 2 * 210)
     # 400 in M5 doing O3 with O9 next: M5 cannot do O9, so it leaves.
     s = state({"M2": machine("M2", ME, 1100.0), "M5": machine("M5", 400, 1250.0)},
               [product(ME, OPS_E, 1, "M2"), product(400, ["O8", "O3", "O9"], 1, "M5")])

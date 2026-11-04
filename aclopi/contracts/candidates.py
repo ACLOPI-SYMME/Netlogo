@@ -30,6 +30,9 @@ class CandidateParams:
     # operation: products are reprocessed in place when the same machine is chosen again, which is
     # what b1 and rule 3 usually do. Diagnosed in the smoke test: 96 % of the lateness of finish.
     occupant_may_stay: bool = True
+    # Longest chain of consecutive operations counted for one staying product (the operations that
+    # machine can do, in a row). 1 = only the next one.
+    occupant_chain_max: int = 3
 
     @property
     def stochastic_extra_mean(self) -> float:  # name used in Línea A's design
