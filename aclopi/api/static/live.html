@@ -41,7 +41,7 @@
     <option value="none">none (regla 3)</option><option>b1</option><option>b1b</option><option selected>agent</option>
   </select></span>
   Horizonte <input id="horizon" type="number" value="10000">
-  Set <select id="session-set"><option value="">Generado con la semilla</option></select>
+  Set <select id="session-set"><option value="">Generado con la semilla</option><option value="__current__">Lista actual (pestaña Set de productos)</option></select>
   <button id="create">Crear sesión</button>
   <span id="sid"></span>
   <span id="seed-used" hidden>Semilla usada: <b id="seed-value"></b> <button id="seed-copy" title="Copiar">copiar</button></span>
@@ -170,7 +170,11 @@ $("create").onclick = () => act(async () => {
   const body = {rule: +$("rule").value, horizon_ticks: +$("horizon").value};
   if (s.seed !== undefined) body.seed = s.seed;
   if (body.rule === 4) body.strategy = $("strategy").value;
-  if ($("session-set").value) body.product_set_id = $("session-set").value;
+  // "Lista actual": exactly the list shown in the Set de productos tab, in that order.
+  if ($("session-set").value === CURRENT_LIST) {
+    if (!setItems.length) throw new Error("La lista actual está vacía");
+    body.products = setItems.map(p => ({type: p.type, priority: p.priority}));
+  } else if ($("session-set").value) body.product_set_id = $("session-set").value;
   const info = await api("POST", "/sessions", body);
   sessionInfo = info;
   if (info.warnings && info.warnings.includes("agent_unavailable")) msg("Aviso: el agente no está disponible (en vivo actuará la regla 3)", true);
@@ -264,7 +268,11 @@ function handle(m) {
 
 // ----- product set editor -----
 let setItems = [], setId = null, dirty = false, dragFrom = null;
-function markDirty(v) { dirty = v; $("set-dirty").textContent = v ? "(cambios sin guardar)" : ""; }
+const CURRENT_LIST = "__current__";  // session-set option: send the list being edited
+function markDirty(v) {
+  dirty = v; $("set-dirty").textContent = v ? "(cambios sin guardar)" : "";
+  if (v && setItems.length) $("session-set").value = CURRENT_LIST;  // what the user sees is what runs
+}
 window.addEventListener("beforeunload", e => { if (dirty) { e.preventDefault(); e.returnValue = ""; } });
 function confirmDiscard() { return !dirty || confirm("Hay cambios sin guardar en el set. ¿Descartarlos?"); }
 function renderSet() {
@@ -319,13 +327,28 @@ $("clear").onclick = () => { if (confirmDiscard()) { setList([], setItems.length
 $("csv-file").onchange = async e => {
   const file = e.target.files[0]; if (!file) return;
   if (!confirmDiscard()) { e.target.value = ""; return; }
-  const form = new FormData(); form.append("file", file);
+  const parse = text => { const form = new FormData(); form.append("file", new Blob([text], {type: "text/csv"}), file.name); return api("POST", "/product-sets/parse-csv", form, true); };
+  const text = await file.text();
+  $("set-errors").style.whiteSpace = "pre";
+  // The API skips empty rows silently: report them here (the last newline of the file is not a row).
+  const empty = text.split(/\r?\n/).map((l, k, all) => (l.trim() === "" && k > 0 && k < all.length - 1) ? `línea ${k + 1}: fila vacía (omitida)` : null).filter(Boolean);
   try {
-    const parsed = await api("POST", "/product-sets/parse-csv", form, true);
-    setList(parsed.products, true); setId = null; $("set-errors").textContent = "";
+    const parsed = await parse(text);
+    setList(parsed.products, true); setId = null; $("set-errors").textContent = empty.join("\n");
   } catch (err) {
-    const errs = err.data && err.data.errors ? err.data.errors.map(x => `línea ${x.line}: ${x.error}`).join("\n") : err.message;
-    $("set-errors").textContent = errs; $("set-errors").style.whiteSpace = "pre";
+    if (!(err.data && err.data.errors)) { $("set-errors").textContent = err.message; e.target.value = ""; return; }
+    // Errors by line: load the other rows (validated again by the API) and show the errors.
+    const bad = new Set(err.data.errors.map(x => x.line));
+    const lines = text.split(/\r?\n/);
+    const errs = err.data.errors.map(x => `línea ${x.line}: ${x.error}`).concat(empty).join("\n");
+    try {
+      if (bad.has(1)) throw new Error("cabecera inválida");
+      const parsed = await parse(lines.filter((_, k) => !bad.has(k + 1)).join("\n"));
+      setList(parsed.products, true); setId = null;
+      $("set-errors").textContent = `Se cargaron ${parsed.products.length} filas; se omitieron ${bad.size} con errores:\n${errs}`;
+    } catch (err2) {
+      $("set-errors").textContent = errs;
+    }
   }
   e.target.value = "";
 };
@@ -348,7 +371,11 @@ async function refreshSaved() {
   const sets = await api("GET", "/product-sets");
   const opts = sets.map(s => `<option value="${s.id}">${s.name} (${s.total})</option>`).join("");
   $("saved-sets").innerHTML = opts;
-  $("session-set").innerHTML = `<option value="">Generado con la semilla</option>` + opts;
+  const chosen = $("session-set").value;
+  $("session-set").innerHTML = `<option value="">Generado con la semilla</option>`
+    + `<option value="${CURRENT_LIST}">Lista actual (pestaña Set de productos)</option>` + opts;
+  $("session-set").value = chosen;
+  if ($("session-set").value !== chosen) $("session-set").value = "";
 }
 $("set-save").onclick = async () => {
   try {

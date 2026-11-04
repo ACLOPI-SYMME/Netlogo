@@ -36,7 +36,11 @@ def test_candidates_match_the_rule4_hook() -> None:
                 finishes = [c.finish for c in result.candidates]
                 assert finishes == sorted(finishes) and result.candidates[0].delta_finish == 0
                 for c in result.candidates:
-                    assert c.start >= c.arrival and c.finish > c.start and c.next_machine is None
+                    assert c.start >= c.arrival and c.finish > c.start
+                    if result.next_operation is None:
+                        assert c.next_machine is None
+                    else:
+                        assert c.next_machine in static.capable_machines[result.next_operation]
                 checked += 1
             clear_decisions(s)
         state = s.state()
