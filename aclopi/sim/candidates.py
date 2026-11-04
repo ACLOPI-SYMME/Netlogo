@@ -142,6 +142,19 @@ def _next_machine(static: ModelStatic, machine: str, operation: str | None) -> t
     return best, travel(static, machine, best)
 
 
+def _stay_operation(q: dict[str, Any], machine: str, counted_next: bool, static: ModelStatic) -> str | None:
+    """Operation that product q may still do on `machine` beyond what is already counted, if `machine`
+    can do it: the occupant's next operation (or the one after it, if the next one is already counted
+    because q's decision sent it here), or, for the first queued product, the operation after the
+    one it is queued for."""
+    ops = [str(o) for o in (q.get("operations") or [])]
+    k = int(q["sequence_order"])  # occupant: operation in process; queued: operation it waits for
+    k += 2 if counted_next else 1
+    if k >= len(ops) or machine not in static.capable_machines.get(ops[k], []):
+        return None
+    return ops[k]
+
+
 def _remaining_at(machine: dict[str, Any], now: float) -> float:
     if machine.get("state") != "Machine.Processing" or machine.get("next_completion") is None:
         return 0.0
@@ -211,6 +224,7 @@ def compute_candidates(
         proc = proc_time(static, name, operation, params)
         if name == current:
             trav, cur_rem, qtime, rtime, avail_in, queue_ids, route_ids = 0.0, 0.0, 0.0, 0.0, own, [], []
+            stay_ids, stime = [], 0.0
         else:
             trav = travel(static, current, name)
             cur_rem = _remaining_at(machines[name], now)
@@ -225,7 +239,16 @@ def compute_candidates(
                     continue
                 route_ids.append(int(q["id"]))
                 rtime += proc_time(static, name, op_q, params)
-            avail_in = cur_rem + qtime + rtime
+            stay_ids, stime = [], 0.0
+            if params.occupant_may_stay:
+                for q in (in_process.get(name), queue_ids[0] if queue_ids else None):  # occupant, first queued
+                    if q is None or q == product or q not in products:
+                        continue
+                    op_q = _stay_operation(products[q], name, q in route_ids, static)
+                    if op_q is not None:
+                        stay_ids.append(int(q))
+                        stime += proc_time(static, name, op_q, params)
+            avail_in = cur_rem + qtime + rtime + stime
         start = now + max(own + trav, avail_in)
         finish = start + proc
         nxt, trav_next = _next_machine(static, name, next_operation)
@@ -233,7 +256,8 @@ def compute_candidates(
             machine=name, own_remaining=own, travel=trav, arrival=now + own + trav, queue_time=qtime,
             start=start, finish=finish, current_remaining=cur_rem, en_route_time=rtime, available=True,
             next_machine=nxt, finish_plus_next=finish + trav_next, available_in=avail_in, proc_time=proc,
-            travel_next=trav_next, is_current_machine=name == current, queue=queue_ids, en_route=sorted(route_ids)))
+            travel_next=trav_next, is_current_machine=name == current, queue=queue_ids, en_route=sorted(route_ids),
+            stay_time=stime, stay=stay_ids))
 
     def ranked(key: str) -> list[dict[str, Any]]:
         return sorted(built, key=lambda c: (c[key], machine_number(c["machine"])))

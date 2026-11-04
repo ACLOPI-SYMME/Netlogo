@@ -84,9 +84,9 @@ def server() -> Iterator[tuple[str, list[dict[str, Any]]]]:
 def browser() -> Iterator[Any]:
     with playwright_sync.sync_playwright() as p:
         try:
+            b = p.chromium.launch(channel="msedge")  # the installed Edge: no browser download
+        except Exception:  # noqa: BLE001 - elsewhere (e.g. Linux CI) Playwright's own Chromium, if installed
             b = p.chromium.launch()
-        except Exception:  # noqa: BLE001 - no bundled Chromium: use the installed Edge
-            b = p.chromium.launch(channel="msedge")
         yield b
         b.close()
 

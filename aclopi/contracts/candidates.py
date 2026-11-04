@@ -26,6 +26,10 @@ class CandidateParams:
     # en_route_time: False counts every product heading to the machine; True only those expected
     # to arrive before this product.
     en_route_only_earlier: bool = False
+    # The product occupying a candidate (and the first of its queue) may stay for its following
+    # operation: products are reprocessed in place when the same machine is chosen again, which is
+    # what b1 and rule 3 usually do. Diagnosed in the smoke test: 96 % of the lateness of finish.
+    occupant_may_stay: bool = True
 
     @property
     def stochastic_extra_mean(self) -> float:  # name used in Línea A's design
@@ -76,6 +80,8 @@ class Candidate:
     is_current_machine: bool | None = None  # reprocessed in place: no travel, ahead of its queue
     queue: list[int] = field(default_factory=list)  # products counted in queue_time
     en_route: list[int] = field(default_factory=list)  # products counted in en_route_time
+    stay_time: float | None = None  # occupant / first queued product expected to stay for one more operation
+    stay: list[int] = field(default_factory=list)  # products counted in stay_time
 
 
 @dataclass(frozen=True)

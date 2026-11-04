@@ -112,10 +112,36 @@ con `AI.Next.Machine` = candidata para su operación siguiente.
   una parte de las decisiones la operación termina bastante después de lo estimado (esperas en compuertas o
   cruces que `candidates` no modela).
 
+## Diagnóstico del error de `finish` y `occupant_may_stay`
+
+`scripts/a4/diagnose_finish_error.py`, sobre los eventos de la prueba de humo, sin simular. 16 decisiones con
+el fin real > 100 u.t. después de lo estimado (7945 u.t. en total):
+
+| Causa | Causa principal en | u.t. explicadas |
+|---|---|---|
+| (a) el ocupante de la máquina elegida reprocesó en el sitio | 16 | 7627 (96 %) |
+| (b) llegó otro producto no contado | 0 | 0 |
+| (c) viaje / entrada más lento que `distances` | 0 | 190 (~11 u.t. por caso: tramo sensor → estación) |
+| (d) otra (proceso propio, trabajos contados) | 0 | 129 |
+
+(a) depende de la máquina, no es común a todas las candidatas: cambia cuál gana. Cambio:
+`CandidateParams.occupant_may_stay` (por defecto true). El ocupante de una candidata, y el primero de su cola,
+suman el `proc` de su siguiente operación si esa máquina puede hacerla (si la siguiente ya está contada por
+`AI.Next.Machine`, la que le sigue). Campos nuevos por candidata: `stay_time`, `stay`.
+
+Error de `estimated_finish` en b1 (10 productos, semilla 42; u.t., negativo = optimista):
+
+| | Media | Mediana | p90 de \|error\| |
+|---|---|---|---|
+| sin `occupant_may_stay` | −58,2 | 3,2 | 197,7 |
+| con `occupant_may_stay` | −31,0 | −2,2 | 46,2 |
+
+Quedan 4 casos > 100 u.t., todos (a): cadenas de varias operaciones en la misma máquina (p. ej. O1, O1, O1).
+Propuesta: contar la cadena completa de operaciones consecutivas que esa máquina puede hacer.
+
 ## Pendiente / bloqueado
 
-- **Playwright** (ver Fase 0).
-- **LangGraph no está instalado** (requiere internet). `core.py` usa `StateGraph` si está disponible y, si no,
-  un ejecutor mínimo con los mismos nodos y aristas; los tests corren con este último. Propuesta:
-  `pip install langgraph` (ya está en `requirements-agent.txt`).
+- Resuelto: `langgraph` 1.2.19 y `playwright` 1.64.1 instalados (`requirements-agent.txt`,
+  `requirements-agent-dev.txt`). `core.py` usa el `StateGraph` real; el ejecutor propio queda solo como
+  respaldo si LangGraph no está disponible. El test del navegador corre con el Edge instalado (`channel="msedge"`).
 - **respx no está instalado;** los tests usan `httpx.MockTransport` (equivalente, sin dependencia nueva).

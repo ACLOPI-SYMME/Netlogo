@@ -1,0 +1,6 @@
+# Línea A development and tests, on top of requirements.txt (local venv):
+#   pip install -r requirements-agent-dev.txt
+langgraph==1.2.19
+# Browser test of the product set tab (tests/test_ui_product_set.py). On Windows it uses the
+# installed Edge (channel "msedge"); do not run `playwright install`.
+playwright==1.64.1

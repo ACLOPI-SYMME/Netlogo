@@ -52,6 +52,7 @@ def state(machines: dict[str, dict[str, Any]], products: list[dict[str, Any]], t
 
 
 OPS_E = ["O8", "O1", "O1", "O1", "O2", "O2", "O4", "O9"]  # type E
+NO_STAY = CandidateParams(occupant_may_stay=False)
 ME = 200  # the product being decided: in M2 doing its first O1 (seq 1), deciding seq 2 (O1)
 
 
@@ -72,7 +73,7 @@ def test_queue_and_busy_machine() -> None:
     s = state({"M2": machine("M2", ME, 1100.0), "M3": machine("M3", 300, 1250.0, queue=[301, 302])},
               [product(ME, OPS_E, 1, "M2"), product(300, OPS_E, 2, "M3"),
                product(301, OPS_E, 1, "M3"), product(302, ["O8", "O5", "O9"], 1, "M3")])
-    c = by_machine(compute_candidates(s, ME, 2, static()))["M3"]
+    c = by_machine(compute_candidates(s, ME, 2, static(), NO_STAY))["M3"]
     assert c.travel == pytest.approx(124.6) and c.current_remaining == pytest.approx(250)
     assert c.queue_time == pytest.approx(420) and c.queue == [301, 302]
     assert c.available_in == pytest.approx(670)
@@ -83,7 +84,7 @@ def test_queue_and_busy_machine() -> None:
 def test_free_far_machine_vs_busy_near_one() -> None:
     s = state({"M2": machine("M2", ME, 1100.0), "M3": machine("M3", 300, 1500.0)},
               [product(ME, OPS_E, 1, "M2"), product(300, OPS_E, 2, "M3")])
-    r = compute_candidates(s, ME, 2, static())
+    r = compute_candidates(s, ME, 2, static(), NO_STAY)
     c = by_machine(r)
     assert c["M5"].start == pytest.approx(1000 + 100 + 187.2)  # free, farther than M3
     assert c["M3"].start == pytest.approx(1500)
@@ -157,6 +158,30 @@ def test_gaps_bests_and_deltas() -> None:
     assert r.gap_finish == pytest.approx(finishes[1] - finishes[0])
     assert min(c.delta_finish for c in r.candidates) == 0 and min(c.delta_finish_plus_next for c in r.candidates) == 0
     assert r.travel_source == "distances" and r.current_machine == "M2" and r.own_remaining == pytest.approx(100)
+
+
+def test_occupant_and_first_queued_may_stay() -> None:
+    # M3: 300 processes O1 (index 2) and its next one (index 3) is O1 too; 301 waits for O1 (index 1)
+    # and its following one (index 2) is O1: both may be reprocessed in place.
+    s = state({"M2": machine("M2", ME, 1100.0), "M3": machine("M3", 300, 1250.0, queue=[301])},
+              [product(ME, OPS_E, 1, "M2"), product(300, OPS_E, 2, "M3"), product(301, OPS_E, 1, "M3")])
+    c = by_machine(compute_candidates(s, ME, 2, static()))["M3"]
+    assert c.stay == [300, 301] and c.stay_time == pytest.approx(420)
+    assert c.available_in == pytest.approx(250 + 210 + 420)
+    off = by_machine(compute_candidates(s, ME, 2, static(), NO_STAY))["M3"]
+    assert off.stay == [] and off.available_in == pytest.approx(250 + 210)
+
+
+def test_stay_skips_an_operation_already_counted_and_needs_a_capable_machine() -> None:
+    # 300 in M3 already sent to M3 for index 3 (counted en route): the stay is index 4 (O2, M3 can do it).
+    s = state({"M2": machine("M2", ME, 1100.0), "M3": machine("M3", 300, 1250.0)},
+              [product(ME, OPS_E, 1, "M2"), product(300, OPS_E, 2, "M3", ai="M3", ai_seq=3)])
+    c = by_machine(compute_candidates(s, ME, 2, static()))["M3"]
+    assert c.en_route == [300] and c.stay == [300] and c.available_in == pytest.approx(250 + 210 + 210)
+    # 400 in M5 doing O3 with O9 next: M5 cannot do O9, so it leaves.
+    s = state({"M2": machine("M2", ME, 1100.0), "M5": machine("M5", 400, 1250.0)},
+              [product(ME, OPS_E, 1, "M2"), product(400, ["O8", "O3", "O9"], 1, "M5")])
+    assert by_machine(compute_candidates(s, ME, 2, static()))["M5"].stay == []
 
 
 def test_result_fits_the_platform_response_model() -> None:
