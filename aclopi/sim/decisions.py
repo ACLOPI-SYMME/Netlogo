@@ -117,3 +117,38 @@ def clear_decision_log(session: SimulationSession) -> None:
     """Empty the decision log."""
     session._require_params()
     session._command("platform-clear-decision-log")
+
+
+def _job_left(machine: dict[str, Any] | None, now: float) -> float:
+    """What is left of the machine's job (u.t.), from platform-state's next_completion."""
+    if not machine or machine.get("state") != "Machine.Processing" or machine.get("next_completion") is None:
+        return 0.0
+    return max(0.0, float(machine["next_completion"]) - now)
+
+
+def decision_context(state: dict[str, Any], who: int, seq: int) -> dict[str, Any]:
+    """Context of a decision request for POST /decide, from one platform-state (pure; no random numbers).
+
+    Product: current_machine (where it is processed; null if it is no longer in a machine),
+    current_operation (seq - 1), own_remaining (u.t. left of it), next_operation (seq + 1, the one
+    after the operation decided; null if seq is the last), pending_operations (seq onwards, in order,
+    the decided one first). Plant: products_in_plant (alive) and m1 = {busy, remaining (u.t.),
+    queue_length}. context_tick: tick of the state (in live, the end of the block that read the request).
+    """
+    now = float(state["time"])
+    product = next((p for p in state["products"] if int(p["id"]) == int(who)), None)
+    operations = [str(o) for o in (product.get("operations") or [])] if product else []
+    current = next((m for m in state["machines"] if m.get("product") == int(who)), None)
+    m1 = next((m for m in state["machines"] if m.get("name") == "M1"), None)
+    return {
+        "context_tick": int(state["tick"]),
+        "current_machine": current["name"] if current else None,
+        "current_operation": operations[seq - 1] if 0 < seq <= len(operations) else None,
+        "own_remaining": round(_job_left(current, now), 4),
+        "next_operation": operations[seq + 1] if 0 <= seq + 1 < len(operations) else None,
+        "pending_operations": operations[seq:] if 0 <= seq < len(operations) else [],
+        "products_in_plant": len(state["products"]),
+        "m1": {"busy": bool(m1 and m1.get("state") == "Machine.Processing"),
+               "remaining": round(_job_left(m1, now), 4),
+               "queue_length": len((m1 or {}).get("queue") or [])},
+    }

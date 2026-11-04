@@ -1,4 +1,4 @@
-"""Mock agent (L5.5) for tests and local runs. Contract: aclopi/contracts/agent.py (PROPOSAL).
+"""Mock agent (L5.5) for tests and local runs. Contract: aclopi/contracts/agent.py (agreed 4 Nov).
 
 POST /decide answers 202 at once and decides in the background, then calls the platform's
 POST /sessions/{id}/next-machine:
@@ -11,7 +11,7 @@ POST /sessions/{id}/next-machine:
     llm            waits ACLOPI_MOCK_LLM_DELAY_S (3-4 s), best by finish
     llm-what-if    waits ~3 s, asks POST /what-if with the two best by finish (budget 10 s live,
                    15 s fast), waits ~1.5 s and takes the option with the earlier op_end_time.
-                   Live: if the product's own_remaining (in seconds at ticks_per_second) minus 2 s
+                   Live: if the product's own_remaining (from /decide; in seconds at ticks_per_second) minus 2 s
                    of margin is under ~12 s it decides as llm without a what-if. A skipped or
                    timed-out what-if: decides without it (level llm).
     code-fallback  best by finish
@@ -32,7 +32,7 @@ from typing import Any, Mapping
 import httpx
 from fastapi import FastAPI, Header, Response
 
-from aclopi.contracts.agent import DecideRequest
+from aclopi.contracts.agent import DecideRequest, bearer_matches
 
 logger = logging.getLogger(__name__)
 
@@ -90,6 +90,7 @@ def create_mock_app(config: MockConfig | None = None) -> FastAPI:
     app = FastAPI(title="ACLOPI mock agent", version="0.1.0")
     app.state.config = cfg
     app.state.decided = []  # (session_id, product, seq, machine, level) for tests
+    app.state.requests = []  # DecideRequest bodies received (dicts), for tests
     tasks: set[asyncio.Task[Any]] = set()
     headers = {"Authorization": f"Bearer {cfg.token}"} if cfg.token else {}
 
@@ -103,8 +104,9 @@ def create_mock_app(config: MockConfig | None = None) -> FastAPI:
     async def decide(body: DecideRequest, authorization: str | None = Header(None)) -> Response:
         if cfg.down in ("decide", "all"):
             await asyncio.sleep(3600)
-        if cfg.token and authorization != f"Bearer {cfg.token}":
+        if cfg.token and not bearer_matches(authorization, cfg.token):
             return Response(status_code=401)
+        app.state.requests.append(body.model_dump())
         task = asyncio.ensure_future(_decide(body))
         tasks.add(task)
         task.add_done_callback(tasks.discard)
@@ -126,7 +128,8 @@ def create_mock_app(config: MockConfig | None = None) -> FastAPI:
                     level = rng.choices(list(cfg.weights), weights=list(cfg.weights.values()))[0]
                     machine, reason = ranked[0]["machine"], f"mock {level}: best finish"
                     if level == "llm-what-if" and req.mode == "live" and req.ticks_per_second:
-                        own_s = float(ranked[0].get("own_remaining") or 0.0) / TICK_TIME / req.ticks_per_second
+                        own = req.own_remaining if req.own_remaining is not None else ranked[0].get("own_remaining")
+                        own_s = float(own or 0.0) / TICK_TIME / req.ticks_per_second
                         if own_s - 2.0 < cfg.whatif_min_margin_s:
                             level, reason = "llm", "mock llm: no time for a what-if"
                     if level == "llm":

@@ -117,7 +117,14 @@ def sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def ensure_results_dirs(model_dir: Path = MODEL_DIR) -> None:
+    """ExportData writes to <model dir>/Results/{Data,Events}; NetLogo does not create them."""
+    for kind in ("Data", "Events"):
+        (model_dir / "Results" / kind).mkdir(parents=True, exist_ok=True)
+
+
 def run_once(netlogo: Any, args: argparse.Namespace, run_index: int) -> RunResult:
+    ensure_results_dirs()
     rule_name = RULES[args.rule]
     netlogo.command(f"random-seed {args.seed}")
     netlogo.command(f'set Reactivity.rule "{rule_name}"')
@@ -266,8 +273,7 @@ def main() -> int:
     if args.compare_csv is not None and not args.compare_csv.is_dir():
         raise SystemExit(f"ERROR: --compare-csv folder does not exist: {args.compare_csv}")
 
-    for kind in ("Data", "Events"):
-        (MODEL_DIR / "Results" / kind).mkdir(parents=True, exist_ok=True)
+    ensure_results_dirs()
 
     import pynetlogo
 

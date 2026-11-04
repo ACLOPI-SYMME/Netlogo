@@ -38,6 +38,7 @@ Página de prueba: `http://localhost:8000/ui`. API: `http://localhost:8000/docs`
 | `ACLOPI_AGENT_TOKEN` | `.env` | Token compartido con el agente (`Authorization: Bearer`) |
 | `ACLOPI_DYNAMODB_ENDPOINT` | `http://dynamodb-local:8000` | Activa el almacén DynamoDB (`aclopi/api/results.py`) |
 | `ACLOPI_CREATE_TABLES` | `1` | Crea las tablas al arrancar (solo local; en la nube las crea la infraestructura) |
+| `ACLOPI_AWS_REGION` | `eu-north-1` | Región de DynamoDB (Estocolmo). DynamoDB Local la ignora |
 | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | `local` | DynamoDB Local acepta cualquier valor |
 
 **Límites de la plataforma:** son los de L4 (`cpus: 4`, `cpuset: 0-3`, `mem_limit: 6g`).

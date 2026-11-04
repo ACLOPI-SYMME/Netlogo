@@ -1,6 +1,6 @@
-# Contrato plataforma ↔ agente (L5.5) — PROPUESTA para la revisión de la Línea A
+# Contrato plataforma ↔ agente (L5.5)
 
-En el repo no había un esquema acordado para `/decide` ni para `next-machine`: `docs/rule4-decision-hook.md` y `contracts/` solo definen el gancho del modelo. La plataforma lo propone aquí; el código está en `aclopi/contracts/agent.py`. El agente simulado (`aclopi/agent_mock/`) lo implementa.
+**Acordado con la Línea A el 4 nov.** El código está en `aclopi/contracts/agent.py`. Lo implementan la API, el agente simulado (`aclopi/agent_mock/`) y el agente (`aclopi/agent/`).
 
 ## Cuándo se llama al agente
 
@@ -14,7 +14,10 @@ Con la **regla 4**, cuando un producto **entra** a una máquina y su siguiente o
 ```json
 {"session_id": "…", "product": 201, "seq": 1, "strategy": "agent", "mode": "live",
  "ticks_per_second": 32.0, "tick": 1011, "simulated_time": 313.41,
- "operation": "O1", "origin": "M1", "candidates": ["M2", "M3", "M5", "M7"]}
+ "operation": "O1", "origin": "M1", "candidates": ["M2", "M3", "M5", "M7"],
+ "context_tick": 1012, "current_machine": "M1", "current_operation": "O8", "own_remaining": 30.7,
+ "next_operation": "O2", "pending_operations": ["O1", "O2", "O9"],
+ "products_in_plant": 6, "m1": {"busy": true, "remaining": 30.7, "queue_length": 2}}
 ```
 
 | Campo | Significado |
@@ -22,7 +25,17 @@ Con la **regla 4**, cuando un producto **entra** a una máquina y su siguiente o
 | `mode` | `live` o `fast` |
 | `ticks_per_second` | 32 × velocidad en vivo; `null` en rápido, donde la corrida espera |
 | `tick`, `simulated_time` | Momento de la petición, que es la entrada a la máquina |
-| `operation`, `origin`, `candidates` | Datos extra de la petición del modelo |
+| `operation`, `origin`, `candidates` | Operación a decidir (`seq`), máquina donde está y máquinas capaces |
+| `context_tick` | Tick del estado del que se leyó el contexto. En rápido es el de la petición; en vivo, el fin del bloque que la recogió (puede ser algo mayor que `tick`) |
+| `current_machine` | Máquina que procesa el producto (`null` si ya salió de ella) |
+| `current_operation` | Operación en proceso (`seq − 1`) |
+| `own_remaining` | Lo que le falta a la operación en proceso, en u.t. (0 si ya no está en una máquina) |
+| `next_operation` | Operación `seq + 1`, la que sigue a la que se decide (`null` si `seq` es la última). Igual que en `candidates` |
+| `pending_operations` | Operaciones desde `seq` en orden; la primera es la que se decide |
+| `products_in_plant` | Productos vivos en la planta |
+| `m1` | `busy`, `remaining` (u.t. que le faltan a su trabajo; 0 si está libre) y `queue_length` de M1 (O8/O9, por donde pasan todos) |
+
+**Contexto.** Lo lee el worker de la sesión en el mismo momento en que recoge la petición, de **un solo** `platform-state`. No consume azar ni altera la corrida. Los tiempos están en u.t. (1 tick = 0,31 u.t.).
 
 - **Respuesta esperada:** **202** inmediato. El agente decide después.
 - **Si falla o tarda más de 2 s** (`ACLOPI_AGENT_DECIDE_TIMEOUT_S`), se registra y **no se reintenta**:
@@ -37,7 +50,7 @@ Con la **regla 4**, cuando un producto **entra** a una máquina y su siguiente o
 ```
 
 - **`decision_level`:** `code-obvious`, `code-fallback`, `llm`, `llm-what-if` o `heuristic`.
-- **`latencies`:** opcional.
+- **`latencies`:** opcional. Campos `total_ms`, `llm_ms` (uno por llamada al LLM) y `what_if_ms`; se guardan también otros extras.
 - **Aplicación:** se aplica en el worker con `platform-set-next-machine`, entre bloques.
 
 | Respuesta | Cuándo |
@@ -49,12 +62,12 @@ Con la **regla 4**, cuando un producto **entra** a una máquina y su siguiente o
 
 ## Agente → plataforma: datos para decidir
 
-- `GET /sessions/{id}/candidates?product=&seq=` (ver `docs/whatif.md`).
+- `GET /sessions/{id}/candidates?product=&seq=`. La respuesta es el `CandidatesResult` de la Línea A (`aclopi/contracts/candidates.py`; campos en `docs/agent-status.md`), ver `docs/whatif.md`.
 - `POST /sessions/{id}/what-if` (ver `docs/whatif.md`).
 
 ## Token compartido
 
-- **Cuando está definida `ACLOPI_AGENT_TOKEN`:** `next-machine`, `candidates` y `what-if` exigen `Authorization: Bearer <token>`, y responden 401 si falta o no coincide. La plataforma manda el mismo encabezado en `/decide` y en `/health`.
+- **Cuando está definida `ACLOPI_AGENT_TOKEN`:** `next-machine`, `candidates` y `what-if` exigen `Authorization: Bearer <token>`, y responden 401 si falta o no coincide. La comparación es en tiempo constante (`secrets.compare_digest`, en `aclopi.contracts.agent.bearer_matches`), en la plataforma y en el agente simulado. La plataforma manda el mismo encabezado en `/decide` y en `/health`.
 - **Sin la variable (desarrollo):** no se exige.
 - **Logs:** el token nunca se escribe.
 

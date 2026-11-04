@@ -14,39 +14,14 @@ Estos dos endpoints permiten al código del agente (Línea A) evaluar una decisi
 
 ## `GET /sessions/{id}/candidates?product=&seq=`
 
-Devuelve las máquinas candidatas para la operación `seq` del producto `product`, con su carga y su espera estimada.
+Devuelve las máquinas candidatas para la operación `seq` del producto `product`, con su carga y su inicio y fin estimados.
 
 - **Parámetros:** los dos son obligatorios. `seq` es la operación pendiente, `CurrentSequenceOrder + 1`.
-- **Cálculo:** lo hace `aclopi.sim.candidates.compute_candidates` sobre `platform-state`, dentro del worker de la sesión. No consume azar ni altera la simulación, y mientras la sesión corre se atiende entre bloques.
+- **Cálculo:** lo hace `aclopi.sim.candidates.compute_candidates` (Línea A) sobre `platform-state`, dentro del worker de la sesión. No consume azar ni altera la simulación, y mientras la sesión corre se atiende entre bloques.
 - **Pedido inválido:** responde 200 con `valid: false` y `reason` (`unknown-or-finished-product`, `invalid-seq`, `seq-mismatch` o `not-in-machine`).
-- **Stub provisional:** las firmas de `aclopi/sim/candidates.py` son las acordadas con la Línea A:
-  - `compute_candidates(state, product, seq, static, params=CandidateParams())`;
-  - `read_model_static(session)`;
-  - `candidates_for_session(session, product, seq, static)`.
+- **Esquema:** la respuesta es directamente `CandidatesResult` de `aclopi/contracts/candidates.py` (Línea A), sin copia en la API. Así sus campos aparecen en `contracts/openapi.json`. El significado de cada campo está en `docs/agent-status.md` ("Campos de `CandidatesResult`").
 
-  El esquema (`aclopi/contracts/candidates.py`) es un stub escrito por la plataforma, porque no estaba en `main`. La Línea A lo reemplaza; la API admite campos extra, así que un esquema más rico no rompe el contrato.
-
-```json
-{"product": 201, "seq": 1, "operation": "O1", "tick": 1012, "time": 313.72, "valid": true, "reason": null,
- "candidates": [
-   {"machine": "M2", "own_remaining": 88.2, "travel": 115.0, "arrival": 516.9, "queue_time": 0.0,
-    "start": 516.9, "finish": 726.9, "delta_finish": 0.0, "current_remaining": null, "en_route_time": null,
-    "available": null, "next_machine": null, "finish_plus_next": null, "delta_finish_plus_next": null},
-   {"machine": "M3", "...": "..."}]}
-```
-
-| Campo | Significado |
-|---|---|
-| `own_remaining` | Lo que le falta a la operación actual del producto en su máquina |
-| `travel` | Viaje desde su máquina hasta la candidata (`distances` / 0,3 por tick × 0,31) |
-| `arrival` | Ahora + `own_remaining` + `travel`, en tiempo absoluto |
-| `queue_time` | Lo que le falta al trabajo en curso de la candidata + los tiempos de proceso de los productos en su cola o en camino (+10 en M2–M7 en Stochastic) |
-| `start` | `max(arrival, ahora + queue_time)` |
-| `finish` | `start` + tiempo de proceso de la operación en esa máquina |
-| `delta_finish` | `finish` − el mejor `finish` |
-| `current_remaining`, `en_route_time`, `available`, `next_machine`, `finish_plus_next`, `delta_finish_plus_next` | `null` en el stub. Los llenará la implementación de la Línea A |
-
-Es la misma estimación de "Estimación de la entrada". Todos los valores están en u.t.; `arrival`, `start` y `finish` son tiempos absolutos (`Simulated.Time`). La lista viene ordenada por `finish`.
+Campos principales: `candidates` (ordenadas por `finish`), `current_machine`, `own_remaining`, `next_operation`, `best_by_finish`, `best_by_finish_plus_next`, `gap_*`, `travel_source`. Por candidata: `travel` = `distances[actual][m]` en u.t., `available` (bool) y el tiempo hasta que la máquina queda libre en `available_in`, `arrival`, `start`, `finish` (u.t. absolutos), `proc_time`, `next_machine`, `travel_next`, `is_current_machine`, `queue`, `en_route`, `stay_time` y `stay`.
 
 ## `POST /sessions/{id}/what-if`
 
@@ -93,21 +68,18 @@ libre   = ahora + lo que le falta al trabajo en curso de la máquina probada
 entrada = max(llegada, libre)        fin = entrada + tiempo de la operación en esa máquina
 ```
 
-**Viaje**, verificado en `model/Paper.nlogo`:
+**Qué estimación se usa.** Para ordenar las copias (y para `entry-beyond-cap`), la foto usa el `start` de `candidates` de la Línea A para cada opción, porque cuenta la cola, los productos en camino y el ocupante que se queda. Si `candidates` no da la máquina (por ejemplo, el producto ya no está en una máquina), se usa la fórmula de arriba como respaldo. La respuesta del snapshot dice cuál se usó (`estimate_source`: `candidates` o `fallback`). Cuando una copia no entró, la entrada estimada en la parada sale siempre de la fórmula de arriba, porque en ese momento el producto suele ir viajando.
 
-| Dato | Fuente en el modelo |
-|---|---|
-| Distancias `distances[origen][destino]` entre máquinas, filas y columnas M1…M7 | Global `distances`, cargada en `Set.distances.Machines` (líneas 2637–2646; la fila es la máquina de origen, como dice el comentario `; M1 to rest`) |
-| Uso como `[origen][destino]` | La regla 3: `item (destino − 1) (item (origen − 1) distances)` (línea 622 y sus copias; línea 3018 para la regla 4) |
-| Velocidad del transportador: `0,3` por tick en tramos rectos | `jump (0.300 * speed-factor)` en `Product.Movement` (línea 1031) |
-| `speed-factor` = 1 para todos los productos | `create.product` (línea 528) |
-| Las curvas avanzan algo menos por tick | `Curved.Move` (líneas 454–473), por ejemplo `2.2 * 4 * sin(1,2°) ≈ 0,18` en `curve1` |
+**Viaje.** `distances[origen][destino]` (global `distances`, `Set.distances.Machines`; la fila es la máquina de origen) **ya está en u.t.**: es el viaje mínimo medido en cada ruta (`data/a0/travel_times.csv`, Línea A).
 
-`ticks de viaje = distances[origen][destino] / 0,3` y `tiempo = ticks × 0,31`.
+```
+viaje (u.t.) = distances[origen][destino]        viaje (ticks) = viaje / 0,31
+```
 
-- **Origen:** la máquina en la que está el producto (`product` de la máquina en `platform-state`) o, si ya salió, la última de `Machine.Used`. En ese caso el viaje ya hecho sale de `ahora − última ProductRealCompletion` (líneas 599 y 603).
-- **Qué no incluye:** las esperas en compuertas, el bloqueo detrás de otros productos (`in-cone`, línea 1027) ni las curvas más lentas. Por eso suele quedarse corta; el error medido está en el resumen del script.
-- **TODO:** cuando llegue el `candidates` real de la Línea A, se usa su estimación de inicio en lugar de esta.
+Antes se dividía por la velocidad del transportador (0,3 por tick) y se multiplicaba por 0,31, lo que sobreestimaba el viaje un 3,3 %. Corregido en `aclopi.sim.candidates.travel_time`.
+
+- **Origen:** la máquina en la que está el producto (`product` de la máquina en `platform-state`) o, si ya salió, la última de `Machine.Used`. En ese caso el viaje ya hecho sale de `ahora − última ProductRealCompletion`.
+- **Qué no incluye:** las esperas en compuertas ni el bloqueo detrás de otros productos. Por eso puede quedarse corta.
 
    Con un bloqueo, la foto y el pedido se guardan en `results/whatif_diagnostics/` (`ACLOPI_WHATIF_DIAG_DIR`) y la ruta viene en `diagnostic_file`.
 

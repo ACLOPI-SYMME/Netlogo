@@ -170,10 +170,13 @@ def test_live_b1_decisions_keep_the_pace(stack: Any, client: httpx.Client) -> No
 
 # ----- fast -----
 
-def test_fast_b1_is_reproducible(client: httpx.Client) -> None:
+def test_fast_b1_is_reproducible(stack: Any, client: httpx.Client) -> None:
+    """Also checks the /decide context (read in the worker without random numbers: the runs stay identical)."""
     runs = []
+    sids = []
     for _ in range(2):
         sid = _session(client, "b1")
+        sids.append(sid)
         client.post(f"/sessions/{sid}/run", json={"mode": "fast"}).raise_for_status()
         info = _wait_run(client, sid, ("finished", "failed"))
         assert info["run_state"] == "finished", info
@@ -183,6 +186,15 @@ def test_fast_b1_is_reproducible(client: httpx.Client) -> None:
         runs.append((kpis, decisions))
         client.delete(f"/sessions/{sid}")
     assert runs[0][1] and runs[0] == runs[1]
+    received = [r for r in stack[1].app.state.requests if r["session_id"] in sids]
+    assert received and [{k: v for k, v in r.items() if k != "session_id"} for r in received if r["session_id"] == sids[0]] ==         [{k: v for k, v in r.items() if k != "session_id"} for r in received if r["session_id"] == sids[1]]
+    for r in received:
+        assert r["context_tick"] == r["tick"]  # fast: read when the run stopped at the request
+        assert r["pending_operations"][0] == r["operation"] and r["current_machine"] == r["origin"]
+        assert r["current_operation"] is not None and r["own_remaining"] > 0
+        assert r["next_operation"] == (r["pending_operations"][1] if len(r["pending_operations"]) > 1 else None)
+        assert r["products_in_plant"] >= 1 and set(r["m1"]) == {"busy", "remaining", "queue_length"}
+        assert r["m1"]["remaining"] > 0 if r["m1"]["busy"] else r["m1"]["remaining"] == 0
 
 
 def test_fast_with_agent_down_fails(stack: Any, client: httpx.Client) -> None:

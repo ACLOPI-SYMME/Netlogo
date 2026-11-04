@@ -2,7 +2,7 @@
 
 ResultsStore has two implementations:
 - InMemoryResultsStore: tests and runs without a database;
-- DynamoResultsStore: DynamoDB (boto3, region eu-west-3; ACLOPI_DYNAMODB_ENDPOINT points to
+- DynamoResultsStore: DynamoDB (boto3, region ACLOPI_AWS_REGION, default eu-north-1; ACLOPI_DYNAMODB_ENDPOINT points to
   DynamoDB Local). Tables are created at startup only with ACLOPI_CREATE_TABLES=1 (local); in the
   cloud the infrastructure creates them.
 
@@ -28,7 +28,7 @@ from aclopi.api.product_sets import summary
 
 logger = logging.getLogger(__name__)
 
-REGION = "eu-west-3"
+DEFAULT_REGION = "eu-north-1"  # Stockholm
 RUN_FILTERS = ("seed", "strategy", "rule", "product_set_id")
 
 
@@ -87,10 +87,10 @@ def from_dynamo(value: Any) -> Any:
 
 
 class _Dynamo:
-    def __init__(self, endpoint: str | None, prefix: str, create_tables: bool) -> None:
+    def __init__(self, endpoint: str | None, prefix: str, create_tables: bool, region: str) -> None:
         import boto3
 
-        kwargs: dict[str, Any] = {"region_name": REGION}
+        kwargs: dict[str, Any] = {"region_name": region}
         if endpoint:
             kwargs["endpoint_url"] = endpoint
         self.resource = boto3.resource("dynamodb", **kwargs)
@@ -121,8 +121,9 @@ class _Dynamo:
 
 
 class DynamoResultsStore:
-    def __init__(self, endpoint: str | None, prefix: str = "aclopi_", create_tables: bool = False) -> None:
-        self.db = _Dynamo(endpoint, prefix, create_tables)
+    def __init__(self, endpoint: str | None, prefix: str = "aclopi_", create_tables: bool = False,
+                 region: str = DEFAULT_REGION) -> None:
+        self.db = _Dynamo(endpoint, prefix, create_tables, region)
         self.runs = self.db.table("runs")
         self.decisions = self.db.table("decisions")
 
@@ -178,8 +179,9 @@ class DynamoResultsStore:
 class DynamoProductSetStore:
     """ProductSetStore on DynamoDB (same interface as InMemoryProductSetStore)."""
 
-    def __init__(self, endpoint: str | None, prefix: str = "aclopi_", create_tables: bool = False) -> None:
-        self.table = _Dynamo(endpoint, prefix, create_tables).table("product_sets")
+    def __init__(self, endpoint: str | None, prefix: str = "aclopi_", create_tables: bool = False,
+                 region: str = DEFAULT_REGION) -> None:
+        self.table = _Dynamo(endpoint, prefix, create_tables, region).table("product_sets")
 
     def _row(self, set_id: str, name: str, products: list[dict[str, Any]], created_at: float) -> dict[str, Any]:
         return {"id": set_id, "name": name, "products": [dict(p) for p in products], "created_at": created_at,

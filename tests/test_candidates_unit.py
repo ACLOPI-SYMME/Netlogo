@@ -196,12 +196,16 @@ def test_stay_skips_an_operation_already_counted_and_needs_a_capable_machine() -
 
 
 def test_result_fits_the_platform_response_model() -> None:
-    from aclopi.api.models import CandidatesResponse
+    from pydantic import TypeAdapter
+
+    from aclopi.api.models import CandidatesResult
 
     s = state({"M2": machine("M2", ME, 1100.0), "M3": machine("M3", 300, 1500.0, queue=[301])},
               [product(ME, OPS_E, 1, "M2"), product(300, OPS_E, 2, "M3"), product(301, OPS_E, 1, "M3")])
     data = compute_candidates(s, ME, 2, static()).as_dict()
-    parsed = CandidatesResponse(**data).model_dump()
+    adapter = TypeAdapter(CandidatesResult)
+    parsed = adapter.dump_python(adapter.validate_python(data))
+    assert parsed == data  # the API's response model is Línea A's schema: nothing dropped or renamed
     assert parsed["best_by_finish"] == data["best_by_finish"] and parsed["candidates"][0]["available"] is True
     assert parsed["candidates"][0]["available_in"] == data["candidates"][0]["available_in"]
 

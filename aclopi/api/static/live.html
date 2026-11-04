@@ -106,7 +106,7 @@
 </fieldset>
 <div id="runs-msg" class="err"></div>
 <table class="set"><thead><tr><th></th><th>Inicio</th><th>Estado</th><th>Regla</th><th>Estrategia</th><th>Semilla</th><th>Set</th>
-  <th>Ticks</th><th>Terminados</th><th>Creados</th><th>Trabajo</th><th>Flujo medio</th><th>Makespan</th><th></th></tr></thead>
+  <th>Ticks</th><th>Makespan</th><th>Flujo medio</th><th>Trabajo</th><th>Terminados</th><th>Creados</th><th></th></tr></thead>
   <tbody id="runs-rows"></tbody></table>
 <h4>Comparación</h4><div id="runs-compare-box">–</div>
 </section>
@@ -410,6 +410,12 @@ async function loadRuns(reset) {
     $("runs-more").hidden = !runsCursor; $("runs-msg").textContent = ""; renderRuns();
   } catch (e) { $("runs-msg").textContent = e.message; }
 }
+// Makespan: the main KPI of the experiments. Only with a product list; "no terminó" if the list was not finished.
+function makespanText(k) {
+  if (k.products_total === null || k.products_total === undefined) return "–";
+  if (!k.all_done || k.makespan_time === null || k.makespan_time === undefined) return "no terminó";
+  return `${k.makespan_time.toFixed(1)} u.t. (${k.makespan_ticks} ticks)`;
+}
 function renderRuns() {
   const body = $("runs-rows"); body.textContent = "";
   runs.forEach(r => {
@@ -418,8 +424,8 @@ function renderRuns() {
     tr.innerHTML = `<td><input type="checkbox" data-id="${r.run_id}"></td><td>${new Date(r.created_at * 1000).toLocaleString()}</td>
       <td>${r.status}${r.reason ? " (" + r.reason + ")" : ""}</td><td>${r.rule}</td><td>${r.strategy ?? "–"}</td>
       <td>${r.seed}${r.seed_source === "random" ? "*" : ""}</td><td>${r.products_hash ? r.products_hash.slice(0, 8) : "semilla"}</td>
-      <td>${fmt(r.ticks)}</td><td>${fmt(k.finished)}</td><td>${fmt(k.created)}</td><td>${fmt(k.work_completed)}</td>
-      <td>${fmt(k.mean_flow_time)}</td><td>${fmt(k.makespan_time)}</td>
+      <td>${fmt(r.ticks)}</td><td><b>${makespanText(k)}</b></td><td>${fmt(k.mean_flow_time)}</td><td>${fmt(k.work_completed)}</td>
+      <td>${fmt(k.finished)}</td><td>${fmt(k.created)}</td>
       <td><button data-a="repeat">Repetir</button><button data-a="csv">CSV</button></td>`;
     tr.querySelector('[data-a="repeat"]').onclick = () => repeatRun(r);
     tr.querySelector('[data-a="csv"]').onclick = () => exportRun(r);
@@ -460,9 +466,9 @@ $("runs-compare").onclick = () => {
   const chosen = runs.filter(r => ids.includes(r.run_id));
   if (chosen.length < 2) { $("runs-compare-box").textContent = "Selecciona al menos 2 corridas"; return; }
   const sameSet = new Set(chosen.map(r => `${r.products_hash}|${r.seed}`)).size === 1;
-  const keys = ["finished", "created", "work_completed", "mean_flow_time", "throughput", "all_done", "makespan_time", "makespan_ticks"];
+  const keys = ["makespan", "mean_flow_time", "work_completed", "finished", "created", "throughput", "all_done"];
   const head = `<tr><th>KPI</th>${chosen.map(r => `<th>${r.rule}/${r.strategy ?? "–"} ${r.run_id.slice(0, 6)}</th>`).join("")}</tr>`;
-  const rows = keys.map(k => `<tr><td>${k}</td>${chosen.map(r => `<td>${fmt((r.kpis || {})[k])}</td>`).join("")}</tr>`).join("");
+  const rows = keys.map(k => `<tr><td>${k}</td>${chosen.map(r => `<td>${k === "makespan" ? makespanText(r.kpis || {}) : fmt((r.kpis || {})[k])}</td>`).join("")}</tr>`).join("");
   $("runs-compare-box").innerHTML = (sameSet ? "" : `<p class="err">Ojo: las corridas no tienen el mismo set y la misma semilla</p>`) +
     `<table class="set">${head}${rows}</table>`;
 };

@@ -12,7 +12,6 @@ created with debug=False.
 from __future__ import annotations
 
 import asyncio
-import hmac
 import secrets
 import logging
 import os
@@ -34,13 +33,14 @@ from aclopi.api.errors import (
 )
 from aclopi.api.instance_lock import InstanceLock
 from aclopi.api.models import (
-    STEP_N_DESCRIPTION, CandidatesResponse, Event, Health, Kpis, PlantLayout, PlantState, Probe, RunRequest,
+    STEP_N_DESCRIPTION, CandidatesResult, Event, Health, Kpis, PlantLayout, PlantState, Probe, RunRequest,
     GeneratedProducts, GenerateRequest, NextMachineRequest, NextMachineResponse, ParsedCsv, ProductSet, ProductSetIn,
     ProductSetSummary, RunPage, RunRecord, SessionCreate, SessionInfo, SessionMetrics, StepResult, WhatIfRequest,
     WhatIfResponse,
 )
 from aclopi.workers.protocol import NoFreeWorker
 from aclopi.api.agent import AgentClient
+from aclopi.contracts.agent import bearer_matches
 from aclopi.api.product_sets import InMemoryProductSetStore, parse_csv, summary, to_csv
 from aclopi.api.results import DynamoProductSetStore, DynamoResultsStore, InMemoryResultsStore
 from aclopi.api.whatif import run_whatif
@@ -133,9 +133,9 @@ class Runtime:
         """Results and product sets: DynamoDB when configured, else in memory."""
         s = self.settings
         if s.results_store == "dynamodb":
-            self.results = DynamoResultsStore(s.dynamodb_endpoint, s.dynamodb_table_prefix, s.create_tables)
-            self.product_sets = DynamoProductSetStore(s.dynamodb_endpoint, s.dynamodb_table_prefix, create_tables=False)
-            logger.info("Results store: DynamoDB (%s)", s.dynamodb_endpoint or "AWS eu-west-3")
+            self.results = DynamoResultsStore(s.dynamodb_endpoint, s.dynamodb_table_prefix, s.create_tables, s.aws_region)
+            self.product_sets = DynamoProductSetStore(s.dynamodb_endpoint, s.dynamodb_table_prefix, False, s.aws_region)
+            logger.info("Results store: DynamoDB (%s)", s.dynamodb_endpoint or f"AWS {s.aws_region}")
         else:
             self.results = InMemoryResultsStore()
             logger.info("Results store: in memory")
@@ -260,7 +260,7 @@ def create_app(
         token = settings.agent_token
         if token is None:
             return
-        if authorization is None or not hmac.compare_digest(authorization, f"Bearer {token}"):
+        if not bearer_matches(authorization, token):
             raise Unauthorized("missing or wrong Authorization: Bearer token")
 
     # ----- health -----
@@ -515,9 +515,10 @@ def create_app(
 
     # ----- decisions: candidates and what-if (L5.4) -----
 
-    @app.get("/sessions/{session_id}/candidates", response_model=CandidatesResponse, tags=["decisions"],
+    @app.get("/sessions/{session_id}/candidates", response_model=CandidatesResult, tags=["decisions"],
              summary="Candidate machines for a pending decision, with load and estimated wait",
-             description="Computed from platform-state by aclopi.sim.candidates (schema owned by Línea A); "
+             description="Computed from platform-state by aclopi.sim.candidates; the schema is Línea A's "
+                         "CandidatesResult (aclopi/contracts/candidates.py, fields in docs/agent-status.md); "
                          "it does not alter the simulation. While the session runs it is served between blocks. "
                          "An invalid request (e.g. seq-mismatch) answers 200 with valid=false and the reason.",
              responses=errors.responses(401, 404, 410, 500, 504))
@@ -551,7 +552,7 @@ def create_app(
               summary="The agent's decision for a pending request (rule 4)",
               description="Applied between blocks with platform-set-next-machine. 409 decision_not_pending "
                           "(registered as late) if the product already left the decision; 422 if the machine "
-                          "cannot do the operation. See docs/agent-api.md (PROPOSAL).",
+                          "cannot do the operation. See docs/agent-api.md.",
               responses=errors.responses(401, 404, 409, 410, 500, 504))
     async def next_machine(body: NextMachineRequest, session_id: str = session_id_path,
                            _auth: None = Depends(require_agent_token)) -> Any:

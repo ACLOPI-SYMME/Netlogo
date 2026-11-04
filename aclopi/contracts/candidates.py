@@ -1,8 +1,8 @@
 """Schema of the candidates computation (Línea A). Implementation: aclopi/sim/candidates.py.
 
 Replaces the platform's stub (L5.4) and keeps every field it had, with the same names and types,
-so the worker, the API (CandidatesResponse / CandidateInfo allow extra fields) and the mock agent
-keep working; new fields are only added. as_dict() is what the worker sends and the API returns.
+so the worker and the mock agent keep working; new fields are only added. The API answers
+GET /sessions/{id}/candidates with CandidatesResult itself (response_model, so it is in the OpenAPI). as_dict() is what the worker sends and the API returns.
 
 Units: simulated time units (u.t.; 1 tick = 0.31 u.t.). Durations: own_remaining, travel,
 current_remaining, queue_time, en_route_time, available_in, proc_time, travel_next, gap_*, delta_*.

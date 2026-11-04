@@ -51,10 +51,11 @@ def read_model_static(session: Any) -> ModelStatic:
 
 
 def travel_time(static: ModelStatic, origin: str | None, target: str) -> float:
-    """Simulated time to travel from machine `origin` to machine `target` (0 if unknown or the same)."""
+    """Simulated time (u.t.) to travel from machine `origin` to `target` (0 if unknown or the same).
+    distances is already in u.t. (measured minimum travel, data/a0/travel_times.csv): no conversion."""
     if not origin or origin == target or origin not in static.distances:
         return 0.0
-    return static.distances[origin].get(target, 0.0) / static.conveyor_speed * static.tick_time
+    return static.distances[origin].get(target, 0.0)
 
 
 def machine_loads(state: dict[str, Any], exclude: int | None = None) -> dict[str, list[dict[str, Any]]]:
@@ -74,8 +75,9 @@ def _op_time(static: ModelStatic, params: CandidateParams, machine: str, operati
     return base + extra
 
 
-def _remaining(m: dict[str, Any]) -> float:
-    return float(m["remaining"]) if m.get("state") == "Machine.Processing" and m.get("remaining") is not None else 0.0
+def _remaining(m: dict[str, Any], now: float) -> float:
+    """What is left of the machine's job (platform-state has next_completion, not a remaining field)."""
+    return _remaining_at(m, now)
 
 
 def estimate_start(state: dict[str, Any], product: int, machine: str, operation: str, static: ModelStatic,
@@ -89,17 +91,18 @@ def estimate_start(state: dict[str, Any], product: int, machine: str, operation:
     own_remaining: what is left of its operation if it is in a machine (origin = that machine);
     otherwise `origin` (its last machine) and `left_time` (when it left) give the travel left.
     The travel ignores gates and products ahead (docs/whatif.md, "Estimación de la entrada").
-    TODO(Línea A): replaced by the real candidates' estimated start when it arrives.
+    The what-if snapshot uses Línea A's candidates `start` (compute_candidates) and keeps this one as
+    the fallback (product not in a machine, e.g. a copy that stopped before it entered).
     """
     now = float(state["time"])
     machines = {m["name"]: m for m in state["machines"]}
     current = next((m for m in state["machines"] if m.get("product") == product), None)
     if current is not None:
-        own, origin, travelled = _remaining(current), current["name"], 0.0
+        own, origin, travelled = _remaining(current, now), current["name"], 0.0
     else:
         own, travelled = 0.0, max(0.0, now - left_time) if left_time is not None else 0.0
     travel = max(0.0, travel_time(static, origin, machine) - travelled)
-    queue = _remaining(machines[machine]) + sum(
+    queue = _remaining(machines[machine], now) + sum(
         _op_time(static, params, machine, str(q.get("next_operation"))) for q in machine_loads(state, exclude=product)[machine])
     arrival = now + own + travel
     start = max(arrival, now + queue)
