@@ -7,6 +7,8 @@ from typing import Annotated, Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from aclopi.contracts.agent import NextMachineRequest, NextMachineResponse, Strategy  # noqa: F401 (re-exported)
+# GET /sessions/{id}/candidates answers Línea A's schema as is (no copy in the API).
+from aclopi.contracts.candidates import Candidate, CandidatesResult  # noqa: F401 (re-exported)
 
 from aclopi.workers.protocol import MAX_STEP_TICKS
 
@@ -168,43 +170,6 @@ class Kpis(BaseModel):
     created: int = Field(description="Products created so far (finished + wip)")
     work_completed: float = Field(description="Processing work done, in time units of nominal processing time "
                                               "(OperationDuration); an operation in progress adds its processed fraction")
-
-
-class CandidateInfo(BaseModel):
-    """Provisional fields of Línea A (aclopi/contracts/candidates.py). The platform's stub fills
-    own_remaining..delta_finish (simulated time units) and leaves the rest null."""
-
-    model_config = ConfigDict(extra="allow")
-
-    machine: str
-    own_remaining: float | None = None
-    travel: float | None = None
-    arrival: float | None = None
-    queue_time: float | None = None
-    start: float | None = None
-    finish: float | None = None
-    delta_finish: float | None = None
-    current_remaining: float | None = None
-    en_route_time: float | None = None
-    available: bool | None = None
-    next_machine: str | None = None
-    finish_plus_next: float | None = None
-    delta_finish_plus_next: float | None = None
-
-
-class CandidatesResponse(BaseModel):
-    """Schema owned by Línea A (aclopi/contracts/candidates.py); extra fields are allowed."""
-
-    model_config = ConfigDict(extra="allow")
-
-    product: int
-    seq: int
-    operation: str | None
-    tick: int
-    time: float
-    valid: bool
-    reason: str | None = Field(None, description="Why the request is not valid (e.g. seq-mismatch)")
-    candidates: list[CandidateInfo]
 
 
 class WhatIfRequest(BaseModel):

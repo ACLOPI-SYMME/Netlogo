@@ -25,7 +25,7 @@ from aclopi.workers import procinfo
 from aclopi.workers.protocol import (
     DEBUG_OPS, MAX_STEP_TICKS, OPS, error_response, ok_response, push_message,
 )
-from aclopi.sim.candidates import candidates_for_session, machine_loads, read_model_static
+from aclopi.sim.candidates import candidates_for_session, compute_candidates, machine_loads, read_model_static
 from aclopi.sim.session import netlogo_string
 from aclopi.sim.whatif import CHUNK_TICKS, STALL_TICKS, estimate_entry, run_option
 from aclopi.workers.runner import RunController, RunStateError
@@ -218,7 +218,7 @@ class WorkerState:
         loads = machine_loads(state, exclude=int(product))
         operation = next(str(p["operations"][int(seq)]) for p in state["products"] if p["id"] == int(product))
         now = float(state["time"])
-        entry = {m: estimate_entry(state, int(product), m, operation, self.static)[0] for m in options}
+        entry, source = self._estimated_entries(state, int(product), int(seq), operation, options)
         entry_ticks = {m: int(round((t - now) / self.static.tick_time)) for m, t in entry.items()}
         result.update({
             "time": now,
@@ -226,6 +226,7 @@ class WorkerState:
             "loads": {m: len(loads[m]) for m in options},
             "estimated_entry": entry,
             "estimated_entry_ticks": entry_ticks,
+            "estimate_source": source,
             "beyond_cap": all(t > int(max_ticks) for t in entry_ticks.values()),
         })
         if result["beyond_cap"] and skip_beyond_cap:
@@ -234,6 +235,21 @@ class WorkerState:
         path = s.export_world(self.worlds_dir / f"whatif_{self.config.name}_{uuid.uuid4().hex}.csv")
         result.update({"path": str(path), "export_ms": round(1000 * (time.perf_counter() - t0), 1)})
         return result
+
+    def _estimated_entries(self, state: dict[str, Any], product: int, seq: int, operation: str,
+                           options: list[str]) -> tuple[dict[str, float], dict[str, str]]:
+        """Estimated start time (u.t.) on each option: Línea A's candidates `start` when it has the
+        machine, else aclopi.sim.whatif.estimate_entry (fallback). Also says which one was used."""
+        result = compute_candidates(state, product, seq, self.static)
+        starts = {c.machine: c.start for c in result.candidates} if result.valid else {}
+        entry: dict[str, float] = {}
+        source: dict[str, str] = {}
+        for m in options:
+            if starts.get(m) is not None:
+                entry[m], source[m] = float(starts[m]), "candidates"
+            else:
+                entry[m], source[m] = estimate_entry(state, product, m, operation, self.static)[0], "fallback"
+        return entry, source
 
     def op_whatif_option(self, path: str, product: int, seq: int, machine: str, max_ticks: int,
                          window_tick: int | None = None, deadline: float | None = None,

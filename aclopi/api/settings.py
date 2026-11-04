@@ -54,6 +54,7 @@ class Settings:
     dynamodb_endpoint: str | None = None
     dynamodb_table_prefix: str = "aclopi_"
     create_tables: bool = False
+    aws_region: str = "eu-north-1"  # DynamoDB region (Stockholm); ignored by DynamoDB Local
     whatif_diag_dir: Path = field(default_factory=lambda: REPO_ROOT / "results" / "whatif_diagnostics")
 
     def run_options(self) -> dict[str, float | int]:
@@ -94,6 +95,7 @@ class Settings:
             dynamodb_endpoint=env.get("ACLOPI_DYNAMODB_ENDPOINT", "").strip() or None,
             dynamodb_table_prefix=env.get("ACLOPI_DYNAMODB_TABLE_PREFIX", "").strip() or "aclopi_",
             create_tables=env.get("ACLOPI_CREATE_TABLES", "").strip() in ("1", "true", "yes"),
+            aws_region=env.get("ACLOPI_AWS_REGION", "").strip() or "eu-north-1",
             whatif_diag_dir=Path(env["ACLOPI_WHATIF_DIAG_DIR"]) if env.get("ACLOPI_WHATIF_DIAG_DIR", "").strip()
             else REPO_ROOT / "results" / "whatif_diagnostics",
         )

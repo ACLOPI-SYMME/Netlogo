@@ -45,7 +45,7 @@ from aclopi.api.errors import (
     AgentUnavailable, DecisionNotPending, FastRunLimit, GatewayTimeout, InvalidOption, InvalidRunState,
     NoWorkerAvailable, Rule4Required, SessionGone, SessionNotFound, WorkerUnavailable,
 )
-from aclopi.contracts.agent import DECIDING_STRATEGIES
+from aclopi.contracts.agent import DECIDE_CONTEXT_FIELDS, DECIDING_STRATEGIES
 from aclopi.api.hub import SessionHub, encode
 from aclopi.api.product_sets import products_hash
 from aclopi.api.results import new_run_id
@@ -471,6 +471,8 @@ class SessionRegistry:
             # Simulated.Time advances 0.31 per tick, rounded to 2 decimals (Product.Movement)
             "tick": int(req["tick"]), "simulated_time": round(0.31 * int(req["tick"]), 2),
             "operation": req.get("operation"), "origin": req.get("origin"), "candidates": req.get("candidates"),
+            # Product context and plant summary, read in the worker when the request was collected
+            **{k: req.get(k) for k in DECIDE_CONTEXT_FIELDS},
         }
         record.decision_requests[(payload["product"], payload["seq"])] = {
             "sent_mono": time.monotonic(), "tick": payload["tick"], "mode": payload["mode"]}

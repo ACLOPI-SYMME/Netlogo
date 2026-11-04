@@ -17,6 +17,7 @@ services:
       ACLOPI_AGENT_TOKEN: ${ACLOPI_AGENT_TOKEN:-}
       ACLOPI_DYNAMODB_ENDPOINT: http://dynamodb-local:8000
       ACLOPI_CREATE_TABLES: "1"
+      ACLOPI_AWS_REGION: ${ACLOPI_AWS_REGION:-eu-north-1}
       AWS_ACCESS_KEY_ID: local
       AWS_SECRET_ACCESS_KEY: local
     volumes:

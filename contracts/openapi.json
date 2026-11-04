@@ -82,9 +82,8 @@
         "title": "Body_parse_product_csv_product_sets_parse_csv_post",
         "type": "object"
       },
-      "CandidateInfo": {
-        "additionalProperties": true,
-        "description": "Provisional fields of Línea A (aclopi/contracts/candidates.py). The platform's stub fills\nown_remaining..delta_finish (simulated time units) and leaves the rest null.",
+      "Candidate": {
+        "description": "One machine able to do the operation. The first fields are the stub's, unchanged.",
         "properties": {
           "arrival": {
             "anyOf": [
@@ -107,6 +106,17 @@
               }
             ],
             "title": "Available"
+          },
+          "available_in": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Available In"
           },
           "current_remaining": {
             "anyOf": [
@@ -141,6 +151,13 @@
             ],
             "title": "Delta Finish Plus Next"
           },
+          "en_route": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "En Route",
+            "type": "array"
+          },
           "en_route_time": {
             "anyOf": [
               {
@@ -174,6 +191,17 @@
             ],
             "title": "Finish Plus Next"
           },
+          "is_current_machine": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Current Machine"
+          },
           "machine": {
             "title": "Machine",
             "type": "string"
@@ -200,6 +228,24 @@
             ],
             "title": "Own Remaining"
           },
+          "proc_time": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Proc Time"
+          },
+          "queue": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Queue",
+            "type": "array"
+          },
           "queue_time": {
             "anyOf": [
               {
@@ -222,6 +268,24 @@
             ],
             "title": "Start"
           },
+          "stay": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Stay",
+            "type": "array"
+          },
+          "stay_time": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stay Time"
+          },
           "travel": {
             "anyOf": [
               {
@@ -232,24 +296,99 @@
               }
             ],
             "title": "Travel"
+          },
+          "travel_next": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Travel Next"
           }
         },
         "required": [
           "machine"
         ],
-        "title": "CandidateInfo",
+        "title": "Candidate",
         "type": "object"
       },
-      "CandidatesResponse": {
-        "additionalProperties": true,
-        "description": "Schema owned by Línea A (aclopi/contracts/candidates.py); extra fields are allowed.",
+      "CandidatesResult": {
         "properties": {
+          "best_by_finish": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Best By Finish"
+          },
+          "best_by_finish_plus_next": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Best By Finish Plus Next"
+          },
           "candidates": {
             "items": {
-              "$ref": "#/components/schemas/CandidateInfo"
+              "$ref": "#/components/schemas/Candidate"
             },
             "title": "Candidates",
             "type": "array"
+          },
+          "current_machine": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Machine"
+          },
+          "gap_finish": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gap Finish"
+          },
+          "gap_finish_plus_next": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gap Finish Plus Next"
+          },
+          "next_operation": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Operation"
           },
           "operation": {
             "anyOf": [
@@ -261,6 +400,17 @@
               }
             ],
             "title": "Operation"
+          },
+          "own_remaining": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Own Remaining"
           },
           "product": {
             "title": "Product",
@@ -275,7 +425,6 @@
                 "type": "null"
               }
             ],
-            "description": "Why the request is not valid (e.g. seq-mismatch)",
             "title": "Reason"
           },
           "seq": {
@@ -290,6 +439,11 @@
             "title": "Time",
             "type": "number"
           },
+          "travel_source": {
+            "default": "distances",
+            "title": "Travel Source",
+            "type": "string"
+          },
           "valid": {
             "title": "Valid",
             "type": "boolean"
@@ -301,10 +455,9 @@
           "operation",
           "tick",
           "time",
-          "valid",
-          "candidates"
+          "valid"
         ],
-        "title": "CandidatesResponse",
+        "title": "CandidatesResult",
         "type": "object"
       },
       "ErrorBody": {
@@ -637,6 +790,7 @@
       },
       "Latencies": {
         "additionalProperties": true,
+        "description": "Extra keys are kept (e.g. what_if_ms from the agent).",
         "properties": {
           "llm_ms": {
             "anyOf": [
@@ -663,6 +817,18 @@
               }
             ],
             "title": "Total Ms"
+          },
+          "what_if_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Time spent in POST /what-if, if the agent asked for one",
+            "title": "What If Ms"
           }
         },
         "title": "Latencies",
@@ -3196,7 +3362,7 @@
     },
     "/sessions/{session_id}/candidates": {
       "get": {
-        "description": "Computed from platform-state by aclopi.sim.candidates (schema owned by Línea A); it does not alter the simulation. While the session runs it is served between blocks. An invalid request (e.g. seq-mismatch) answers 200 with valid=false and the reason.",
+        "description": "Computed from platform-state by aclopi.sim.candidates; the schema is Línea A's CandidatesResult (aclopi/contracts/candidates.py, fields in docs/agent-status.md); it does not alter the simulation. While the session runs it is served between blocks. An invalid request (e.g. seq-mismatch) answers 200 with valid=false and the reason.",
         "operationId": "candidates_sessions__session_id__candidates_get",
         "parameters": [
           {
@@ -3256,7 +3422,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/CandidatesResponse"
+                  "$ref": "#/components/schemas/CandidatesResult"
                 }
               }
             },
@@ -3652,7 +3818,7 @@
     },
     "/sessions/{session_id}/next-machine": {
       "post": {
-        "description": "Applied between blocks with platform-set-next-machine. 409 decision_not_pending (registered as late) if the product already left the decision; 422 if the machine cannot do the operation. See docs/agent-api.md (PROPOSAL).",
+        "description": "Applied between blocks with platform-set-next-machine. 409 decision_not_pending (registered as late) if the product already left the decision; 422 if the machine cannot do the operation. See docs/agent-api.md.",
         "operationId": "next_machine_sessions__session_id__next_machine_post",
         "parameters": [
           {
