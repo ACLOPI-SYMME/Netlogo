@@ -1,0 +1,151 @@
+"""A4 experiments through the local API: strategies x cases, fast mode, one CSV per run.
+
+    strategy  rule3 (rule 3) | b1 | b1b | agent (rule 4 + strategy; the platform calls the agent service)
+    case      seed -> fixed list of N products generated with that seed (POST /product-sets/generate)
+The run ends when every product of the list is finished (or at --horizon). Per run it writes
+results/a4/<strategy>_s<seed>_n<N>.csv with strategy, seed, N, makespan_ticks, makespan_time, all_done,
+mean_flow_time, work_completed and the % of decisions per level. Resumable: runs whose CSV exists are
+skipped. Prints progress at least every 30 s. With --events, the events of each run are also kept
+(from the WebSocket) in <run>.events.jsonl, for scripts/a4/estimation_error.py.
+
+Usage (platform API and agent already running):
+    python scripts/a4/run_experiments.py --strategies rule3 b1 b1b agent --seeds 42 7 --n 30
+"""
+
+from __future__ import annotations
+
+import argparse
+import asyncio
+import csv
+import json
+import sys
+import time
+from pathlib import Path
+from typing import Any
+
+import httpx
+import websockets
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+LEVELS = ("code-obvious", "code-fallback", "llm", "llm-what-if", "heuristic")
+FIELDS = ["strategy", "seed", "n", "session_id", "makespan_ticks", "makespan_time", "all_done", "mean_flow_time",
+          "work_completed", "finished", "ticks", "run_state", "reason", "wall_s", "decisions"] + [f"pct_{lv}" for lv in LEVELS]
+
+
+async def collect_events(ws_url: str, path: Path, stop: asyncio.Event) -> None:
+    with path.open("w", encoding="utf-8") as fh:
+        async with websockets.connect(ws_url, max_size=None) as ws:
+            while not stop.is_set():
+                try:
+                    raw = await asyncio.wait_for(ws.recv(), timeout=1.0)
+                except asyncio.TimeoutError:
+                    continue
+                except websockets.ConnectionClosed:
+                    return
+                msg = json.loads(raw)
+                for ev in msg.get("events") or []:
+                    fh.write(json.dumps(ev) + "\n")
+                if msg.get("type") == "finished":
+                    return
+
+
+async def one_run(http: httpx.AsyncClient, api: str, strategy: str, seed: int, n: int, horizon: int,
+                  max_run_s: float, events_path: Path | None, progress: dict[str, Any]) -> dict[str, Any]:
+    products = (await http.post("/product-sets/generate", json={"seed": seed, "count": n})).raise_for_status().json()["products"]
+    body: dict[str, Any] = {"seed": seed, "rule": 3 if strategy == "rule3" else 4, "horizon_ticks": horizon, "products": products}
+    if strategy != "rule3":
+        body["strategy"] = strategy
+    info = (await http.post("/sessions", json=body)).raise_for_status().json()
+    sid = info["session_id"]
+    stop, collector = asyncio.Event(), None
+    try:
+        if events_path is not None:
+            ws_url = api.replace("http", "ws", 1) + f"/ws/sessions/{sid}"
+            collector = asyncio.create_task(collect_events(ws_url, events_path, stop))
+            await asyncio.sleep(0.3)
+        start = time.monotonic()
+        (await http.post(f"/sessions/{sid}/run", json={"mode": "fast"})).raise_for_status()
+        while True:
+            s = (await http.get(f"/sessions/{sid}")).json()
+            progress.update(tick=s.get("ticks"), run=f"{strategy} s{seed}")
+            if s.get("run_state") in ("finished", "failed") or time.monotonic() - start > max_run_s:
+                break
+            await asyncio.sleep(0.5)
+        wall = time.monotonic() - start
+        kpis = (await http.get(f"/sessions/{sid}/kpis")).json()
+        metrics = (await http.get(f"/sessions/{sid}/metrics")).json() if strategy != "rule3" else {}
+        decisions = metrics.get("decisions") or {}
+        pct = decisions.get("by_level_pct") or {}
+        row = {"strategy": strategy, "seed": seed, "n": n, "session_id": sid,
+               "makespan_ticks": kpis.get("makespan_ticks"), "makespan_time": kpis.get("makespan_time"),
+               "all_done": kpis.get("all_done"), "mean_flow_time": kpis.get("mean_flow_time"),
+               "work_completed": kpis.get("work_completed"), "finished": kpis.get("finished"), "ticks": kpis.get("ticks"),
+               "run_state": s.get("run_state"), "reason": s.get("run_reason") or s.get("reason"),
+               "wall_s": round(wall, 1), "decisions": decisions.get("applied", 0),
+               **{f"pct_{lv}": pct.get(lv, 0.0) for lv in LEVELS}}
+        if s.get("run_state") not in ("finished", "failed"):
+            row["reason"] = f"cap {max_run_s:.0f} s reached"
+        return row
+    finally:
+        stop.set()
+        if collector is not None:
+            try:
+                await asyncio.wait_for(collector, timeout=5)
+            except (asyncio.TimeoutError, Exception):  # noqa: BLE001
+                collector.cancel()
+        await http.delete(f"/sessions/{sid}")
+
+
+async def main_async(args: argparse.Namespace) -> int:
+    out = Path(args.out)
+    out.mkdir(parents=True, exist_ok=True)
+    plan = [(st, seed) for seed in args.seeds for st in args.strategies]
+    progress: dict[str, Any] = {"done": 0, "total": len(plan), "run": "", "tick": 0}
+    t0 = time.monotonic()
+
+    async def reporter() -> None:
+        while True:
+            await asyncio.sleep(30)
+            el = time.monotonic() - t0
+            done = progress["done"]
+            eta = el / done * (progress["total"] - done) if done else float("nan")
+            print(f"[{el:6.0f} s] {done}/{progress['total']} runs done ({100 * done / progress['total']:.0f}%), "
+                  f"now {progress['run']} tick {progress['tick']}, ~{eta:.0f} s left", flush=True)
+
+    rep = asyncio.create_task(reporter())
+    async with httpx.AsyncClient(base_url=args.api, timeout=60) as http:
+        for strategy, seed in plan:
+            name = f"{strategy}_s{seed}_n{args.n}"
+            path = out / f"{name}.csv"
+            if path.exists():
+                print(f"skip {name} (done)")
+                progress["done"] += 1
+                continue
+            events = out / f"{name}.events.jsonl" if args.events else None
+            row = await one_run(http, args.api, strategy, seed, args.n, args.horizon, args.max_run_s, events, progress)
+            with path.open("w", newline="", encoding="utf-8") as fh:
+                writer = csv.DictWriter(fh, fieldnames=FIELDS)
+                writer.writeheader()
+                writer.writerow(row)
+            progress["done"] += 1
+            print(f"{name}: makespan_ticks {row['makespan_ticks']} all_done {row['all_done']} "
+                  f"decisions {row['decisions']} wall {row['wall_s']} s ({row['run_state']})", flush=True)
+    rep.cancel()
+    return 0
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--api", default="http://127.0.0.1:8000")
+    parser.add_argument("--strategies", nargs="+", default=["rule3", "b1", "b1b", "agent"])
+    parser.add_argument("--seeds", type=int, nargs="+", default=[42])
+    parser.add_argument("--n", type=int, default=30)
+    parser.add_argument("--horizon", type=int, default=1_000_000)
+    parser.add_argument("--max-run-s", type=float, default=180.0, help="wall-clock cap per run")
+    parser.add_argument("--out", default=str(REPO_ROOT / "results" / "a4"))
+    parser.add_argument("--events", action="store_true", help="keep the events of each run (WebSocket)")
+    return asyncio.run(main_async(parser.parse_args()))
+
+
+if __name__ == "__main__":
+    sys.exit(main())

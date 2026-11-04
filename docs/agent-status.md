@@ -88,9 +88,29 @@ con `AI.Next.Machine` = candidata para su operación siguiente.
    `ACLOPI_FAST_DECISION_TIMEOUT_S` (90 s). Conviene mantener ese orden si se cambia alguno.
 7. **`/health` del agente** responde 200 con `{"llm": "ok"|"down"|"unknown"}`. Con el LLM caído b1/b1b siguen
    y `agent` decide por `code-fallback`; la plataforma podría mostrar ese estado.
-8. **La API acepta solo las reglas 1–3 al crear sesiones** (si no cambió): para el agente hace falta la regla 4 con
-   `strategy` (ya está en la UI).
+8. **Regla 4 en la API:** `SessionCreate` ya acepta la regla 4 con `strategy`; sin cambios que pedir.
 9. **KPIs `created` y `work_completed`:** siguen sin estar en el modelo `Kpis` de la API (2 tests aceptados como fallo).
+
+## Fase 6 — experimentos y prueba de humo
+
+- `scripts/a4/run_experiments.py` (estrategias × semillas, lista fija de N productos, modo rápido, CSV por corrida,
+  reanudable, avance cada 30 s, `--events` guarda los eventos del WebSocket) y `scripts/a4/estimation_error.py`.
+- **Prueba de humo (una vez).** Plataforma local con 1 worker de sesión y 1 de what-if; agente con el LLM falso
+  (0,5 s, 10 % JSON inválido, pide what-if en la mitad de las muy reñidas). 10 productos, semilla 42, rápido.
+
+| Estrategia | makespan_ticks | Todos terminados | Decisiones | Niveles |
+|---|---|---|---|---|
+| rule3 | 14357 | sí | 0 | – |
+| b1 | 14580 | sí | 60 | heuristic 100 % |
+| agent | 15565 | sí | 60 | llm 48,3 %, code-obvious 36,7 %, code-fallback 8,3 %, llm-what-if 6,7 % |
+
+  Rechazos 409/422: 0 (ningún `stale-seq`). Filtro del agente: 22 obvias, 27 dudosas, 11 muy reñidas; 5 what-if
+  pedidos, los 5 `ok`. Los 5 `code-fallback` son JSON inválido del falso. Solo comprueba que funciona: no
+  hay conclusiones sobre el makespan.
+- **Error de `estimated_finish`** frente al fin real (120 decisiones, u.t.; negativo = optimista): media −65,6,
+  mediana 2,8, p90 de |error| 202,5. La mediana es casi 0, pero la media está sesgada hacia lo optimista: en
+  una parte de las decisiones la operación termina bastante después de lo estimado (esperas en compuertas o
+  cruces que `candidates` no modela).
 
 ## Pendiente / bloqueado
 
