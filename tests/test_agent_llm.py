@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import sys
 from typing import Any
 
 import httpx
@@ -12,10 +11,10 @@ import pytest
 
 from aclopi.agent.llm import LLMError, client_from_env
 from aclopi.agent.llm.anthropic import AnthropicLLM
-from aclopi.agent.llm.bedrock import BedrockLLM
 from aclopi.agent.llm.fake import FakeLLM
 from aclopi.agent.llm.ollama import OllamaLLM
 from aclopi.agent.prompts import Answer, answer_schema, build_messages, estimated_tokens, parse_answer
+from aclopi.agent.service import AgentSettings, create_app
 
 MACHINES = ["M3", "M2", "M5", "M7"]
 SCHEMA = answer_schema(MACHINES, allow_what_if=True)
@@ -87,37 +86,11 @@ def test_anthropic_request_shape_and_errors() -> None:
     assert isinstance(err, LLMError) and err.kind == "provider"
 
 
-def test_bedrock_with_fake_client() -> None:
-    class FakeBedrock:
-        def converse(self, **kwargs: Any) -> dict[str, Any]:
-            self.kwargs = kwargs
-            return {"output": {"message": {"content": [{"toolUse": {"input": {"action": "decide", "machine": "M7", "reason": "z"}}}]}}}
-
-    client = FakeBedrock()
-    data, _ = run(BedrockLLM("eu-west-1", "anthropic.claude-haiku-5-5", client=client).complete_json(MSGS, SCHEMA, 5))
-    assert data["machine"] == "M7"
-    assert client.kwargs["toolConfig"]["toolChoice"] == {"tool": {"name": "decision"}}
-    assert client.kwargs["toolConfig"]["tools"][0]["toolSpec"]["inputSchema"]["json"] == SCHEMA
-
-
-def test_bedrock_region_and_model_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    regions: list[str] = []
-
-    class FakeBoto3:
-        @staticmethod
-        def client(service: str, region_name: str) -> object:
-            assert service == "bedrock-runtime"
-            regions.append(region_name)
-            return object()
-
-    monkeypatch.setitem(sys.modules, "boto3", FakeBoto3)
-    default = client_from_env({"ACLOPI_LLM_PROVIDER": "bedrock"})
-    blank = client_from_env({"ACLOPI_LLM_PROVIDER": "bedrock", "ACLOPI_BEDROCK_REGION": "", "ACLOPI_BEDROCK_MODEL": ""})
-    custom = client_from_env({"ACLOPI_LLM_PROVIDER": "bedrock", "ACLOPI_BEDROCK_REGION": "eu-central-1",
-                              "ACLOPI_BEDROCK_MODEL": "eu.anthropic.some-profile-v1:0"})
-    assert regions == ["eu-north-1", "eu-north-1", "eu-central-1"]
-    assert default.region == "eu-north-1" and default.model == blank.model == "eu.anthropic.claude-haiku-5-5"
-    assert custom.model == "eu.anthropic.some-profile-v1:0"
+def test_removed_provider_fails_at_startup(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A provider that is no longer supported (bedrock was removed) stops the service when it starts.
+    monkeypatch.setenv("ACLOPI_LLM_PROVIDER", "bedrock")
+    with pytest.raises(ValueError, match=r"must be one of \('fake', 'ollama', 'anthropic'\), got 'bedrock'"):
+        create_app(AgentSettings(provider="bedrock"))
 
 
 def test_provider_from_env() -> None:

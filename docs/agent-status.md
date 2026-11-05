@@ -66,7 +66,7 @@ con `AI.Next.Machine` = candidata para su operación siguiente.
 
 - `aclopi/agent/triage.py`, `strategies.py` (b1, b1b, nivel de código del agente), `local.py` (b1/b1b como
   decisores de la regla 4 sobre `SimulationSession`, modo rápido, hilo principal).
-- `aclopi/agent/llm/` (fake, ollama, anthropic, bedrock) y `aclopi/agent/prompts/` (prompt mayor ≈ 800 tokens estimados).
+- `aclopi/agent/llm/` (fake, ollama, anthropic) y `aclopi/agent/prompts/` (prompt mayor ≈ 800 tokens estimados).
 - `aclopi/agent/core.py`: flujo con plazos de vivo y rápido, what-if, respaldo y registro por decisión.
 - `aclopi/agent/service.py` (`python -m aclopi.agent`, puerto 8100), `docker/agent.Dockerfile`,
   `requirements-agent.txt`, servicio `agent` en `docker-compose.yml` con `profiles: [agent]`,

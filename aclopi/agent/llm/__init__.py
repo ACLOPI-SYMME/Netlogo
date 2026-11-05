@@ -8,7 +8,8 @@ answer. Providers, chosen by ACLOPI_LLM_PROVIDER (configuration only by environm
     fake       deterministic, for tests and the smoke test (aclopi.agent.llm.fake)
     ollama     /api/chat with format = JSON schema, think false, keep_alive -1
     anthropic  Messages API, forced tool call with the schema (ANTHROPIC_API_KEY)
-    bedrock    Converse API with boto3, forced tool call with the schema
+
+Any other value is an error when the service starts (create_app calls client_from_env).
 """
 
 from __future__ import annotations
@@ -18,9 +19,7 @@ from typing import Mapping
 
 from aclopi.agent.llm.base import LLMClient, LLMError
 
-PROVIDERS = ("fake", "ollama", "anthropic", "bedrock")
-BEDROCK_DEFAULT_REGION = "eu-north-1"  # Stockholm, as the platform's AWS resources
-BEDROCK_DEFAULT_MODEL = "eu.anthropic.claude-haiku-5-5"  # EU inference profile; override with ACLOPI_BEDROCK_MODEL
+PROVIDERS = ("fake", "ollama", "anthropic")
 
 
 def client_from_env(env: Mapping[str, str] | None = None) -> LLMClient:
@@ -49,13 +48,6 @@ def client_from_env(env: Mapping[str, str] | None = None) -> LLMClient:
             raise RuntimeError("ACLOPI_LLM_PROVIDER=anthropic needs ANTHROPIC_API_KEY")
         return AnthropicLLM(api_key=key, model=env.get("ACLOPI_LLM_MODEL", "claude-haiku-5-5"),
                             url=env.get("ACLOPI_ANTHROPIC_URL", "https://api.anthropic.com"))
-    if provider == "bedrock":
-        from aclopi.agent.llm.bedrock import BedrockLLM
-
-        # Empty values (docker compose's ${VAR:-}) mean "not set". The model id may be an inference
-        # profile (e.g. an "eu." one, routed within EU regions).
-        return BedrockLLM(region=env.get("ACLOPI_BEDROCK_REGION") or BEDROCK_DEFAULT_REGION,
-                          model=env.get("ACLOPI_BEDROCK_MODEL") or env.get("ACLOPI_LLM_MODEL") or BEDROCK_DEFAULT_MODEL)
     raise ValueError(f"ACLOPI_LLM_PROVIDER must be one of {PROVIDERS}, got {provider!r}")
 
 
