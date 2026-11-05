@@ -15,6 +15,7 @@ POST /sessions/{id}/next-machine:
                    of margin is under ~12 s it decides as llm without a what-if. A skipped or
                    timed-out what-if: decides without it (level llm).
     code-fallback  best by finish
+- The reason names the product (type and priority from /decide), e.g. "best finish (E, priority 80)".
 - "down" mode (ACLOPI_MOCK_DOWN = decide | health | all): those endpoints never answer.
 - Own seed (ACLOPI_MOCK_SEED): its draws are reproducible when decisions arrive in the same order.
 """
@@ -123,7 +124,8 @@ def create_mock_app(config: MockConfig | None = None) -> FastAPI:
                 if not cands.get("valid"):
                     return  # no longer pending: nothing to decide
                 ranked = _rank(cands["candidates"], b1b=req.strategy == "b1b")
-                machine, level, reason = ranked[0]["machine"], "heuristic", "best finish"
+                who = f" ({req.product_type}, priority {req.priority})" if req.product_type else ""
+                machine, level, reason = ranked[0]["machine"], "heuristic", f"best finish{who}"
                 if req.strategy == "agent":
                     level = rng.choices(list(cfg.weights), weights=list(cfg.weights.values()))[0]
                     machine, reason = ranked[0]["machine"], f"mock {level}: best finish"

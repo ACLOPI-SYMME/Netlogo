@@ -194,6 +194,7 @@ def test_fast_b1_is_reproducible(stack: Any, client: httpx.Client) -> None:
         assert r["pending_operations"][0] == r["operation"] and r["current_machine"] == r["origin"]
         assert r["current_operation"] is not None and r["own_remaining"] > 0
         assert r["next_operation"] == (r["pending_operations"][1] if len(r["pending_operations"]) > 1 else None)
+        assert r["product_type"] in ("A", "I", "P", "B", "E", "L", "T") and 60 <= r["priority"] <= 100
         assert r["products_in_plant"] >= 1 and set(r["m1"]) == {"busy", "remaining", "queue_length"}
         assert r["m1"]["remaining"] > 0 if r["m1"]["busy"] else r["m1"]["remaining"] == 0
 

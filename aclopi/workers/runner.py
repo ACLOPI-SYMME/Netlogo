@@ -46,7 +46,8 @@ from dataclasses import asdict
 from typing import Any, Callable
 
 from aclopi.sim.decisions import (
-    clear_decisions, decision_context, decision_log, pending_decisions, run_until_decision, set_next_machine,
+    clear_decisions, decision_context, decision_log, pending_decisions, product_priorities, run_until_decision,
+    set_next_machine,
 )
 
 BASE_RATE = 32.0  # ticks/s at speed 1
@@ -257,8 +258,9 @@ class RunController:
         if self.decisions and requests:
             # Context for POST /decide, read when the requests are collected (platform-state: no random numbers)
             state = self.session.state()
+            priorities = product_priorities(self.session, sorted({int(r["who"]) for r in requests}))
             for r in requests:
-                r.update(decision_context(state, int(r["who"]), int(r["seq"])))
+                r.update(decision_context(state, int(r["who"]), int(r["seq"]), priorities.get(int(r["who"]))))
         if self.decisions:
             data["decision_requests"] = requests
             return requests

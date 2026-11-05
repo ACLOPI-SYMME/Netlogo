@@ -13,6 +13,24 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 MODEL_PATH = REPO_ROOT / "model" / "Paper.nlogo"
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
+# Test groups (CLAUDE.md, rule 4; pytest.ini). A test marked slow keeps only slow, so -m api never runs 100,000 ticks.
+UNIT_FILES = {"test_agent_core", "test_agent_llm", "test_agent_service", "test_agent_token", "test_agent_triage",
+              "test_candidates_unit", "test_decide_context", "test_hub", "test_ui_product_set", "test_whatif_estimate"}
+API_FILES = {"test_whatif", "test_live", "test_agent_decisions", "test_workers", "test_api"}
+
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    for item in items:
+        name = item.path.stem
+        if item.get_closest_marker("slow"):
+            continue
+        if name in UNIT_FILES:
+            item.add_marker(pytest.mark.unit)
+        elif name in API_FILES:
+            item.add_marker(pytest.mark.api)
+
+
 RULES = {
     1: "Rule 1 - Random Machine",
     2: "Rule 2 - Nearest Machine",

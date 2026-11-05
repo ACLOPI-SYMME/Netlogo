@@ -15,7 +15,7 @@ Con la **regla 4**, cuando un producto **entra** a una máquina y su siguiente o
 {"session_id": "…", "product": 201, "seq": 1, "strategy": "agent", "mode": "live",
  "ticks_per_second": 32.0, "tick": 1011, "simulated_time": 313.41,
  "operation": "O1", "origin": "M1", "candidates": ["M2", "M3", "M5", "M7"],
- "context_tick": 1012, "current_machine": "M1", "current_operation": "O8", "own_remaining": 30.7,
+ "context_tick": 1012, "product_type": "E", "priority": 80, "current_machine": "M1", "current_operation": "O8", "own_remaining": 30.7,
  "next_operation": "O2", "pending_operations": ["O1", "O2", "O9"],
  "products_in_plant": 6, "m1": {"busy": true, "remaining": 30.7, "queue_length": 2}}
 ```
@@ -27,6 +27,7 @@ Con la **regla 4**, cuando un producto **entra** a una máquina y su siguiente o
 | `tick`, `simulated_time` | Momento de la petición, que es la entrada a la máquina |
 | `operation`, `origin`, `candidates` | Operación a decidir (`seq`), máquina donde está y máquinas capaces |
 | `context_tick` | Tick del estado del que se leyó el contexto. En rápido es el fin del `go` en que se hizo la petición (`tick` o `tick + 1`, porque `ticks` avanza al final del `go`); en vivo, el fin del bloque que la recogió (puede ser algo mayor) |
+| `product_type`, `priority` | Tipo del producto (`A`, `I`, `P`, `B`, `E`, `L` o `T`) y su prioridad (60–100, variable `priority` del modelo). La prioridad se lee con un reporter aparte en el mismo momento, porque `platform-state` no la trae |
 | `current_machine` | Máquina que procesa el producto (`null` si ya salió de ella) |
 | `current_operation` | Operación en proceso (`seq − 1`) |
 | `own_remaining` | Lo que le falta a la operación en proceso, en u.t. (0 si ya no está en una máquina) |

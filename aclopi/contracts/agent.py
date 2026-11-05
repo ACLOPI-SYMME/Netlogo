@@ -57,6 +57,8 @@ class DecideRequest(BaseModel):
     # mode that is the end of the block that read the request (context_tick >= tick); in fast mode the
     # end of the go that queued it (tick or tick + 1).
     context_tick: int | None = Field(None, description="Tick of the state the context was read from")
+    product_type: Literal["A", "I", "P", "B", "E", "L", "T"] | None = Field(None, description="ProductType")
+    priority: int | None = Field(None, description="Product variable priority (60-100)")
     current_machine: str | None = Field(None, description="Machine processing the product (null if it left it)")
     current_operation: str | None = Field(None, description="Operation in process (seq - 1)")
     own_remaining: float | None = Field(None, description="What is left of the current operation (u.t.)")
@@ -67,8 +69,8 @@ class DecideRequest(BaseModel):
     m1: M1Summary | None = Field(None, description="M1 (O8 / O9, shared by every product)")
 
 
-DECIDE_CONTEXT_FIELDS = ("context_tick", "current_machine", "current_operation", "own_remaining", "next_operation",
-                         "pending_operations", "products_in_plant", "m1")
+DECIDE_CONTEXT_FIELDS = ("context_tick", "product_type", "priority", "current_machine", "current_operation",
+                         "own_remaining", "next_operation", "pending_operations", "products_in_plant", "m1")
 
 
 class Latencies(BaseModel):

@@ -46,12 +46,19 @@
      detenerse y avisar antes de lanzarlo.
    - Todo script de más de 1 minuto imprime avance (porcentaje y tiempo restante) al menos
      cada 30 s.
-4. Pruebas:
-   - Durante el trabajo, solo los tests nuevos o afectados por el paso.
-   - La batería completa (compare_baseline.py + pytest + pytest -m slow) solo una vez,
-     justo antes de fusionar, y solo si se tocó el modelo o código compartido (aclopi/sim,
-     aclopi/contracts).
+4. Pruebas. Marcadores (pytest.ini): `unit` (sin NetLogo), `api` (test_whatif, test_live,
+   test_agent_decisions, test_workers, test_api), `slow` (100.000 ticks); sin marcador =
+   integración con NetLogo. `pytest` a secas corre todo menos `api` y `slow`.
+   - Durante el trabajo: `pytest -m unit` + los archivos afectados por el paso.
+   - Antes de un merge: el conjunto por defecto (`pytest`) + `pytest -m api`.
+   - Si se tocó el modelo, además `pytest -m slow -n 4` + `scripts/compare_baseline.py`.
+   - pytest-xdist (`-n`) SOLO para `slow`. Nunca en `api` ni en los tests en vivo: miden el
+     ritmo de 32 ticks/s y fallarían por competir por la CPU.
 5. Lectura: leer solo los procedimientos del modelo necesarios (buscar por nombre); nunca
    el archivo completo.
 6. Informes: máximo ~20 líneas, en lenguaje simple. Tablas y conclusiones; sin repetir el
    encargo ni lo ya reportado; decisiones que tomaste en una lista aparte.
+7. Carpetas (vale para las dos líneas): cada Claude Code trabaja SOLO dentro de la ruta de su
+   propio worktree. Nunca lee ni escribe archivos en la carpeta de otro worktree, aunque
+   comparta el repositorio, y nunca usa git checkout/restore sobre archivos de otro worktree.
+   Antes de escribir, comprueba que la ruta está dentro de su carpeta.
