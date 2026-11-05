@@ -64,6 +64,8 @@ def test_b1_b1b_and_agent_reply_to_the_platform(tmp_path) -> None:
     assert sent[203]["decision_level"] == "llm" and sent[203]["latencies"]["llm_ms"]
     lines = (tmp_path / "d.jsonl").read_text(encoding="utf-8").splitlines()
     assert len(lines) == 3 and {json.loads(x)["strategy"] for x in lines} == {"b1", "b1b", "agent"}
+    for rec in map(json.loads, lines):  # every strategy logs the candidates (scripts/a4/decision_report.py)
+        assert [c["machine"] for c in rec["candidates"]] == ["M3", "M2"] and rec["current_machine"] == "M2"
     assert app.state.health["provider"] == "fake" and app.state.health["llm"] == "ok"
 
 

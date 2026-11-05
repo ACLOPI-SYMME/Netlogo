@@ -93,6 +93,15 @@ def test_removed_provider_fails_at_startup(monkeypatch: pytest.MonkeyPatch) -> N
         create_app(AgentSettings(provider="bedrock"))
 
 
+def test_empty_model_means_the_provider_default() -> None:
+    # docker compose passes ACLOPI_LLM_MODEL: ${ACLOPI_LLM_MODEL:-} as "" when it is not set.
+    assert client_from_env({"ACLOPI_LLM_PROVIDER": "ollama", "ACLOPI_LLM_MODEL": ""}).model == "qwen3:8b"
+    assert client_from_env({"ACLOPI_LLM_PROVIDER": "anthropic", "ANTHROPIC_API_KEY": "k",
+                            "ACLOPI_LLM_MODEL": "  "}).model == "claude-haiku-5-5"
+    assert client_from_env({"ACLOPI_LLM_PROVIDER": "ollama", "ACLOPI_LLM_MODEL": "llama3:8b"}).model == "llama3:8b"
+    assert isinstance(client_from_env({"ACLOPI_LLM_PROVIDER": "", "ACLOPI_FAKE_SEED": ""}), FakeLLM)
+
+
 def test_provider_from_env() -> None:
     assert isinstance(client_from_env({"ACLOPI_LLM_PROVIDER": "fake", "ACLOPI_FAKE_LATENCY_S": "0.5"}), FakeLLM)
     assert isinstance(client_from_env({"ACLOPI_LLM_PROVIDER": "ollama"}), OllamaLLM)
