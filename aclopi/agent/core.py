@@ -300,9 +300,7 @@ class Agent:
             "strategy": r.get("strategy"), "mode": r.get("mode"), "tick": r.get("tick"),
             "level": d.decision_level if d else None, "triage": t.level if t else None,
             "context_source": f.context_source,
-            "candidates": [{k: c.get(k) for k in ("machine", "finish", "finish_plus_next", "delta_finish",
-                                                  "delta_finish_plus_next", "available_in", "travel")}
-                           for c in (f.candidates or {}).get("candidates", [])],
+            **candidates_summary(f.candidates),
             "gap_finish": t.gap_finish if t else None, "gap_finish_plus_next": t.gap_finish_plus_next if t else None,
             "discarded": t.discarded if t else [],
             "what_if_offered": f.allow_what_if, "what_if_requested": f.what_if_requested,
@@ -312,6 +310,15 @@ class Agent:
             "latencies": dict(f.latencies), "estimated_finish": chosen.get("finish") if chosen else None,
             "estimated_start": chosen.get("start") if chosen else None, "now": (f.candidates or {}).get("time"),
         }
+
+
+def candidates_summary(cands: dict[str, Any] | None) -> dict[str, Any]:
+    """Fields of the decision record taken from a CandidatesResult (agent, b1 and b1b records)."""
+    cands = cands or {}
+    return {"operation": cands.get("operation"), "current_machine": cands.get("current_machine"),
+            "candidates": [{k: c.get(k) for k in ("machine", "finish", "finish_plus_next", "delta_finish",
+                                                  "delta_finish_plus_next", "available_in", "travel")}
+                           for c in cands.get("candidates", [])]}
 
 
 def _what_if_summary(w: dict[str, Any] | None) -> dict[str, Any] | None:

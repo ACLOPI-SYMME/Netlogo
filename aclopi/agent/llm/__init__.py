@@ -22,32 +22,37 @@ from aclopi.agent.llm.base import LLMClient, LLMError
 PROVIDERS = ("fake", "ollama", "anthropic")
 
 
+def _get(env: Mapping[str, str], key: str, default: str) -> str:
+    """An empty value counts as not set (docker compose passes ${VAR:-} as "")."""
+    return (env.get(key) or "").strip() or default
+
+
 def client_from_env(env: Mapping[str, str] | None = None) -> LLMClient:
     env = os.environ if env is None else env
-    provider = env.get("ACLOPI_LLM_PROVIDER", "fake").strip().lower()
+    provider = _get(env, "ACLOPI_LLM_PROVIDER", "fake").lower()
     if provider == "fake":
         from aclopi.agent.llm.fake import FakeLLM
 
         return FakeLLM(
-            latency_s=float(env.get("ACLOPI_FAKE_LATENCY_S", "0")),
-            invalid_rate=float(env.get("ACLOPI_FAKE_INVALID_RATE", "0")),
-            what_if_rate=float(env.get("ACLOPI_FAKE_WHAT_IF_RATE", "0")),
-            seed=int(env.get("ACLOPI_FAKE_SEED", "0")),
+            latency_s=float(_get(env, "ACLOPI_FAKE_LATENCY_S", "0")),
+            invalid_rate=float(_get(env, "ACLOPI_FAKE_INVALID_RATE", "0")),
+            what_if_rate=float(_get(env, "ACLOPI_FAKE_WHAT_IF_RATE", "0")),
+            seed=int(_get(env, "ACLOPI_FAKE_SEED", "0")),
         )
     if provider == "ollama":
         from aclopi.agent.llm.ollama import OllamaLLM
 
-        return OllamaLLM(url=env.get("ACLOPI_OLLAMA_URL", "http://localhost:11434"),
-                         model=env.get("ACLOPI_LLM_MODEL", "qwen3:8b"),
-                         num_ctx=int(env.get("ACLOPI_OLLAMA_NUM_CTX", "8192")))
+        return OllamaLLM(url=_get(env, "ACLOPI_OLLAMA_URL", "http://localhost:11434"),
+                         model=_get(env, "ACLOPI_LLM_MODEL", "qwen3:8b"),
+                         num_ctx=int(_get(env, "ACLOPI_OLLAMA_NUM_CTX", "8192")))
     if provider == "anthropic":
         from aclopi.agent.llm.anthropic import AnthropicLLM
 
-        key = env.get("ANTHROPIC_API_KEY", "")
+        key = _get(env, "ANTHROPIC_API_KEY", "")
         if not key:
             raise RuntimeError("ACLOPI_LLM_PROVIDER=anthropic needs ANTHROPIC_API_KEY")
-        return AnthropicLLM(api_key=key, model=env.get("ACLOPI_LLM_MODEL", "claude-haiku-5-5"),
-                            url=env.get("ACLOPI_ANTHROPIC_URL", "https://api.anthropic.com"))
+        return AnthropicLLM(api_key=key, model=_get(env, "ACLOPI_LLM_MODEL", "claude-haiku-5-5"),
+                            url=_get(env, "ACLOPI_ANTHROPIC_URL", "https://api.anthropic.com"))
     raise ValueError(f"ACLOPI_LLM_PROVIDER must be one of {PROVIDERS}, got {provider!r}")
 
 

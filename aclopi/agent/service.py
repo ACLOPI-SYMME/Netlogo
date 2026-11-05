@@ -27,7 +27,7 @@ from typing import Any, AsyncIterator, Mapping
 import httpx
 from fastapi import FastAPI, Header, Response
 
-from aclopi.agent.core import Agent, AgentConfig
+from aclopi.agent.core import Agent, AgentConfig, candidates_summary
 from aclopi.agent.llm import LLMClient, client_from_env
 from aclopi.agent.strategies import DecisionContext, decide as decide_heuristic
 from aclopi.agent.triage import TriageParams
@@ -151,7 +151,9 @@ def create_app(settings: AgentSettings | None = None, llm: LLMClient | None = No
                 cands = await platform.candidates(req["session_id"], req["product"], req["seq"])
                 decision, record = None, {"session_id": req["session_id"], "product": req["product"], "seq": req["seq"],
                                           "strategy": req["strategy"], "mode": req["mode"], "tick": req.get("tick"),
-                                          "now": cands.get("time")}
+                                          "now": cands.get("time"), **candidates_summary(cands),
+                                          "gap_finish": cands.get("gap_finish"),
+                                          "gap_finish_plus_next": cands.get("gap_finish_plus_next")}
                 if cands.get("valid") and cands.get("candidates"):
                     decision = decide_heuristic(DecisionContext(req["session_id"], req["product"], req["seq"],
                                                                 req["strategy"], req["mode"], cands))
