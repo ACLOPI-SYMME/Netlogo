@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import sys
 from typing import Any
 
 import httpx
@@ -99,6 +100,26 @@ def test_bedrock_with_fake_client() -> None:
     assert client.kwargs["toolConfig"]["tools"][0]["toolSpec"]["inputSchema"]["json"] == SCHEMA
 
 
+def test_bedrock_region_and_model_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    regions: list[str] = []
+
+    class FakeBoto3:
+        @staticmethod
+        def client(service: str, region_name: str) -> object:
+            assert service == "bedrock-runtime"
+            regions.append(region_name)
+            return object()
+
+    monkeypatch.setitem(sys.modules, "boto3", FakeBoto3)
+    default = client_from_env({"ACLOPI_LLM_PROVIDER": "bedrock"})
+    blank = client_from_env({"ACLOPI_LLM_PROVIDER": "bedrock", "ACLOPI_BEDROCK_REGION": "", "ACLOPI_BEDROCK_MODEL": ""})
+    custom = client_from_env({"ACLOPI_LLM_PROVIDER": "bedrock", "ACLOPI_BEDROCK_REGION": "eu-central-1",
+                              "ACLOPI_BEDROCK_MODEL": "eu.anthropic.some-profile-v1:0"})
+    assert regions == ["eu-north-1", "eu-north-1", "eu-central-1"]
+    assert default.region == "eu-north-1" and default.model == blank.model == "eu.anthropic.claude-haiku-5-5"
+    assert custom.model == "eu.anthropic.some-profile-v1:0"
+
+
 def test_provider_from_env() -> None:
     assert isinstance(client_from_env({"ACLOPI_LLM_PROVIDER": "fake", "ACLOPI_FAKE_LATENCY_S": "0.5"}), FakeLLM)
     assert isinstance(client_from_env({"ACLOPI_LLM_PROVIDER": "ollama"}), OllamaLLM)
@@ -126,13 +147,13 @@ def big_prompt() -> list[dict[str, str]]:
               "is_current_machine": i == 0} for i, m in enumerate(MACHINES)]
     result = {"product": 200, "seq": 2, "time": now, "operation": "O1", "current_machine": "M3", "own_remaining": 100.0,
               "gap_finish": 20.0, "gap_finish_plus_next": 10.0, "candidates": cands}
-    product = {"type": "E", "operations": ["O8", "O1", "O1", "O1", "O2", "O2", "O4", "O9"]}
-    plant = {"products_in_plant": 9, "m1_remaining": 40.0, "m1_queue": 2}
+    context = {"products_in_plant": 9, "m1_busy": True, "m1_remaining": 40.0, "m1_queue": 2,
+               "pending_operations": ["O1", "O1", "O2", "O2", "O4", "O9"], "product_type": "E"}
     what_if = {"status": "ok", "options": [
         {"machine": "M3", "op_end_time": now + 310, "others": {"work": 431.2, "wait": 38.4, "presence": 612.3, "finished": 0}},
         {"machine": "M2", "op_end_time": now + 330, "op_end_estimated": True,
          "others": {"work": 520.0, "wait": 20.0, "presence": 600.0, "finished": 1}}]}
-    return build_messages(product, result, cands, plant, allow_what_if=False, what_if=what_if)
+    return build_messages(context, result, cands, allow_what_if=False, what_if=what_if)
 
 
 def test_prompt_content_and_size() -> None:
@@ -141,6 +162,8 @@ def test_prompt_content_and_size() -> None:
     user = msgs[-1]["content"]
     assert "option M2: op_end_time 330.0 (estimated)" in user and "makespan" in msgs[0]["content"]
     assert "| M3 (current machine: in place) | +300 |" in user
+    assert "M1: 40 u.t. left of its job, 2 waiting" in user and "type E" in user
+    assert "(step 2 of 7). Pending after it: O1 O2 O2 O4 O9." in user
     tokens = estimated_tokens(msgs)
     print("largest prompt, estimated tokens:", tokens)
     assert tokens <= 3000

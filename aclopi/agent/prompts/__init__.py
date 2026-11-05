@@ -118,20 +118,22 @@ def _what_if_lines(what_if: dict[str, Any], now: float) -> list[str]:
     return lines
 
 
-def build_messages(product: dict[str, Any], candidates: dict[str, Any], finalists: list[dict[str, Any]],
-                   plant: dict[str, Any], allow_what_if: bool, what_if_options: tuple[str, str] | None = None,
+def build_messages(context: dict[str, Any], candidates: dict[str, Any], finalists: list[dict[str, Any]],
+                   allow_what_if: bool, what_if_options: tuple[str, str] | None = None,
                    what_if: dict[str, Any] | None = None) -> list[dict[str, str]]:
-    """product: platform-state product; candidates: CandidatesResult dict; finalists: candidates after
-    the discard; plant: {"time", "products_in_plant", "m1_remaining", "m1_queue"}."""
+    """context: aclopi.agent.core decision context {"products_in_plant", "m1_remaining", "m1_queue",
+    "pending_operations", "product_type" (optional)}; candidates: CandidatesResult dict; finalists:
+    candidates after the discard."""
     now = float(candidates["time"])
-    ops = list(product.get("operations") or [])
+    pending = list(context.get("pending_operations") or [])
     seq = int(candidates["seq"])
+    ptype = f" type {context['product_type']}" if context.get("product_type") else ""
     lines = [
-        f"NOW t={now:.1f}. Products in plant: {plant.get('products_in_plant')}. "
-        f"M1: {plant.get('m1_remaining', 0):.0f} u.t. left of its job, {plant.get('m1_queue', 0)} waiting.",
-        f"PRODUCT {candidates['product']} type {product.get('type')}, in {candidates.get('current_machine')} "
+        f"NOW t={now:.1f}. Products in plant: {context.get('products_in_plant')}. "
+        f"M1: {context.get('m1_remaining', 0):.0f} u.t. left of its job, {context.get('m1_queue', 0)} waiting.",
+        f"PRODUCT {candidates['product']}{ptype}, in {candidates.get('current_machine')} "
         f"({candidates.get('own_remaining', 0):.0f} u.t. left). Operation to place: {candidates.get('operation')} "
-        f"(step {seq} of {len(ops) - 1}). Pending after it: {' '.join(map(str, ops[seq + 1:])) or 'none'}.",
+        f"(step {seq} of {seq + len(pending) - 1}). Pending after it: {' '.join(map(str, pending[1:])) or 'none'}.",
         f"Gaps between the two best: finish {candidates.get('gap_finish')}, finish_plus_next {candidates.get('gap_finish_plus_next')}.",
         "| machine | finish | delta | finish_plus_next | delta | next machine | travel | job left | queue (n) | on the way (n) |",
         "|---|---|---|---|---|---|---|---|---|---|",

@@ -1,6 +1,6 @@
 """Decision flow of the agent (strategy "agent"):
 
-    fetch (candidates + state) -> triage -> code ............................-> done
+    fetch (candidates + context) -> triage -> code ..........................-> done
                                          -> llm1 -> [what_if -> llm2] -> validate -> done
                                                  (failure / timeout) -> fallback -> done
 
@@ -14,6 +14,9 @@ Limits: at most 2 LLM calls and 1 what-if per decision. Deadlines:
 On LLM failure, invalid answer or timeout with time left: best by finish (code-fallback). Live
 with no time left: nothing is sent (the model applies rule 3) and it is logged. Fast never leaves
 the decision to rule 3. Decision levels: code-obvious, code-fallback, llm, llm-what-if.
+Context of the prompt (product and plant): the fields /decide carries (docs/agent-api.md); only if
+the request lacks them (older platform, mock) one GET /state, with M1's remaining work computed as
+next_completion - time (platform-state has no "remaining" field).
 """
 
 from __future__ import annotations
@@ -60,7 +63,8 @@ class Flow:
     started: float
     deadline: float
     candidates: dict[str, Any] | None = None
-    state: dict[str, Any] | None = None
+    context: dict[str, Any] | None = None  # decision_context(): product and plant summary for the prompt
+    context_source: str | None = None  # "decide" or "state"
     triage: Triage | None = None
     allow_what_if: bool = False
     answer1: Any = None
@@ -81,6 +85,28 @@ def deadline_s(request: dict[str, Any], own_remaining: float, config: AgentConfi
     if request.get("mode") == "live" and request.get("ticks_per_second"):
         return own_remaining / config.tick_time / float(request["ticks_per_second"]) - config.live_margin_s
     return config.fast_deadline_s
+
+
+def context_from_request(request: dict[str, Any]) -> dict[str, Any] | None:
+    """Decision context from the /decide fields; None if the platform did not send them."""
+    m1 = request.get("m1")
+    if m1 is None or request.get("products_in_plant") is None or request.get("pending_operations") is None:
+        return None
+    return {"products_in_plant": int(request["products_in_plant"]), "m1_busy": bool(m1.get("busy")),
+            "m1_remaining": float(m1.get("remaining") or 0.0), "m1_queue": int(m1.get("queue_length") or 0),
+            "pending_operations": list(request["pending_operations"]), "product_type": request.get("product_type")}
+
+
+def context_from_state(state: dict[str, Any], product: int, seq: int) -> dict[str, Any]:
+    """Same context from one platform-state: M1's remaining = next_completion - time while processing."""
+    now = float(state.get("time") or 0.0)
+    m1 = next((m for m in state.get("machines", []) if m.get("name") == "M1"), {})
+    busy = m1.get("state") == "Machine.Processing" and m1.get("next_completion") is not None
+    p = next((p for p in state.get("products", []) if p.get("id") == product), {})
+    return {"products_in_plant": len(state.get("products", [])), "m1_busy": busy,
+            "m1_remaining": max(0.0, float(m1["next_completion"]) - now) if busy else 0.0,
+            "m1_queue": len(m1.get("queue") or []), "pending_operations": list(p.get("operations") or [])[seq:],
+            "product_type": p.get("type")}
 
 
 class GraphRunner:
@@ -158,9 +184,16 @@ class Agent:
 
     async def _fetch(self, f: Flow) -> None:
         r = f.request
+        f.context = context_from_request(r)
         try:
-            f.candidates, f.state = await asyncio.gather(
-                self.platform.candidates(r["session_id"], r["product"], r["seq"]), self.platform.state(r["session_id"]))
+            if f.context is not None:
+                f.context_source = "decide"
+                f.candidates = await self.platform.candidates(r["session_id"], r["product"], r["seq"])
+            else:
+                f.context_source = "state"
+                f.candidates, state = await asyncio.gather(
+                    self.platform.candidates(r["session_id"], r["product"], r["seq"]), self.platform.state(r["session_id"]))
+                f.context = context_from_state(state, r["product"], r["seq"])
         except Exception as exc:  # noqa: BLE001
             f.error = f"platform: {type(exc).__name__}: {exc}"[:300]
             return
@@ -191,8 +224,7 @@ class Agent:
         if f.llm_calls >= self.config.max_llm_calls:
             return "llm-call-limit"
         machines = [c["machine"] for c in f.triage.finalists]
-        product = next((p for p in (f.state or {}).get("products", []) if p["id"] == f.request["product"]), {})
-        messages = build_messages(product, f.candidates, f.triage.finalists, self._plant(f.state), allow_what_if,
+        messages = build_messages(f.context or {}, f.candidates, f.triage.finalists, allow_what_if,
                                   f.triage.what_if_options, what_if)
         async with self.semaphore:
             timeout = f.left()
@@ -260,14 +292,6 @@ class Agent:
 
     # ----- helpers -----
 
-    @staticmethod
-    def _plant(state: dict[str, Any] | None) -> dict[str, Any]:
-        state = state or {}
-        m1 = next((m for m in state.get("machines", []) if m.get("name") == "M1"), {})
-        remaining = m1.get("remaining") if m1.get("state") == "Machine.Processing" else 0
-        return {"products_in_plant": len(state.get("products", [])), "m1_remaining": float(remaining or 0),
-                "m1_queue": len(m1.get("queue") or [])}
-
     def record(self, f: Flow) -> dict[str, Any]:
         r, d, t = f.request, f.decision, f.triage
         chosen = next((c for c in (f.candidates or {}).get("candidates", []) if d and c["machine"] == d.machine), None)
@@ -275,6 +299,7 @@ class Agent:
             "session_id": r.get("session_id"), "product": r.get("product"), "seq": r.get("seq"),
             "strategy": r.get("strategy"), "mode": r.get("mode"), "tick": r.get("tick"),
             "level": d.decision_level if d else None, "triage": t.level if t else None,
+            "context_source": f.context_source,
             "candidates": [{k: c.get(k) for k in ("machine", "finish", "finish_plus_next", "delta_finish",
                                                   "delta_finish_plus_next", "available_in", "travel")}
                            for c in (f.candidates or {}).get("candidates", [])],
