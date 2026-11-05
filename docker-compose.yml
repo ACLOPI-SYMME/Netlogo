@@ -70,8 +70,6 @@ services:
       ACLOPI_LLM_MODEL: ${ACLOPI_LLM_MODEL:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       ACLOPI_OLLAMA_URL: ${ACLOPI_OLLAMA_URL:-http://host.docker.internal:11434}
-      ACLOPI_BEDROCK_REGION: ${ACLOPI_BEDROCK_REGION:-eu-north-1}
-      ACLOPI_BEDROCK_MODEL: ${ACLOPI_BEDROCK_MODEL:-}
       LLM_MAX_PARALLEL: ${LLM_MAX_PARALLEL:-2}
       ACLOPI_AGENT_LOG: /app/results/agent/decisions.jsonl
     volumes:
