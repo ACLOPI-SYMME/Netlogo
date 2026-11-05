@@ -31,7 +31,7 @@ from aclopi.agent.core import Agent, AgentConfig
 from aclopi.agent.llm import LLMClient, client_from_env
 from aclopi.agent.strategies import DecisionContext, decide as decide_heuristic
 from aclopi.agent.triage import TriageParams
-from aclopi.contracts.agent import DecideRequest
+from aclopi.contracts.agent import DecideRequest, bearer_matches
 
 logger = logging.getLogger(__name__)
 
@@ -135,7 +135,7 @@ def create_app(settings: AgentSettings | None = None, llm: LLMClient | None = No
 
     @app.post("/decide", status_code=202)
     async def post_decide(body: DecideRequest, authorization: str | None = Header(None)) -> Response:
-        if settings.token and authorization != f"Bearer {settings.token}":
+        if settings.token and not bearer_matches(authorization, settings.token):
             return Response(status_code=401)
         if body.strategy == "none":
             return Response(status_code=202)

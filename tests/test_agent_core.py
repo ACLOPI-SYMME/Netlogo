@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-from aclopi.agent.core import Agent, AgentConfig
+from aclopi.agent.core import Agent, AgentConfig, context_from_state
 from aclopi.agent.llm.fake import FakeLLM
 
 
@@ -19,14 +19,17 @@ def cands(finishes: dict[str, tuple[float, float]], current: str = "M2", own: fl
 
 class FakePlatform:
     def __init__(self, candidates: dict[str, Any], what_if: dict[str, Any] | None = None) -> None:
-        self.c, self.w, self.what_ifs = candidates, what_if, []
+        self.c, self.w, self.what_ifs, self.state_calls = candidates, what_if, [], 0
 
     async def candidates(self, sid: str, product: int, seq: int) -> dict[str, Any]:
         return self.c
 
     async def state(self, sid: str) -> dict[str, Any]:
-        return {"time": 1000.0, "products": [{"id": 200, "type": "E", "operations": ["O8", "O1", "O1", "O1", "O9"]}],
-                "machines": [{"name": "M1", "state": "Idle", "queue": []}]}
+        self.state_calls += 1
+        return {"time": 1000.0, "products": [{"id": 200, "type": "E", "operations": ["O8", "O1", "O1", "O1", "O9"]},
+                                             {"id": 201, "type": "A", "operations": ["O8", "O2", "O9"]}],
+                "machines": [{"name": "M1", "state": "Machine.Processing", "next_completion": 1042.5, "remaining": 999,
+                              "queue": [201]}]}
 
     async def what_if(self, sid: str, product: int, seq: int, options: list[str], budget_ms: int) -> dict[str, Any]:
         self.what_ifs.append((options, budget_ms))
@@ -107,6 +110,43 @@ def test_live_no_what_if_from_m1_or_without_time() -> None:
     platform = FakePlatform(cands(VERY_CLOSE, own=0.31 * 32 * 60))
     d, rec = decide(platform, FakeLLM(what_if_rate=1.0), request("live", 32.0))
     assert rec["what_if_offered"] and platform.what_ifs[0][1] == 15000
+
+
+class PromptLLM(FakeLLM):
+    """Fake LLM that keeps the prompts it receives."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.prompts: list[str] = []
+
+    async def _complete(self, messages: Any, *args: Any, **kwargs: Any) -> Any:
+        self.prompts.append(messages[-1]["content"])
+        return await super()._complete(messages, *args, **kwargs)
+
+
+DECIDE_CONTEXT = {"context_tick": 3226, "current_machine": "M2", "current_operation": "O1", "own_remaining": 150.0,
+                  "next_operation": "O1", "pending_operations": ["O1", "O1", "O9"], "products_in_plant": 6,
+                  "m1": {"busy": True, "remaining": 30.7, "queue_length": 3}}
+
+
+def test_context_comes_from_decide_without_state() -> None:
+    platform, llm = FakePlatform(cands(UNCERTAIN)), PromptLLM()
+    d, rec = decide(platform, llm, {**request(), **DECIDE_CONTEXT})
+    assert d.decision_level == "llm" and platform.state_calls == 0 and rec["context_source"] == "decide"
+    assert "Products in plant: 6. M1: 31 u.t. left of its job, 3 waiting." in llm.prompts[0]
+    assert "(step 2 of 4). Pending after it: O1 O9." in llm.prompts[0]
+
+
+def test_context_without_decide_fields_uses_next_completion() -> None:
+    platform, llm = FakePlatform(cands(UNCERTAIN)), PromptLLM()
+    d, rec = decide(platform, llm, request())  # an older platform or the mock: no context fields
+    assert platform.state_calls == 1 and rec["context_source"] == "state"
+    # M1 remaining = next_completion - time = 42.5, never the state's "remaining" (999 here)
+    assert "Products in plant: 2. M1: 42 u.t. left of its job, 1 waiting." in llm.prompts[0]
+    assert "PRODUCT 200 type E" in llm.prompts[0] and "(step 2 of 4). Pending after it: O1 O9." in llm.prompts[0]
+    idle = context_from_state({"time": 5.0, "products": [], "machines": [{"name": "M1", "state": "Idle",
+                                                                           "next_completion": 90.0, "queue": []}]}, 1, 1)
+    assert idle["m1_remaining"] == 0.0 and idle["m1_busy"] is False
 
 
 def test_at_most_two_llm_calls_and_invalid_candidates() -> None:

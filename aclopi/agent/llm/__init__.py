@@ -19,6 +19,8 @@ from typing import Mapping
 from aclopi.agent.llm.base import LLMClient, LLMError
 
 PROVIDERS = ("fake", "ollama", "anthropic", "bedrock")
+BEDROCK_DEFAULT_REGION = "eu-north-1"  # Stockholm, as the platform's AWS resources
+BEDROCK_DEFAULT_MODEL = "eu.anthropic.claude-haiku-5-5"  # EU inference profile; override with ACLOPI_BEDROCK_MODEL
 
 
 def client_from_env(env: Mapping[str, str] | None = None) -> LLMClient:
@@ -50,8 +52,10 @@ def client_from_env(env: Mapping[str, str] | None = None) -> LLMClient:
     if provider == "bedrock":
         from aclopi.agent.llm.bedrock import BedrockLLM
 
-        return BedrockLLM(region=env.get("ACLOPI_BEDROCK_REGION", "us-east-1"),
-                          model=env.get("ACLOPI_LLM_MODEL", "anthropic.claude-haiku-5-5"))
+        # Empty values (docker compose's ${VAR:-}) mean "not set". The model id may be an inference
+        # profile (e.g. an "eu." one, routed within EU regions).
+        return BedrockLLM(region=env.get("ACLOPI_BEDROCK_REGION") or BEDROCK_DEFAULT_REGION,
+                          model=env.get("ACLOPI_BEDROCK_MODEL") or env.get("ACLOPI_LLM_MODEL") or BEDROCK_DEFAULT_MODEL)
     raise ValueError(f"ACLOPI_LLM_PROVIDER must be one of {PROVIDERS}, got {provider!r}")
 
 

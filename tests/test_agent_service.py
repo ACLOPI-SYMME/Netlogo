@@ -83,6 +83,24 @@ def test_concurrent_decisions_and_token(tmp_path) -> None:
     assert asyncio.run(unauthorized()) == 401
 
 
+def test_token_correct_wrong_and_missing(tmp_path) -> None:
+    platform = FakePlatform()
+    settings = AgentSettings(platform_url="http://platform", token="t0k", log_path=str(tmp_path / "d.jsonl"))
+    app = create_app(settings, llm=FakeLLM(), platform_transport=httpx.MockTransport(platform.handler))
+    body = decide_body(1, "none")  # "none": accepted without starting a decision
+
+    async def post(headers: dict[str, Any]) -> int:
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://agent") as client:
+            return (await client.post("/decide", json=body, headers=headers)).status_code
+
+    assert asyncio.run(post({"Authorization": "Bearer t0k"})) == 202
+    assert asyncio.run(post({"Authorization": "Bearer t0K"})) == 401
+    assert asyncio.run(post({"Authorization": "t0k"})) == 401
+    assert asyncio.run(post({"Authorization": "Bearer t0kñ".encode("utf-8")})) == 401  # non-ASCII: mismatch, not 500
+    assert asyncio.run(post({})) == 401
+    assert platform.calls == []  # nothing reached the platform
+
+
 def test_rejections_are_logged_not_retried(tmp_path) -> None:
     platform = FakePlatform(next_status=409)
     app, _ = asyncio.run(exercise(platform, [decide_body(201, "b1")], FakeLLM(), tmp_log=str(tmp_path / "d.jsonl")))
