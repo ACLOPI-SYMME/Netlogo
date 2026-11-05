@@ -20,6 +20,7 @@ Typical loop:
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import Any
 
@@ -126,13 +127,25 @@ def _job_left(machine: dict[str, Any] | None, now: float) -> float:
     return max(0.0, float(machine["next_completion"]) - now)
 
 
-def decision_context(state: dict[str, Any], who: int, seq: int) -> dict[str, Any]:
+def product_priorities(session: SimulationSession, whos: list[int]) -> dict[int, int | None]:
+    """Product variable `priority` of each product (null if it no longer exists). A reporter: no random
+    numbers (platform-state has the type but not the priority)."""
+    if not whos:
+        return {}
+    ids = " ".join(str(int(w)) for w in whos)
+    values = json.loads(str(session._report(
+        f"platform-local [ -> json-any map [w -> ifelse-value is-turtle? turtle w [[priority] of turtle w] [-1]] [{ids}] ]")))
+    return {int(w): (None if v is None or float(v) < 0 else int(v)) for w, v in zip(whos, values)}
+
+
+def decision_context(state: dict[str, Any], who: int, seq: int, priority: int | None = None) -> dict[str, Any]:
     """Context of a decision request for POST /decide, from one platform-state (pure; no random numbers).
 
     Product: current_machine (where it is processed; null if it is no longer in a machine),
     current_operation (seq - 1), own_remaining (u.t. left of it), next_operation (seq + 1, the one
     after the operation decided; null if seq is the last), pending_operations (seq onwards, in order,
-    the decided one first). Plant: products_in_plant (alive) and m1 = {busy, remaining (u.t.),
+    the decided one first), product_type (A, I, P, B, E, L or T) and priority (read apart by
+    product_priorities). Plant: products_in_plant (alive) and m1 = {busy, remaining (u.t.),
     queue_length}. context_tick: tick of the state (in live, the end of the block that read the request).
     """
     now = float(state["time"])
@@ -142,6 +155,8 @@ def decision_context(state: dict[str, Any], who: int, seq: int) -> dict[str, Any
     m1 = next((m for m in state["machines"] if m.get("name") == "M1"), None)
     return {
         "context_tick": int(state["tick"]),
+        "product_type": str(product["type"]) if product and product.get("type") is not None else None,
+        "priority": priority,
         "current_machine": current["name"] if current else None,
         "current_operation": operations[seq - 1] if 0 < seq <= len(operations) else None,
         "own_remaining": round(_job_left(current, now), 4),

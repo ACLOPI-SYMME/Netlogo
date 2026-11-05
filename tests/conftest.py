@@ -13,6 +13,25 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 MODEL_PATH = REPO_ROOT / "model" / "Paper.nlogo"
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
+# Test groups (CLAUDE.md, rule 4; pytest.ini). A slow test of an API file is also api: it starts a whole pool
+# (or runs live), so it never goes with -n. Commands: -m "api and not slow"; -m "slow and not api" -n 4; -m "slow and api".
+UNIT_FILES = {"test_agent_core", "test_agent_llm", "test_agent_service", "test_agent_token", "test_agent_triage",
+              "test_candidates_unit", "test_decide_context", "test_hub", "test_ui_product_set", "test_whatif_estimate"}
+API_FILES = {"test_whatif", "test_live", "test_agent_decisions", "test_workers", "test_api"}
+
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    for item in items:
+        name = item.path.stem
+        if name in API_FILES:
+            item.add_marker(pytest.mark.api)
+        elif item.get_closest_marker("slow"):
+            continue
+        elif name in UNIT_FILES:
+            item.add_marker(pytest.mark.unit)
+
+
 RULES = {
     1: "Rule 1 - Random Machine",
     2: "Rule 2 - Nearest Machine",
