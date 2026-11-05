@@ -50,10 +50,12 @@
    test_agent_decisions, test_workers, test_api), `slow` (100.000 ticks); sin marcador =
    integración con NetLogo. `pytest` a secas corre todo menos `api` y `slow`.
    - Durante el trabajo: `pytest -m unit` + los archivos afectados por el paso.
-   - Antes de un merge: el conjunto por defecto (`pytest`) + `pytest -m api`.
-   - Si se tocó el modelo, además `pytest -m slow -n 4` + `scripts/compare_baseline.py`.
+   - Antes de un merge: el conjunto por defecto (`pytest`) + `pytest -m "api and not slow"`.
+   - Si se tocó el modelo, además `pytest -m "slow and not api" -n 4`, `pytest -m "slow and api"`
+     (en serie) y `scripts/compare_baseline.py`.
    - pytest-xdist (`-n`) SOLO para `slow`. Nunca en `api` ni en los tests en vivo: miden el
-     ritmo de 32 ticks/s y fallarían por competir por la CPU.
+     ritmo de 32 ticks/s y fallarían por competir por la CPU. Los `slow` de archivos api llevan
+     también `api` (levantan la plataforma completa) y van en serie.
 5. Lectura: leer solo los procedimientos del modelo necesarios (buscar por nombre); nunca
    el archivo completo.
 6. Informes: máximo ~20 líneas, en lenguaje simple. Tablas y conclusiones; sin repetir el
