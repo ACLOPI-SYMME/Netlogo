@@ -87,3 +87,13 @@ En Python, `aclopi/sim/kpis.py` ya devolvía `mean_flow_time = None` sin termina
 **Garantía:** con productos vivos la expresión es la original y `any?` no usa números aleatorios, así que la línea base no cambia (`compare_baseline.py` OK).
 
 **Plataforma.** Las sesiones con lista siguen terminando en el `go` exacto en que termina el último producto (`SimulationSession.step_product_list`, `run_reason: "all_products_done"`). Ya no es para evitar este error, sino para que la corrida termine en el tick correcto. Test: `tests/test_product_list.py::test_p11_printdata_with_no_product_alive`.
+
+## 8. Regla 3 trabada en S1 con la semilla 4 (no se corrige antes de la entrega)
+
+**Qué pasa.** Con la regla 3 (Potential Fields), el escenario S1 (máquinas heterogéneas) y la semilla 4, la planta se traba: el producto 221 queda esperando junto a M6 y la corrida deja de avanzar en la práctica. Lo detectó la Línea A.
+
+**Cómo se ve en la plataforma:**
+- **En vivo:** la planta se ve congelada y no aparece ningún mensaje.
+- **En rápido:** la corrida llega al horizonte sin terminar la lista de productos.
+
+**Estado.** No se corrige antes de la entrega. Los tests de reproducibilidad de los escenarios (`tests/test_scenarios_repro.py`) usan la semilla 42 para no caer en este caso.
