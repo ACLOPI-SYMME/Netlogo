@@ -16,7 +16,7 @@ import os
 import queue
 import time
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Callable
 
@@ -25,7 +25,8 @@ from aclopi.workers import procinfo
 from aclopi.workers.protocol import (
     DEBUG_OPS, MAX_STEP_TICKS, OPS, error_response, ok_response, push_message,
 )
-from aclopi.sim.candidates import candidates_for_session, compute_candidates, machine_loads, read_model_static
+from aclopi.sim.candidates import (candidates_for_session, compute_candidates, current_operation_times, machine_loads,
+                                   read_model_static)
 from aclopi.sim.session import netlogo_string
 from aclopi.sim.whatif import CHUNK_TICKS, STALL_TICKS, estimate_entry, run_option
 from aclopi.workers.runner import RunController, RunStateError
@@ -247,8 +248,10 @@ class WorkerState:
     def _estimated_entries(self, state: dict[str, Any], product: int, seq: int, operation: str,
                            options: list[str]) -> tuple[dict[str, float], dict[str, str]]:
         """Estimated start time (u.t.) on each option: Línea A's candidates `start` when it has the
-        machine, else aclopi.sim.whatif.estimate_entry (fallback). Also says which one was used."""
-        result = compute_candidates(state, product, seq, self.static)
+        machine, else aclopi.sim.whatif.estimate_entry (fallback). Also says which one was used.
+        Both use the processing times in force now (scenarios change them), as candidates_for_session."""
+        static = replace(self.static, operation_times=current_operation_times(self.session))
+        result = compute_candidates(state, product, seq, static)
         starts = {c.machine: c.start for c in result.candidates} if result.valid else {}
         entry: dict[str, float] = {}
         source: dict[str, str] = {}
@@ -256,7 +259,7 @@ class WorkerState:
             if starts.get(m) is not None:
                 entry[m], source[m] = float(starts[m]), "candidates"
             else:
-                entry[m], source[m] = estimate_entry(state, product, m, operation, self.static)[0], "fallback"
+                entry[m], source[m] = estimate_entry(state, product, m, operation, static)[0], "fallback"
         return entry, source
 
     def op_whatif_option(self, path: str, product: int, seq: int, machine: str, max_ticks: int,

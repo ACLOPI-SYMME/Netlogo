@@ -12,6 +12,7 @@ from typing import Any
 import pytest
 
 import aclopi.workers.runner as runner_module
+import aclopi.workers.worker as worker_module
 from aclopi.sim import scenarios
 from aclopi.workers.worker import WorkerConfig, WorkerState
 
@@ -198,3 +199,34 @@ def test_skipped_events(worker: WorkerState, spy: dict[str, list[Any]], monkeypa
     events = _fast_events(worker, 3)
     assert [(e["tick"], e["applied"], e["skip_reason"]) for e in events] == [
         (500, False, "machine-idle"), (1000, False, "machine-idle"), (1500, False, "machine-idle")]
+
+
+def test_whatif_entry_estimate_uses_the_times_in_force(worker: WorkerState, monkeypatch: pytest.MonkeyPatch) -> None:
+    # S2 from tick 0 (factor 2): every decision that can go to M7 sees M7's degraded times.
+    _setup(worker, {"id": "S2", "params": {"factor": 2.0, "start_tick": 0}}, seed=3, rule=4, horizon=4000)
+    original = {op: t for op, t in worker.static.operation_times["M7"].items()}  # read after setup, before the event
+    seen: list[Any] = []
+    real_compute = worker_module.compute_candidates
+    monkeypatch.setattr(worker_module, "compute_candidates",
+                        lambda state, p, s, static: (seen.append(static), real_compute(state, p, s, static))[1])
+    worker.op_run("fast", decisions=True)
+    req = None
+    for _ in range(200):  # answer the decisions (first candidate) until one can go to M7
+        pushes = _drive(worker)
+        assert worker.runner.state == "waiting_decision", worker.runner.state
+        requests = [r for _, d in pushes if isinstance(d, dict) for r in d.get("decision_requests") or []]
+        req = next((r for r in requests if "M7" in r["candidates"]), None)
+        if req is not None:
+            break
+        for r in requests:
+            worker.op_next_machine(int(r["who"]), int(r["seq"]), str(r["candidates"][0]))
+    assert req is not None, "no decision with M7 among the candidates"
+    snap = worker.op_whatif_snapshot(int(req["who"]), int(req["seq"]), ["M7"], skip_beyond_cap=True)
+    assert snap["valid"] and snap["estimate_source"]["M7"] == "candidates", snap
+    op = snap["operation"]
+    assert seen[-1].operation_times["M7"][op] == pytest.approx(2.0 * original[op])
+    cands = worker.op_candidates(int(req["who"]), int(req["seq"]))
+    start = next(c["start"] for c in cands["candidates"] if c["machine"] == "M7")
+    assert snap["estimated_entry"]["M7"] == pytest.approx(start)
+    Path(snap.get("path") or "missing").unlink(missing_ok=True)
+    worker.op_stop()

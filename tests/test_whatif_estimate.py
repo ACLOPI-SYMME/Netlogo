@@ -3,7 +3,9 @@ Línea A's candidates `start`, with aclopi.sim.whatif.estimate_entry as the fall
 
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 
@@ -21,9 +23,15 @@ def test_travel_is_distances_in_time_units() -> None:
     assert e["travel"] == pytest.approx(124.6) and e["arrival"] == pytest.approx(1000 + 100 + 124.6)
 
 
+def _times_session(times: dict[str, dict[str, float]]) -> Any:
+    """Answers the reporter of current_operation_times with these times (the ones in force)."""
+    rows = [[m, list(ops), list(ops.values())] for m, ops in times.items()]
+    return SimpleNamespace(_report=lambda code: json.dumps(rows))
+
+
 def test_snapshot_uses_candidates_start_with_fallback() -> None:
     st = static()
-    fake = SimpleNamespace(static=st)
+    fake = SimpleNamespace(static=st, session=_times_session(st.operation_times))
     # In its machine: the candidates of Línea A give the start of every capable machine.
     s = state({"M2": machine("M2", ME, 1100.0), "M3": machine("M3", 300, 1500.0)},
               [product(ME, OPS_E, 1, "M2"), product(300, OPS_E, 2, "M3")])
