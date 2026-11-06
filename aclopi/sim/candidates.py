@@ -19,6 +19,7 @@ their way), excluding the one it is processing and the product being decided.
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from typing import Any
 
 from aclopi.contracts.candidates import Candidate, CandidateParams, CandidatesResult, ModelStatic
@@ -28,6 +29,10 @@ STATIC_REPORTER = (
     "platform-local [ -> json-any (list operations OperationDuration Modeling.Type "
     "(map [m -> [(list Machine.Name Machine.Operations.Type Machine.Operations.Time)] of m] sort machines) "
     "distances) ]"
+)
+OPERATION_TIMES_REPORTER = (
+    "platform-local [ -> json-any map [m -> [(list Machine.Name Machine.Operations.Type Machine.Operations.Time)] of m] "
+    "sort machines ]"
 )
 
 # Conveyor speed per tick on straight conveyors: `jump (0.300 * speed-factor)` in Product.Movement,
@@ -282,6 +287,14 @@ def compute_candidates(
     )
 
 
+def current_operation_times(session: Any) -> dict[str, dict[str, float]]:
+    """machine -> operation -> Machine.Operations.Time now (scenarios change it during the run)."""
+    machines = json.loads(str(session._report(OPERATION_TIMES_REPORTER)))
+    return {str(name): {str(o): float(t) for o, t in zip(types, times)} for name, types, times in machines}
+
+
 def candidates_for_session(session: Any, product: int, seq: int, static: ModelStatic) -> CandidatesResult:
-    """compute_candidates on the session's current state (platform-state: no random numbers)."""
+    """compute_candidates on the session's current state (platform-state: no random numbers), with the
+    processing times in force now, not the ones read into `static` after setup (aclopi.sim.scenarios)."""
+    static = replace(static, operation_times=current_operation_times(session))
     return compute_candidates(session.state(), product, seq, static)

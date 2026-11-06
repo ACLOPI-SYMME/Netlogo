@@ -2,9 +2,11 @@
 
     strategy  rule3 (rule 3) | b1 | b1b | agent (rule 4 + strategy; the platform calls the agent service)
     case      seed -> fixed list of N products generated with that seed (POST /product-sets/generate)
+    scenario  --scenarios S0 S1 S2 S3 (default S0), with its default params (docs/scenarios.md)
 The run ends when every product of the list is finished (or at --horizon). Per run it writes
-results/a4/<strategy>_s<seed>_n<N>.csv with strategy, seed, N, makespan_ticks, makespan_time, all_done,
-mean_flow_time, work_completed and the % of decisions per level. Resumable: runs whose CSV exists are
+results/a4/<strategy>_s<seed>_n<N>.csv (S0) or <strategy>_<scenario>_s<seed>_n<N>.csv with strategy,
+scenario, seed, N, makespan_ticks, makespan_time, all_done, mean_flow_time, work_completed, scenario events
+applied / skipped and the % of decisions per level. Resumable: runs whose CSV exists are
 skipped. Prints progress at least every 30 s. With --events, the events of each run are also kept
 (from the WebSocket) in <run>.events.jsonl, for scripts/a4/estimation_error.py.
 
@@ -29,8 +31,13 @@ import websockets
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 LEVELS = ("code-obvious", "code-fallback", "llm", "llm-what-if", "heuristic")
-FIELDS = ["strategy", "seed", "n", "session_id", "makespan_ticks", "makespan_time", "all_done", "mean_flow_time",
-          "work_completed", "finished", "ticks", "run_state", "reason", "wall_s", "decisions"] + [f"pct_{lv}" for lv in LEVELS]
+FIELDS = ["strategy", "scenario", "seed", "n", "session_id", "makespan_ticks", "makespan_time", "all_done",
+          "mean_flow_time", "work_completed", "finished", "ticks", "run_state", "reason", "wall_s",
+          "scenario_applied", "scenario_skipped", "decisions"] + [f"pct_{lv}" for lv in LEVELS]
+
+
+def run_name(strategy: str, scenario: str, seed: int, n: int) -> str:
+    return f"{strategy}_s{seed}_n{n}" if scenario == "S0" else f"{strategy}_{scenario}_s{seed}_n{n}"
 
 
 async def collect_events(ws_url: str, path: Path, stop: asyncio.Event) -> None:
@@ -60,10 +67,12 @@ async def post_retrying(http: httpx.AsyncClient, url: str, body: dict[str, Any],
     return (await http.post(url, json=body)).raise_for_status().json()
 
 
-async def one_run(http: httpx.AsyncClient, api: str, strategy: str, seed: int, products: list[Any], horizon: int,
-                  max_run_s: float, events_path: Path | None, progress: dict[str, Any]) -> dict[str, Any]:
+async def one_run(http: httpx.AsyncClient, api: str, strategy: str, scenario: str, seed: int, products: list[Any],
+                  horizon: int, max_run_s: float, events_path: Path | None, progress: dict[str, Any]) -> dict[str, Any]:
     n = len(products)
-    body: dict[str, Any] = {"seed": seed, "rule": 3 if strategy == "rule3" else 4, "horizon_ticks": horizon, "products": products}
+    key = f"{strategy} {scenario} s{seed}"
+    body: dict[str, Any] = {"seed": seed, "rule": 3 if strategy == "rule3" else 4, "horizon_ticks": horizon,
+                            "products": products, "scenario": {"id": scenario}}
     if strategy != "rule3":
         body["strategy"] = strategy
     info = await post_retrying(http, "/sessions", body)
@@ -78,7 +87,7 @@ async def one_run(http: httpx.AsyncClient, api: str, strategy: str, seed: int, p
         (await http.post(f"/sessions/{sid}/run", json={"mode": "fast"})).raise_for_status()
         while True:
             s = (await http.get(f"/sessions/{sid}")).json()
-            progress["active"][f"{strategy} s{seed}"] = s.get("ticks")
+            progress["active"][key] = s.get("ticks")
             if s.get("run_state") in ("finished", "failed") or time.monotonic() - start > max_run_s:
                 break
             await asyncio.sleep(0.5)
@@ -87,18 +96,20 @@ async def one_run(http: httpx.AsyncClient, api: str, strategy: str, seed: int, p
         metrics = (await http.get(f"/sessions/{sid}/metrics")).json() if strategy != "rule3" else {}
         decisions = metrics.get("decisions") or {}
         pct = decisions.get("by_level_pct") or {}
-        row = {"strategy": strategy, "seed": seed, "n": n, "session_id": sid,
+        summary = s.get("scenario_summary") or {}
+        row = {"strategy": strategy, "scenario": scenario, "seed": seed, "n": n, "session_id": sid,
                "makespan_ticks": kpis.get("makespan_ticks"), "makespan_time": kpis.get("makespan_time"),
                "all_done": kpis.get("all_done"), "mean_flow_time": kpis.get("mean_flow_time"),
                "work_completed": kpis.get("work_completed"), "finished": kpis.get("finished"), "ticks": kpis.get("ticks"),
                "run_state": s.get("run_state"), "reason": s.get("run_reason") or s.get("reason"),
-               "wall_s": round(wall, 1), "decisions": decisions.get("applied", 0),
+               "wall_s": round(wall, 1), "scenario_applied": summary.get("applied"),
+               "scenario_skipped": summary.get("skipped"), "decisions": decisions.get("applied", 0),
                **{f"pct_{lv}": pct.get(lv, 0.0) for lv in LEVELS}}
         if s.get("run_state") not in ("finished", "failed"):
             row["reason"] = f"cap {max_run_s:.0f} s reached"
         return row
     finally:
-        progress["active"].pop(f"{strategy} s{seed}", None)
+        progress["active"].pop(key, None)
         stop.set()
         if collector is not None:
             try:
@@ -111,7 +122,7 @@ async def one_run(http: httpx.AsyncClient, api: str, strategy: str, seed: int, p
 async def main_async(args: argparse.Namespace) -> int:
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
-    plan = [(st, seed) for seed in args.seeds for st in args.strategies]
+    plan = [(st, sc, seed) for sc in args.scenarios for seed in args.seeds for st in args.strategies]
     progress: dict[str, Any] = {"done": 0, "ran": 0, "total": len(plan), "active": {}}
     t0 = time.monotonic()
 
@@ -130,8 +141,8 @@ async def main_async(args: argparse.Namespace) -> int:
 
     products: dict[int, list[Any]] = {}  # one list per seed, shared by its strategies
 
-    async def run_one(http: httpx.AsyncClient, strategy: str, seed: int) -> None:
-        name = f"{strategy}_s{seed}_n{args.n}"
+    async def run_one(http: httpx.AsyncClient, strategy: str, scenario: str, seed: int) -> None:
+        name = run_name(strategy, scenario, seed, args.n)
         path = out / f"{name}.csv"
         if path.exists():
             print(f"skip {name} (done)")
@@ -139,7 +150,8 @@ async def main_async(args: argparse.Namespace) -> int:
             return
         async with semaphore:
             events = out / f"{name}.events.jsonl" if args.events else None
-            row = await one_run(http, args.api, strategy, seed, products[seed], args.horizon, args.max_run_s, events, progress)
+            row = await one_run(http, args.api, strategy, scenario, seed, products[seed], args.horizon, args.max_run_s,
+                                events, progress)
         with path.open("w", newline="", encoding="utf-8") as fh:
             writer = csv.DictWriter(fh, fieldnames=FIELDS)
             writer.writeheader()
@@ -154,13 +166,13 @@ async def main_async(args: argparse.Namespace) -> int:
         # Generated before any run: generating needs a free worker, and the runs may take them all.
         for seed in dict.fromkeys(args.seeds):
             products[seed] = (await post_retrying(http, "/product-sets/generate", {"seed": seed, "count": args.n}))["products"]
-        await asyncio.gather(*(run_one(http, strategy, seed) for strategy, seed in plan))
+        await asyncio.gather(*(run_one(http, strategy, scenario, seed) for strategy, scenario, seed in plan))
     rep.cancel()
     if args.combined:
         rows = []
-        for strategy, seed in plan:
-            with (out / f"{strategy}_s{seed}_n{args.n}.csv").open(newline="", encoding="utf-8") as fh:
-                rows += list(csv.DictReader(fh))
+        for strategy, scenario, seed in plan:
+            with (out / f"{run_name(strategy, scenario, seed, args.n)}.csv").open(newline="", encoding="utf-8") as fh:
+                rows += [{**r, "scenario": r.get("scenario") or "S0"} for r in csv.DictReader(fh)]
         with Path(args.combined).open("w", newline="", encoding="utf-8") as fh:
             writer = csv.DictWriter(fh, fieldnames=FIELDS)
             writer.writeheader()
@@ -174,6 +186,7 @@ def main() -> int:
     parser.add_argument("--api", default="http://127.0.0.1:8000")
     parser.add_argument("--strategies", nargs="+", default=["rule3", "b1", "b1b", "agent"])
     parser.add_argument("--seeds", type=int, nargs="+", default=[42])
+    parser.add_argument("--scenarios", nargs="+", default=["S0"], help="scenario ids, each with its default params")
     parser.add_argument("--n", type=int, default=30)
     parser.add_argument("--horizon", type=int, default=1_000_000)
     parser.add_argument("--max-run-s", type=float, default=180.0, help="wall-clock cap per run")
