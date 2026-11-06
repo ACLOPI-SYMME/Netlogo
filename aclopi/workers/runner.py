@@ -35,6 +35,14 @@ Rule 4 with a decider (L5.5, `decisions=True` in start):
 With a product list (docs/product-sets.md) the run also ends, with reason "all_products_done",
 as soon as every product of the list has been created and finished (checked after every block);
 at the horizon the reason is "horizon".
+
+Scenarios (docs/scenarios.md): ScenarioSchedule holds the session's events, computed with
+aclopi.sim.scenarios.scenario_events for [0, horizon) at setup and reset. An event of tick T is
+applied when the model is at tick T, before advancing: every advance (live and fast blocks,
+run-until-decision, manual steps) is cut so that it never goes past the next event's tick, and the
+due events are applied as soon as the advance stops there, before the block's decision requests
+are collected and before any other request (what-if snapshot, candidates) is served. The applied
+events travel in the block's push as "scenario_events".
 """
 
 from __future__ import annotations
@@ -45,6 +53,7 @@ from dataclasses import dataclass
 from dataclasses import asdict
 from typing import Any, Callable
 
+from aclopi.sim import scenarios
 from aclopi.sim.decisions import (
     clear_decisions, decision_context, decision_log, pending_decisions, product_priorities, run_until_decision,
     set_next_machine,
@@ -73,6 +82,59 @@ class BlockResult:
 
 def push(event: str, data: Any) -> tuple[str, Any]:
     return (event, data)
+
+
+def applied_record(tick: int, applied: Any) -> dict[str, Any]:
+    """An AppliedEvent as stored in the session's event log (type "scenario") and in the run."""
+    e = applied.event
+    return {"type": "scenario", "tick": int(tick), "kind": e.kind, "machine": e.machine, "value": e.value,
+            "label": e.label, "applied": bool(applied.applied), "skip_reason": applied.skip_reason,
+            "before": applied.before, "after": applied.after}
+
+
+class ScenarioSchedule:
+    """The session's scenario events and which of them have been applied (see the module docstring)."""
+
+    def __init__(self, session: Any) -> None:
+        self.session = session
+        self.scenario_id = "S0"
+        self.params: dict[str, Any] = {}
+        self.events: list[Any] = []  # aclopi.sim.scenarios.ScenarioEvent, ordered by tick
+        self.pos = 0  # events[:pos] are applied (or passed)
+
+    def load(self, scenario_id: str, params: dict[str, Any] | None, seed: int, horizon_ticks: int) -> None:
+        """Compute the events for [0, horizon) (pure: the same events after every reset)."""
+        self.scenario_id, self.params = scenario_id, scenarios.validate_params(scenario_id, params)
+        self.events = scenarios.scenario_events(scenario_id, self.params, int(seed), 0, int(horizon_ticks))
+        self.pos = 0
+
+    def clear(self) -> None:
+        self.scenario_id, self.params, self.events, self.pos = "S0", {}, [], 0
+
+    def next_tick(self) -> int | None:
+        return int(self.events[self.pos].tick) if self.pos < len(self.events) else None
+
+    def limit(self, n: int) -> int:
+        """n cut so that the advance stops at the next event's tick (never past it)."""
+        nxt = self.next_tick()
+        if nxt is None:
+            return n
+        tick = int(self.session.ticks)
+        return n if nxt <= tick else min(n, nxt - tick)
+
+    def apply_due(self) -> list[dict[str, Any]]:
+        """Apply the events whose tick has been reached (the model is at their tick, nothing advanced)."""
+        nxt = self.next_tick()
+        if nxt is None:
+            return []
+        tick = int(self.session.ticks)
+        end = self.pos
+        while end < len(self.events) and self.events[end].tick <= tick:
+            end += 1
+        if end == self.pos:
+            return []
+        due, self.pos = self.events[self.pos:end], end
+        return [applied_record(tick, a) for a in scenarios.apply_events(self.session, due)]
 
 
 class RunController:
@@ -107,6 +169,7 @@ class RunController:
         self.reason: str | None = None  # why the run ended (failed: agent_unavailable)
         self.product_list = False  # the session has a product list: stop when all are done
         self._last_heartbeat = 0.0
+        self.scenario = ScenarioSchedule(session)
 
     # ----- state -----
 
@@ -243,6 +306,30 @@ class RunController:
             r = self.session.step(n)
         return BlockResult(ticks=r.ticks, advanced=r.advanced, finished=r.finished)
 
+    def _advance_cut(self, n: int) -> tuple[BlockResult, int, list[dict[str, Any]]]:
+        """One advance of at most n ticks, cut at the next scenario event; then the due events are
+        applied (before anything else reads the block). Returns (result, ticks asked, applied)."""
+        cut = self.scenario.limit(n)
+        result = self.advance(cut)
+        applied = [] if result.finished else self.scenario.apply_due()
+        return result, cut, applied
+
+    def manual_step(self, n: int) -> tuple[BlockResult, list[dict[str, Any]]]:
+        """A manual step of n ticks: advances in pieces cut at every scenario event, applying them."""
+        start = int(self.session.ticks)
+        applied: list[dict[str, Any]] = []
+        left = n
+        while True:
+            result, cut, done = self._advance_cut(left) if left > 0 else (None, 0, [])
+            applied += done
+            if result is None:
+                break
+            left -= result.advanced
+            if result.finished or left <= 0 or result.advanced < cut:  # end, or the product list is done
+                break
+        return BlockResult(ticks=result.ticks if result else start, advanced=n - left,
+                           finished=bool(result and result.finished)), applied
+
     def _until_decision(self, n: int) -> BlockResult:
         r = run_until_decision(self.session, n)
         return BlockResult(ticks=r.ticks, advanced=r.advanced, finished=r.finished,
@@ -308,8 +395,7 @@ class RunController:
 
     def _live_block(self, now: float) -> list[tuple[str, Any]]:
         due = self._next_due
-        n = self.live_block_ticks
-        result = self.advance(n)
+        result, n, applied = self._advance_cut(self.live_block_ticks)
         events = self.session.events()
         state = self.session.state_json()
         done = self.clock()
@@ -325,6 +411,8 @@ class RunController:
         }
         if kpis is not None:
             data["kpis"] = kpis
+        if applied:
+            data["scenario_events"] = applied
         self._decision_data(data)  # live: requests go to the agent, the run does not wait
         pushes = [push("tick", data)]
         self._next_due = due + n / self.rate
@@ -337,7 +425,8 @@ class RunController:
         return pushes
 
     def _fast_block(self, now: float) -> list[tuple[str, Any]]:
-        result = self.advance(self.fast_block_ticks)
+        # The block stops at the first of: the next scenario event, the next decision, its end.
+        result, _, applied = self._advance_cut(self.fast_block_ticks)
         events = self.session.events()
         done = self.clock()
         kpis = self._kpis_due(done, result.finished)
@@ -356,6 +445,9 @@ class RunController:
         if result.finished or done - self._last_state >= self.state_interval_s:
             self._last_state = done
             data["state"] = self.session.state_json()
+        if applied:
+            data["scenario_events"] = applied
+            data["state"] = data.get("state") or self.session.state_json()
         requests = self._decision_data(data)
         pushes = [push("progress", data)]
         # Optional pause between fast blocks (fraction of the block time) to leave CPU to live runs.

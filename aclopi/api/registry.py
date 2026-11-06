@@ -27,6 +27,12 @@ worker is sent to the agent (POST /decide, aclopi.api.agent) without waiting for
 answers with POST /sessions/{id}/next-machine (next_machine below). A fast run waiting for
 decisions fails with reason agent_unavailable after ACLOPI_FAST_DECISION_TIMEOUT_S; a live run
 never waits (the model applies rule 3: rule3-fallback, counted from the "assignments").
+
+Scenarios (docs/scenarios.md): the session keeps its scenario ({id, params}, params completed by
+validate_params) and the events applied so far (tick-0 events come in the setup/reset response;
+later ones in the block pushes and step responses). Each one is added to the event log as type
+"scenario" and published as a "scenario_event" message BEFORE the block's decision requests are sent
+to the agent. They are saved with the run (scenario_events, scenario_summary).
 """
 
 from __future__ import annotations
@@ -119,6 +125,9 @@ class SessionRecord:
     run_started_at: float | None = None
     run_mode: str | None = None
     run_decision_start: int = 0
+    # scenario (docs/scenarios.md): {id, params} and the events applied in this run (from tick 0)
+    scenario: dict[str, Any] = field(default_factory=lambda: {"id": "S0", "params": {}})
+    scenario_events: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def deciding(self) -> bool:
@@ -148,6 +157,8 @@ class SessionRecord:
             "product_set_id": self.product_set_id,
             "products_total": len(self.product_list) if self.product_list is not None else None,
             "products_hash": self.products_hash,
+            "scenario": self.scenario,
+            "scenario_summary": self.scenario_summary(),
             "lost_reason": self.lost_reason,
             "worker_slot": self.worker_slot,
             "created_at": self.created_at,
@@ -166,6 +177,17 @@ class SessionRecord:
         tick = result.get("ticks", result.get("tick"))
         if tick is not None:
             self.ticks = int(tick)
+
+    def scenario_summary(self) -> dict[str, int]:
+        applied = sum(1 for e in self.scenario_events if e["applied"])
+        return {"applied": applied, "skipped": len(self.scenario_events) - applied}
+
+    def add_scenario_events(self, applied: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+        """Keep the applied events (run and event log); returns them, to be published."""
+        applied = list(applied or [])
+        self.scenario_events.extend(applied)
+        self.add_events(applied)
+        return applied
 
     def add_events(self, events: list[dict[str, Any]]) -> None:
         self.events.extend(events)
@@ -242,7 +264,10 @@ class SessionRegistry:
     async def create(self, seed: int, rule: int, modeling_type: str, horizon_ticks: int,
                      strategy: str | None = None, seed_source: str = "user",
                      product_list: list[dict[str, Any]] | None = None,
-                     product_set_id: str | None = None) -> SessionRecord:
+                     product_set_id: str | None = None,
+                     scenario: dict[str, Any] | None = None) -> SessionRecord:
+        """scenario: {id, params} already completed by aclopi.sim.scenarios.validate_params."""
+        scenario = scenario or {"id": "S0", "params": {}}
         session_id = uuid.uuid4().hex
         session_id_var.set(session_id)
         try:
@@ -255,7 +280,8 @@ class SessionRegistry:
         try:
             result = await self.run(handle.request, "setup", seed=seed, rule=rule, modeling_type=modeling_type,
                                     horizon_ticks=horizon_ticks, session_id=session_id,
-                                    product_list=[[p["type"], p["priority"]] for p in product_list] if product_list else None)
+                                    product_list=[[p["type"], p["priority"]] for p in product_list] if product_list else None,
+                                    scenario=scenario)
         except WorkerTimeout as exc:
             # The pool killed the worker; it frees the slot itself after the restart.
             self.pool.release_session(session_id)
@@ -281,8 +307,10 @@ class SessionRegistry:
             product_set_id=product_set_id,
             product_list=[dict(p) for p in product_list] if product_list else None,
             products_hash=products_hash(product_list) if product_list else None,
+            scenario={"id": scenario["id"], "params": dict(scenario.get("params") or {})},
         )
         record.apply_run(result)
+        record.add_scenario_events(result.get("scenario_events"))  # tick 0: nobody is watching yet
         self._records[session_id] = record
         logger.info("Session created on worker %s", handle.config.name, extra={"worker": handle.config.name})
         return record
@@ -412,6 +440,9 @@ class SessionRegistry:
             return
         record.last_push_mono = time.monotonic()
         hub = record.hub
+        # Scenario events first: registered and published before the block's decision requests go out.
+        if isinstance(data, dict):
+            self._publish_scenario(record, data.pop("scenario_events", None))
         self._decision_push(record, event, data)
         if event == "tick":
             state = data.pop("state", None)
@@ -445,6 +476,13 @@ class SessionRegistry:
             logger.error("Run stopped by an error in the worker: %s", data.get("error"),
                          extra={"session_id": session_id})
             hub.publish({"type": "run_error", **data})
+
+    # ----- scenarios -----
+
+    @staticmethod
+    def _publish_scenario(record: SessionRecord, applied: list[dict[str, Any]] | None) -> None:
+        for ev in record.add_scenario_events(applied):
+            record.hub.publish({"type": "scenario_event", "tick": ev["tick"], "event": ev})
 
     # ----- decisions (L5.5) -----
 
@@ -571,6 +609,9 @@ class SessionRegistry:
             "horizon_ticks": int(record.parameters["horizon_ticks"]), "mode": record.run_mode,
             "product_set_id": record.product_set_id, "products_hash": record.products_hash,
             "products": record.product_list,
+            "scenario_id": record.scenario["id"], "scenario": record.scenario,
+            "scenario_events": [dict(e) for e in record.scenario_events],
+            "scenario_summary": record.scenario_summary(),
             "kpis": {k: kpis.get(k) for k in ("ticks", "finished", "created", "wip", "work_completed", "mean_flow_time",
                                               "throughput", "products_total", "all_done", "makespan_ticks",
                                               "makespan_time")},
@@ -649,6 +690,8 @@ class SessionRegistry:
             "layout": record.layout,
             "kpis": record.kpis,
             "recent_events": record.events[-RECENT_EVENTS:],
+            "scenario": record.scenario,
+            "scenario_events": record.scenario_events,  # every event applied so far in this run
         }
         return encode(message, raw={"state": record.state_raw} if record.state_raw else None)
 
@@ -657,16 +700,20 @@ class SessionRegistry:
         record.ticks = int(result["ticks"])
         if result.get("finished"):
             record.finished = True
+        self._publish_scenario(record, result.get("scenario_events"))
         state = result.get("state")
         if state is not None:
             record.state_raw, record.state_tick = state, record.ticks
             record.hub.publish({"type": "tick", "source": "step", "tick": record.ticks,
                                 "advanced": result["advanced"], "events": []}, raw={"state": state})
 
-    async def after_reset(self, record: SessionRecord) -> None:
-        """Reset: new run from tick 0; watching clients get a fresh snapshot."""
+    async def after_reset(self, record: SessionRecord, result: dict[str, Any] | None = None) -> None:
+        """Reset: new run from tick 0 (tick-0 scenario events applied again, from the reset response);
+        watching clients get a fresh snapshot."""
         self.save_run(record, "stopped", "reset")
         record.events.clear()
+        record.scenario_events.clear()
+        record.add_scenario_events((result or {}).get("scenario_events"))
         record.whatif_used.clear()  # a new run: the same product ids come back
         record.state_raw, record.state_tick, record.kpis = None, -1, None
         record.finished = False

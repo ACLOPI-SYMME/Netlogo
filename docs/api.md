@@ -40,6 +40,7 @@ Si el arranque falla, el log JSON indica qué worker falló y por qué. Luego el
 | Método y ruta | Descripción |
 |---|---|
 | `POST /sessions` | Crea una sesión (`seed`, `rule` 1\|2\|3, `modeling_type`, `horizon_ticks`) en un worker libre y hace el setup. Devuelve 201 `SessionInfo` |
+| `GET /scenarios` | Escenarios disponibles y sus parámetros (`docs/scenarios.md`). `POST /sessions` acepta `scenario: {id, params}` (por defecto S0); si es inválido responde 422 `invalid_scenario` |
 | `GET /sessions` | Todas las sesiones: activas, perdidas y expiradas |
 | `GET /sessions/{id}` | Parámetros, último tick conocido, si terminó, estado, motivo de la pérdida y última actividad |
 | `POST /sessions/{id}/step?n=` | Avanza hasta `n` ticks (1–2000); se detiene en el horizonte |
@@ -61,7 +62,7 @@ Si el arranque falla, el log JSON indica qué worker falló y por qué. Luego el
 **Resultados (L5.7).**
 - Cada corrida se guarda al terminar, fallar o detenerse, en memoria o en DynamoDB según `ACLOPI_DYNAMODB_ENDPOINT` / `ACLOPI_RESULTS_STORE`.
 - Rutas:
-  - `GET /runs`, con filtros `seed`, `strategy`, `rule`, `product_set_id`, `limit` y `cursor`;
+  - `GET /runs`, con filtros `seed`, `strategy`, `rule`, `product_set_id`, `scenario`, `limit` y `cursor`;
   - `GET /runs/{id}`;
   - `GET /runs/{id}/decisions`.
 - `SessionInfo.last_run_id` dice la última corrida guardada de la sesión.

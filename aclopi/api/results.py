@@ -29,7 +29,7 @@ from aclopi.api.product_sets import summary
 logger = logging.getLogger(__name__)
 
 DEFAULT_REGION = "eu-north-1"  # Stockholm
-RUN_FILTERS = ("seed", "strategy", "rule", "product_set_id")
+RUN_FILTERS = ("seed", "strategy", "rule", "product_set_id", "scenario_id")
 
 
 class ResultsStore(Protocol):

@@ -176,20 +176,28 @@ class WorkerState:
         horizon_ticks: int = 10000,
         session_id: str | None = None,
         product_list: list[list[Any]] | None = None,
+        scenario: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """session_id (optional) only tags this worker's log lines until the next setup.
-        product_list: [[type, priority], ...] in entry order (docs/product-sets.md)."""
+        product_list: [[type, priority], ...] in entry order (docs/product-sets.md).
+        scenario: {"id", "params"} (default S0, docs/scenarios.md); its tick-0 events are applied
+        before the first advance and returned in "scenario_events"."""
         logjson.session_id_var.set(session_id)
+        scenario = scenario or {"id": "S0", "params": {}}
         try:
+            self.runner.scenario.clear()
             self.session.setup(seed=seed, rule=rule, modeling_type=modeling_type, horizon_ticks=horizon_ticks,
                                product_list=[(str(t), int(p)) for t, p in product_list] if product_list else None)
             self.runner.product_list = bool(product_list)
+            self.runner.scenario.load(str(scenario["id"]), scenario.get("params"), seed, horizon_ticks)
         finally:
             self.pushes += self.runner.reset()  # any run stops, also if setup fails
         self.configured = True
         self.static = read_model_static(self.session)
-        logger.info("setup seed=%s rule=%s modeling_type=%s horizon_ticks=%s", seed, rule, modeling_type, horizon_ticks)
-        return self._params()
+        applied = self.runner.scenario.apply_due()
+        logger.info("setup seed=%s rule=%s modeling_type=%s horizon_ticks=%s scenario=%s (%d events)", seed, rule,
+                    modeling_type, horizon_ticks, scenario["id"], len(self.runner.scenario.events))
+        return {**self._params(), "scenario_events": applied}
 
     # ----- decisions: candidates and what-if (L5.4) -----
 
@@ -258,6 +266,7 @@ class WorkerState:
         """What-if worker: import the snapshot (kept for the next option) and run one option."""
         t0 = time.perf_counter()
         self.pushes += self.runner.reset()
+        self.runner.scenario.clear()  # what-if copies never apply scenario events (docs/scenarios.md)
         self.configured = False
         self.session.import_world(Path(path))
         self.configured = True
@@ -279,9 +288,10 @@ class WorkerState:
             )
         self._require_configured()
         self._require_not_running("step")
-        r = self.session.step_product_list(n)[0] if self.runner.product_list else self.session.step(n)
+        r, applied = self.runner.manual_step(n)  # cut at every scenario event (applied on the way)
         self.pushes += self.runner.mark_finished_after_step(r.finished)
-        result: dict[str, Any] = {"ticks": r.ticks, "advanced": r.advanced, "finished": r.finished}
+        result: dict[str, Any] = {"ticks": r.ticks, "advanced": r.advanced, "finished": r.finished,
+                                  "scenario_events": applied}
         if with_state:
             result["state"] = self.session.state_json()
         return result
@@ -358,11 +368,14 @@ class WorkerState:
 
     def op_reset(self) -> dict[str, Any]:
         self._require_configured()
+        sc = self.runner.scenario
         try:
             self.session.reset()
+            p = self.session.parameters
+            sc.load(sc.scenario_id, sc.params, int(p.seed), p.horizon_ticks)  # the same events again
         finally:
             self.pushes += self.runner.reset()
-        return self._params()
+        return {**self._params(), "scenario_events": sc.apply_due()}
 
     def op_export_world(self) -> dict[str, Any]:
         self._require_configured()
@@ -375,6 +388,7 @@ class WorkerState:
         # import-world clears the world before reading the file: if the import fails, the
         # previous simulation is gone, so the worker needs a new setup or import_world.
         self.configured = False
+        self.runner.scenario.clear()  # a world file brings no scenario (what-if copies never apply events)
         try:
             self.session.import_world(source, seed=seed)
         finally:

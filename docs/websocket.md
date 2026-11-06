@@ -13,12 +13,12 @@ La página de prueba `GET /ui` usa todo lo que se describe aquí.
 ## Orden de los mensajes
 
 1. **Primero, siempre `snapshot`:** una foto completa de la sesión.
-2. **Después, las actualizaciones** (`tick`, `progress`, `run_state`, `finished`, `run_error`), todas posteriores a la foto.
+2. **Después, las actualizaciones** (`tick`, `progress`, `scenario_event`, `run_state`, `finished`, `run_error`), todas posteriores a la foto.
 3. **Si el cliente se atrasa** (ver "Cliente lento"): `resync` y luego un `snapshot` nuevo.
 4. **Si no hubo nada que enviar durante 5 s:** `heartbeat`.
 5. **Al cerrarse la sesión:** `closed` con el motivo, y el servidor cierra la conexión.
 
-Todos los mensajes son objetos JSON con `type`. Los que publica la sesión (`tick`, `progress`, `run_state`, `finished`, `run_error`) llevan además `seq`, correlativo por sesión e igual para todos los clientes. Un salto en `seq` significa que el cliente perdió mensajes, cosa que solo ocurre antes de un `resync`. `snapshot.seq` es el último `seq` que la foto ya incluye.
+Todos los mensajes son objetos JSON con `type`. Los que publica la sesión (`tick`, `progress`, `scenario_event`, `run_state`, `finished`, `run_error`) llevan además `seq`, correlativo por sesión e igual para todos los clientes. Un salto en `seq` significa que el cliente perdió mensajes, cosa que solo ocurre antes de un `resync`. `snapshot.seq` es el último `seq` que la foto ya incluye.
 
 ## Mensajes
 
@@ -30,8 +30,12 @@ Todos los mensajes son objetos JSON con `type`. Los que publica la sesión (`tic
  "layout": { ...platform-layout, igual que GET /sessions/{id}/layout... },
  "state": { ...platform-state, igual que GET /sessions/{id}/state... },
  "kpis": { ...igual que GET /sessions/{id}/kpis... },
- "recent_events": [ {"tick": 1288, "event": "...", "who": 230, ...}, ... ]}
+ "recent_events": [ {"tick": 1288, "event": "...", "who": 230, ...}, ... ],
+ "scenario": {"id": "S3", "params": {...}},
+ "scenario_events": [ {"type": "scenario", "tick": 500, "kind": "repair", ...}, ... ]}
 ```
+
+- **`scenario` y `scenario_events`:** el escenario de la sesión y todos los eventos de escenario ya ocurridos en la corrida, aplicados o saltados (ver `docs/scenarios.md`). Los eventos de escenario también aparecen en `recent_events` como `type: "scenario"`.
 
 - **`recent_events`:** los últimos 500 eventos de la sesión (desde el último `reset`). El cliente reemplaza su lista con estos.
 - **`state` y `state_tick`:** solo vienen si hay un estado conocido. En modo rápido no se transmite el estado, así que pueden faltar o ser anteriores a `tick`.
@@ -74,6 +78,16 @@ Formato de un evento:
 - **`state` como mucho una vez por segundo** (L5.4), y siempre en el último bloque. Con eso el canvas de `/ui` muestra la corrida rápida como un video acelerado. Si un bloque tarda más de 1 s, todos los bloques traen `state`.
 - **`events`:** llegan **todos**, en lote (~18 eventos por cada 1000 ticks). La API además los conserva para la persistencia de L5.6.
 - **`kpis`:** viene aproximadamente una vez por segundo.
+
+### `scenario_event`: se aplicó (o se saltó) un evento del escenario
+
+```json
+{"type": "scenario_event", "seq": 812, "tick": 5000,
+ "event": {"type": "scenario", "tick": 5000, "kind": "repair", "machine": "M4", "value": 300.0,
+           "label": "Falla en M4: +300 u.t.", "applied": true, "skip_reason": null, "before": null, "after": null}}
+```
+
+Se publica antes que el `tick` o el `progress` del bloque que termina en ese tick, y antes de enviar al agente las peticiones de ese bloque. Formato y reglas: `docs/scenarios.md`.
 
 ### `run_state`: cambio de estado de la corrida
 
