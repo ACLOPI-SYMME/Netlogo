@@ -41,6 +41,7 @@ Campos principales: `candidates` (ordenadas por `finish`), `current_machine`, `o
 4. **Copias, una tras otra.** Cada copia se ejecuta en el worker prestado: importa la foto, fuerza la opción con `platform-set-next-machine` y avanza.
    - Corre primero la opción con **menor entrada estimada** (con viaje; ver "Estimación de la entrada").
    - Dentro de la copia nunca se llama al agente: las demás decisiones las toma el código de la regla 3, y las peticiones de la copia no salen del worker.
+   - La copia **no aplica eventos de escenario**: el agente no debe conocer el futuro. Lo que ya ocurrió está en el estado de la planta y la copia lo lleva. La foto se toma después de aplicar los eventos del tick actual (`docs/scenarios.md`).
 5. **Parada de cada copia:**
 
    | `stop_reason` | Cuándo |

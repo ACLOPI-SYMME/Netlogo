@@ -90,6 +90,12 @@ class InvalidOption(ApiError):
     status_code, code = 422, "invalid_option"
 
 
+class InvalidScenario(ApiError):
+    """POST /sessions: unknown scenario or invalid params (the message of validate_params)."""
+
+    status_code, code = 422, "invalid_scenario"
+
+
 class Unauthorized(ApiError):
     """Missing or wrong Authorization: Bearer token (ACLOPI_AGENT_TOKEN)."""
 

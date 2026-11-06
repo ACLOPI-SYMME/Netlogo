@@ -976,6 +976,62 @@
         "title": "OthersMetric",
         "type": "object"
       },
+      "ParamSpecOut": {
+        "properties": {
+          "default": {
+            "title": "Default"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "max": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max"
+          },
+          "min": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "int",
+              "float",
+              "machine",
+              "machine_list",
+              "machine_times"
+            ],
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "type",
+          "default",
+          "description"
+        ],
+        "title": "ParamSpecOut",
+        "type": "object"
+      },
       "ParsedCsv": {
         "properties": {
           "counts": {
@@ -1466,6 +1522,40 @@
             "title": "Run Id",
             "type": "string"
           },
+          "scenario": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ScenarioRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "scenario_events": {
+            "description": "AppliedEvent records (tick, kind, machine, value, label, applied, skip_reason, before, after)",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Scenario Events",
+            "type": "array"
+          },
+          "scenario_id": {
+            "default": "S0",
+            "title": "Scenario Id",
+            "type": "string"
+          },
+          "scenario_summary": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ScenarioSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "seed": {
             "title": "Seed",
             "type": "integer"
@@ -1567,6 +1657,100 @@
         "title": "RunRequest",
         "type": "object"
       },
+      "ScenarioChoice": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "default": "S0",
+            "description": "Scenario id from GET /scenarios (S0 Base, S1, S2, S3...)",
+            "title": "Id",
+            "type": "string"
+          },
+          "params": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Scenario parameters; the missing ones take their default (validate_params)",
+            "title": "Params"
+          }
+        },
+        "title": "ScenarioChoice",
+        "type": "object"
+      },
+      "ScenarioRef": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "params": {
+            "additionalProperties": true,
+            "description": "The parameters used, defaults filled in",
+            "title": "Params",
+            "type": "object"
+          }
+        },
+        "required": [
+          "id",
+          "params"
+        ],
+        "title": "ScenarioRef",
+        "type": "object"
+      },
+      "ScenarioSpecOut": {
+        "properties": {
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "params": {
+            "items": {
+              "$ref": "#/components/schemas/ParamSpecOut"
+            },
+            "title": "Params",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "description",
+          "params"
+        ],
+        "title": "ScenarioSpecOut",
+        "type": "object"
+      },
+      "ScenarioSummary": {
+        "properties": {
+          "applied": {
+            "default": 0,
+            "title": "Applied",
+            "type": "integer"
+          },
+          "skipped": {
+            "default": 0,
+            "description": "Events not applied, e.g. a failure on an idle machine (machine-idle)",
+            "title": "Skipped",
+            "type": "integer"
+          }
+        },
+        "title": "ScenarioSummary",
+        "type": "object"
+      },
       "SessionCounts": {
         "properties": {
           "active": {
@@ -1644,6 +1828,17 @@
             ],
             "title": "Rule",
             "type": "integer"
+          },
+          "scenario": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ScenarioChoice"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Scenario that changes the plant during the run (docs/scenarios.md). Default S0 (Base). Invalid id or params: 422 invalid_scenario with the reason"
           },
           "seed": {
             "anyOf": [
@@ -1809,6 +2004,13 @@
             ],
             "title": "Run State",
             "type": "string"
+          },
+          "scenario": {
+            "$ref": "#/components/schemas/ScenarioRef"
+          },
+          "scenario_summary": {
+            "$ref": "#/components/schemas/ScenarioSummary",
+            "description": "Scenario events of this run: applied and skipped"
           },
           "seed_source": {
             "default": "user",
@@ -3002,6 +3204,24 @@
             }
           },
           {
+            "description": "Scenario id",
+            "in": "query",
+            "name": "scenario",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Scenario id",
+              "title": "Scenario"
+            }
+          },
+          {
             "in": "query",
             "name": "limit",
             "required": false,
@@ -3164,6 +3384,31 @@
         "summary": "Get Run Decisions",
         "tags": [
           "runs-history"
+        ]
+      }
+    },
+    "/scenarios": {
+      "get": {
+        "operationId": "list_scenarios_scenarios_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ScenarioSpecOut"
+                  },
+                  "title": "Response List Scenarios Scenarios Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Available scenarios and their parameters (to build the form)",
+        "tags": [
+          "sessions"
         ]
       }
     },

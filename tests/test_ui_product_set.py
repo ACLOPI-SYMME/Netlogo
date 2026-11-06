@@ -1,8 +1,8 @@
-"""Set de productos tab (live.html) in a headless browser, without NetLogo.
+"""Set de productos tab and scenario form (live.html) in a headless browser, without NetLogo.
 
 A small FastAPI app serves the real page and the endpoints the tab uses: parse-csv with the real
-parser (aclopi.api.product_sets.parse_csv), product-sets, health and POST /sessions (records the
-body). Needs Playwright with Chromium or Edge (`pip install playwright`); skipped otherwise.
+parser (aclopi.api.product_sets.parse_csv), product-sets, health, GET /scenarios (the real
+list_scenarios) and POST /sessions (records the body). Needs Playwright with Chromium or Edge (`pip install playwright`); skipped otherwise.
 """
 
 from __future__ import annotations
@@ -23,6 +23,7 @@ from fastapi import FastAPI, File, Request, UploadFile  # noqa: E402
 from fastapi.responses import FileResponse, JSONResponse  # noqa: E402
 
 from aclopi.api.product_sets import parse_csv  # noqa: E402
+from aclopi.sim.scenarios import list_scenarios  # noqa: E402
 
 PAGE = Path(__file__).resolve().parents[1] / "aclopi" / "api" / "static" / "live.html"
 CSV_OK = "type,priority\nA,70\nI,80\nP,90\nB,60\nE,100\n"
@@ -55,10 +56,17 @@ def fake_platform(sessions: list[dict[str, Any]]) -> FastAPI:
     def runs() -> list[Any]:
         return []
 
+    @app.get("/scenarios")
+    def scenarios() -> list[Any]:
+        return [{"id": sc.id, "name": sc.name, "description": sc.description, "params": [vars(p) for p in sc.params]}
+                for sc in list_scenarios()]
+
     @app.post("/sessions")
     async def create(request: Request) -> dict[str, Any]:
         sessions.append(await request.json())
-        return {"session_id": "s1", "parameters": {"seed": 1}, "seed_source": "random", "warnings": []}
+        body = await request.json()
+        return {"session_id": "s1", "parameters": {"seed": 1}, "seed_source": "random", "warnings": [],
+                "scenario": body.get("scenario") or {"id": "S0", "params": {}}}
 
     return app
 
@@ -142,4 +150,57 @@ def test_csv_errors_keep_valid_rows(server: tuple[str, list], browser: Any, tmp_
     assert rows(page) == ["A", "B", "E"]
     errors = page.inner_text("#set-errors")
     assert "línea 3" in errors and "línea 4: fila vacía" in errors and "Se cargaron 3 filas" in errors
+    page.close()
+
+
+def _sent(sessions: list[dict[str, Any]], before: int) -> dict[str, Any]:
+    for _ in range(50):
+        if len(sessions) > before:
+            return sessions[-1]
+        time.sleep(0.1)
+    raise AssertionError("POST /sessions not sent")
+
+
+def test_scenario_form_and_live_notices(server: tuple[str, list], browser: Any) -> None:
+    url, sessions = server
+    page = browser.new_page()
+    page.goto(f"{url}/ui")
+    page.wait_for_function("document.querySelectorAll('#scenario option').length === 4")
+    # S3: the machine list needs at least one machine (error next to the field, nothing sent)
+    page.select_option("#scenario", "S3")
+    page.click("#scenario-params-box summary")  # "Parámetros del escenario" starts folded
+    assert page.input_value('#scenario-params [data-p="interval_ticks"]') == "5000"
+    for box in page.query_selector_all('#scenario-params input[data-p="machines"]'):
+        box.uncheck()
+    before = len(sessions)
+    page.click("#create")
+    page.wait_for_function("document.querySelector('[data-err=\"machines\"]').textContent !== ''")
+    assert "al menos una" in page.inner_text('[data-err="machines"]') and len(sessions) == before
+    page.check('#scenario-params input[value="M4"]')
+    page.fill('#scenario-params [data-p="interval_ticks"]', "300")  # out of range (500-1000000)
+    page.click("#create")
+    assert "entre 500" in page.inner_text('[data-err="interval_ticks"]') and len(sessions) == before
+    page.fill('#scenario-params [data-p="interval_ticks"]', "800")
+    page.click("#create")
+    assert _sent(sessions, before)["scenario"] == {"id": "S3", "params": {"interval_ticks": 800, "repair_ut": 300,
+                                                                           "machines": ["M4"]}}
+    # S1 partial: an empty field means "no change"
+    page.select_option("#scenario", "S1")
+    for m in ("M2", "M3", "M5", "M6", "M7"):
+        page.fill(f'#scenario-params [data-p="times"][data-m="{m}"]', "")
+    page.fill('#scenario-params [data-p="times"][data-m="M4"]', "350")
+    before = len(sessions)
+    page.click("#create")
+    assert _sent(sessions, before)["scenario"] == {"id": "S1", "params": {"times": {"M4": 350}}}
+    # Live notices: a toast, the event list, and a skipped event dimmed
+    event = {"type": "scenario", "tick": 800, "kind": "repair", "machine": "M4", "value": 300, "label": "Falla en M4: +300 u.t.",
+             "applied": True, "skip_reason": None, "before": None, "after": None}
+    page.evaluate("ev => handle({type: 'scenario_event', tick: ev.tick, event: ev})", event)
+    assert page.is_visible("#toast") and "Falla en M4" in page.inner_text("#toast")
+    assert "ESCENARIO Falla en M4: +300 u.t." in page.inner_text("#events")
+    page.evaluate("ev => handle({type: 'scenario_event', tick: 1600, event: {...ev, tick: 1600, applied: false, "
+                  "skip_reason: 'machine-idle'}})", event)
+    assert "Falla saltada: M4 libre" in page.inner_text("#toast")
+    assert page.eval_on_selector("#toast", "e => e.className") == "skipped"
+    assert page.eval_on_selector_all("#events div.skipped", "els => els.length") == 1
     page.close()

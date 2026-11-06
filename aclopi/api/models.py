@@ -34,6 +34,40 @@ class ProductItem(BaseModel):
 ProductList = Annotated[list[ProductItem], Field(min_length=1, max_length=1000)]
 
 
+class ScenarioChoice(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field("S0", description="Scenario id from GET /scenarios (S0 Base, S1, S2, S3...)")
+    params: dict[str, Any] | None = Field(None, description="Scenario parameters; the missing ones take "
+                                                            "their default (validate_params)")
+
+
+class ScenarioRef(BaseModel):
+    id: str
+    params: dict[str, Any] = Field(description="The parameters used, defaults filled in")
+
+
+class ScenarioSummary(BaseModel):
+    applied: int = 0
+    skipped: int = Field(0, description="Events not applied, e.g. a failure on an idle machine (machine-idle)")
+
+
+class ParamSpecOut(BaseModel):
+    name: str
+    type: Literal["int", "float", "machine", "machine_list", "machine_times"]
+    default: Any
+    min: float | None = None
+    max: float | None = None
+    description: str
+
+
+class ScenarioSpecOut(BaseModel):
+    id: str
+    name: str
+    description: str
+    params: list[ParamSpecOut]
+
+
 class SessionCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -50,6 +84,9 @@ class SessionCreate(BaseModel):
         None, description="Rule 4 only: who decides. b1 / b1b / agent call the agent service (docs/agent-api.md); "
                           "none = rule 4 without a decider (same as rule 3). Default none with rule 4; not "
                           "accepted with rules 1-3")
+    scenario: ScenarioChoice | None = Field(
+        None, description="Scenario that changes the plant during the run (docs/scenarios.md). Default S0 (Base). "
+                          "Invalid id or params: 422 invalid_scenario with the reason")
 
     @model_validator(mode="after")
     def _strategy_needs_rule4(self) -> "SessionCreate":
@@ -96,6 +133,9 @@ class SessionInfo(BaseModel):
     products_total: int | None = Field(None, description="Length of the session's product list (None: generated "
                                                          "from the seed, as before)")
     products_hash: str | None = Field(None, description="sha256 of the session's product list")
+    scenario: ScenarioRef = Field(default_factory=lambda: ScenarioRef(id="S0", params={}))
+    scenario_summary: ScenarioSummary = Field(default_factory=ScenarioSummary,
+                                              description="Scenario events of this run: applied and skipped")
     last_run_id: str | None = Field(None, description="Last run of this session saved to the results store")
     mode: Literal["live", "fast"] | None = Field(description="Mode of the current or paused run")
     speed: float | None = Field(description="Live speed factor of the current or paused run")
@@ -326,6 +366,11 @@ class RunRecord(BaseModel):
     product_set_id: str | None = None
     products_hash: str | None = None
     products: list[ProductItem] | None = None
+    scenario_id: str = "S0"
+    scenario: ScenarioRef | None = None
+    scenario_events: list[dict[str, Any]] = Field(default_factory=list, description="AppliedEvent records "
+                                                  "(tick, kind, machine, value, label, applied, skip_reason, before, after)")
+    scenario_summary: ScenarioSummary | None = None
     kpis: dict[str, Any]
     decisions_summary: dict[str, Any] | None = None
     whatif_summary: dict[str, Any] | None = None
