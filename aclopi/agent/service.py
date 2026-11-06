@@ -58,7 +58,7 @@ class AgentSettings:
             health_interval_s=f("ACLOPI_AGENT_HEALTH_INTERVAL_S", "30"),
             log_path=env.get("ACLOPI_AGENT_LOG", "results/agent/decisions.jsonl"),
             config=AgentConfig(
-                triage=TriageParams(u_wide=f("ACLOPI_U_WIDE", "150"), u_narrow=f("ACLOPI_U_NARROW", "50")),
+                triage=TriageParams(u_wide=f("ACLOPI_U_WIDE", "100"), u_narrow=f("ACLOPI_U_NARROW", "50")),
                 fast_deadline_s=f("ACLOPI_FAST_DEADLINE_S", "60"), what_if_p95_s=f("ACLOPI_WHATIF_P95_S", "5.5"),
                 llm2_latency_s=f("ACLOPI_LLM2_LATENCY_S", "3")),
         )

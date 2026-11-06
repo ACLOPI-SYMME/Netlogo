@@ -20,6 +20,14 @@ def ctx(cands: list[dict[str, Any]], strategy: str = "agent") -> DecisionContext
     return DecisionContext("s", 200, 2, strategy, "fast", {"candidates": cands})
 
 
+def test_default_thresholds() -> None:
+    from aclopi.agent.service import AgentSettings
+
+    assert (TriageParams().u_wide, TriageParams().u_narrow) == (100.0, 50.0)
+    triage = AgentSettings.from_env({}).config.triage
+    assert (triage.u_wide, triage.u_narrow) == (100.0, 50.0)
+
+
 def test_obvious_when_both_criteria_agree_by_far() -> None:
     t = classify([cand("M3", 1000, 1100), cand("M2", 1300, 1400), cand("M5", 1400, 1500)])
     assert t.level == "obvious" and t.best_by_finish == "M3"

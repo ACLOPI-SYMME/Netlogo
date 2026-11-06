@@ -1,16 +1,27 @@
-"""Plant scenarios (STUB written by the platform line; Línea A replaces this module completely).
+"""Plant scenarios (Línea A; the signatures are the ones agreed with the platform).
 
 A scenario changes the plant during the run, from Python and without touching the model, through
 a list of events computed in advance (scenario_events, pure and deterministic) and applied by the
 worker when the model is at each event's tick (apply_events). Platform side: docs/scenarios.md.
 
-In this stub apply_events does NOT change the model: every event is reported as applied with
-before/after None. Tests only: ACLOPI_SCENARIO_STUB_SKIP=1 reports the repair events as skipped
-(skip_reason "machine-idle").
+How apply_events changes the model (commands between ticks, inside with-local-randomness: the
+model's random numbers are not consumed, so an event changes the run only through the plant):
+    set_times    (S1) every Machine.Operations.Time of the machine := value
+    scale_times  (S2) every Machine.Operations.Time of the machine *= value
+                 The model reads Machine.Operations.Time only when an operation starts
+                 (Next.Completion := Simulated.Time + time [+ exponential extra]), so only the
+                 operations that start afterwards change; the one in process keeps its time.
+    repair       (S3) Next.Completion of the job in process += value (the machine finishes it
+                 value u.t. later). Machine idle (Machine.State != "Machine.Processing"): skipped,
+                 skip_reason "machine-idle", nothing changed.
+before / after: {operation: time} of the machine (set_times, scale_times) or Next.Completion
+(repair); None when skipped. Tests only: ACLOPI_SCENARIO_STUB_SKIP=1 skips every repair as
+"machine-idle" without reading the model (the platform's tests of skipped events).
 """
 
 from __future__ import annotations
 
+import json
 import os
 import random
 from dataclasses import dataclass
@@ -167,9 +178,48 @@ def scenario_events(scenario_id: str, params: dict[str, Any] | None, seed: int, 
     return sorted((e for e in events if start_tick <= e.tick < end_tick), key=lambda e: e.tick)
 
 
+PROCESSING = "Machine.Processing"  # Machine.State while a job is in process
+
+
+def _ask(machine: str) -> str:
+    return f'machines with [Machine.Name = "{machine}"]'
+
+
+def _read_machine(session: Any, machine: str) -> tuple[list[str], list[float], str, float]:
+    """(Machine.Operations.Type, Machine.Operations.Time, Machine.State, Next.Completion), no random numbers."""
+    types, times, state, completion = json.loads(str(session._report(
+        f"platform-local [ -> [json-any (list Machine.Operations.Type Machine.Operations.Time Machine.State "
+        f"Next.Completion)] of one-of {_ask(machine)} ]")))
+    return [str(o) for o in types], [float(t) for t in times], str(state), float(completion)
+
+
+def _times(session: Any, machine: str) -> dict[str, float]:
+    types, times, _, _ = _read_machine(session, machine)
+    return dict(zip(types, times))
+
+
+def _set_times(session: Any, machine: str, times: list[float]) -> None:
+    values = " ".join(json.dumps(float(t)) for t in times)
+    session._command(f"with-local-randomness [ ask {_ask(machine)} [ set Machine.Operations.Time [{values}] ] ]")
+
+
+def _apply(session: Any, e: ScenarioEvent) -> AppliedEvent:
+    types, times, state, completion = _read_machine(session, e.machine)
+    if e.kind in ("set_times", "scale_times"):
+        _set_times(session, e.machine, [e.value if e.kind == "set_times" else t * e.value for t in times])
+        return AppliedEvent(e, applied=True, skip_reason=None, before=dict(zip(types, times)),
+                            after=_times(session, e.machine))
+    if e.kind == "repair":
+        if state != PROCESSING:
+            return AppliedEvent(e, applied=False, skip_reason="machine-idle", before=None, after=None)
+        session._command(f"with-local-randomness [ ask {_ask(e.machine)} [ "
+                         f"set Next.Completion Next.Completion + {json.dumps(float(e.value))} ] ]")
+        return AppliedEvent(e, applied=True, skip_reason=None, before=completion, after=_read_machine(session, e.machine)[3])
+    raise ValueError(f"unknown event kind {e.kind!r}")
+
+
 def apply_events(session: Any, events: list[ScenarioEvent]) -> list[AppliedEvent]:
-    """Apply the events to the model, in order (the model is at their tick). Stub: no change."""
+    """Apply the events to the model, in order (the model is at their tick, between two ticks)."""
     skip = os.environ.get("ACLOPI_SCENARIO_STUB_SKIP") == "1"
     return [AppliedEvent(e, applied=False, skip_reason="machine-idle", before=None, after=None)
-            if skip and e.kind == "repair" else AppliedEvent(e, applied=True, skip_reason=None, before=None, after=None)
-            for e in events]
+            if skip and e.kind == "repair" else _apply(session, e) for e in events]

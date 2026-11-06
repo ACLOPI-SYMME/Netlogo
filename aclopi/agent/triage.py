@@ -22,7 +22,7 @@ Level = Literal["obvious", "uncertain", "very_close"]
 
 @dataclass(frozen=True)
 class TriageParams:
-    u_wide: float = 150.0
+    u_wide: float = 100.0
     u_narrow: float = 50.0
 
 
