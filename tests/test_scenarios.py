@@ -1,6 +1,8 @@
-"""Scenarios in the worker (in-process WorkerState, real NetLogo, the stub of aclopi.sim.scenarios):
-the tick rule, block cuts in fast / live / manual step, the S3 calendar, reset, event before the
-decision request and before the what-if snapshot, skipped events (docs/scenarios.md)."""
+"""Scenarios in the worker: EXPERIMENTS ONLY. The platform does not offer scenarios (docs/scenarios.md:
+POST /sessions refuses any scenario other than S0); the worker keeps the mechanism, which Línea A's
+experiments use in-process. In-process WorkerState, real NetLogo, aclopi.sim.scenarios: the tick
+rule, block cuts in fast / live / manual step, the S3 calendar, reset, event before the decision
+request and before the what-if snapshot, skipped events."""
 
 from __future__ import annotations
 

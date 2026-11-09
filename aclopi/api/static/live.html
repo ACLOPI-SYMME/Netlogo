@@ -23,14 +23,10 @@
   table.set tr.over td { border-top: 2px solid #246; }
   .handle { cursor: grab; user-select: none; }
   #set-errors { font-size: 12px; }
-  #events div.scenario { color: #a40; font-weight: bold; }
-  #events div.skipped { color: #999; font-weight: normal; }
-  #toast { position: fixed; top: 12px; right: 12px; background: #a40; color: #fff; padding: 8px 14px; border-radius: 4px;
-           font-size: 15px; box-shadow: 0 2px 6px #0004; z-index: 10; }
-  #toast.skipped { background: #999; }
-  #scenario-params label { display: inline-block; margin: 2px 10px 2px 0; }
-  #scenario-params .err { font-size: 12px; }
-  #scenario-desc { font-size: 12px; color: #555; }
+  table.dec td { white-space: nowrap; }
+  table.dec td.reason { max-width: 320px; overflow: hidden; text-overflow: ellipsis; cursor: help; }
+  table.dec tr.late td { background: #fff3e0; }
+  .dec-box { margin-top: 8px; }
 </style>
 </head>
 <body>
@@ -53,10 +49,6 @@
   <span id="seed-used" hidden>Semilla usada: <b id="seed-value"></b> <button id="seed-copy" title="Copiar">copiar</button></span>
 </fieldset>
 <fieldset>
-  Escenario <select id="scenario"></select> <span id="scenario-desc"></span> <span id="scenario-used"></span>
-  <details id="scenario-params-box"><summary>Parámetros del escenario</summary><div id="scenario-params"></div></details>
-</fieldset>
-<fieldset>
   Velocidad <select id="speed"><option>0.5</option><option selected>1</option><option>2</option><option>4</option></select>
   <button id="live">En vivo</button>
   <button id="fast">Rápido</button>
@@ -66,7 +58,6 @@
   <button id="close">Cerrar</button>
 </fieldset>
 <div>Tick: <b id="tick">–</b> · Estado: <b id="runstate">–</b> · Ritmo: <span id="rate">–</span> · <span id="list-progress"></span> <span id="msg"></span></div>
-<div id="toast" hidden></div>
 <div id="main">
   <canvas id="plant" width="760" height="520"></canvas>
   <div id="side">
@@ -74,6 +65,11 @@
     <b>Decisiones</b><pre id="decisions">–</pre>
     <b>Eventos</b> (últimos 200)<div id="events"></div>
   </div>
+</div>
+<div class="dec-box">
+  <b>Últimas decisiones</b> (las 50 más nuevas arriba) · nivel <select id="dec-level" class="dec-level"><option value="">(todos)</option></select>
+  <table class="set dec"><thead><tr><th>Tick</th><th>Producto (tipo)</th><th>Operación</th><th>Máquina elegida</th><th>Nivel</th>
+    <th>Razón</th><th>Latencia</th><th>Tarde</th></tr></thead><tbody id="dec-rows"></tbody></table>
 </div>
 </section>
 
@@ -112,15 +108,22 @@
 <fieldset>
   Filtrar: semilla <input id="runs-seed" type="number">
   regla <select id="runs-rule"><option value="">(todas)</option><option>1</option><option>2</option><option>3</option><option>4</option></select>
-  escenario <select id="runs-scenario"><option value="">(todos)</option></select>
   <button id="runs-refresh">Actualizar</button> <button id="runs-more" hidden>Más</button>
   | <button id="runs-compare">Comparar seleccionadas</button>
 </fieldset>
 <div id="runs-msg" class="err"></div>
-<table class="set"><thead><tr><th></th><th>Inicio</th><th>Estado</th><th>Regla</th><th>Escenario</th><th>Fallas (aplic./salt.)</th><th>Semilla</th><th>Set</th>
+<table class="set"><thead><tr><th></th><th>Inicio</th><th>Estado</th><th>Regla</th><th>Semilla</th><th>Set</th>
   <th>Ticks</th><th>Makespan</th><th>Flujo medio</th><th>Trabajo</th><th>Terminados</th><th>Creados</th><th></th></tr></thead>
   <tbody id="runs-rows"></tbody></table>
 <h4>Comparación</h4><div id="runs-compare-box">–</div>
+<div id="rd-box" class="dec-box" hidden>
+  <h4>Decisiones de la corrida <span id="rd-title"></span></h4>
+  nivel <select id="rd-level" class="dec-level"><option value="">(todos)</option></select>
+  <button id="rd-prev">Anterior</button> <span id="rd-page"></span> <button id="rd-next">Siguiente</button>
+  <button id="rd-csv">Descargar CSV</button> <button id="rd-close">Cerrar</button>
+  <table class="set dec"><thead><tr><th>Tick</th><th>Producto (tipo)</th><th>Operación</th><th>Máquina elegida</th><th>Nivel</th>
+    <th>Razón</th><th>Latencia</th><th>Tarde</th></tr></thead><tbody id="rd-rows"></tbody></table>
+</div>
 </section>
 
 <script>
@@ -168,87 +171,13 @@ function seedField(onId, boxId, inputId, errorId) {
 const sessionSeed = seedField("seed-on", "seed-box", "seed", "seed-error");
 const generateSeed = seedField("gen-seed-on", "gen-seed-box", "gen-seed", "gen-seed-error");
 
-// ----- scenario form (built from GET /scenarios: ParamSpec) -----
-const MACHINES = ["M2", "M3", "M4", "M5", "M6", "M7"];
-let scenarioSpecs = [];
+
 const esc = t => String(t).replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
-const scenarioSpec = id => scenarioSpecs.find(s => s.id === id);
-async function loadScenarios() {
-  scenarioSpecs = await api("GET", "/scenarios");
-  const opts = scenarioSpecs.map(s => `<option value="${s.id}">${s.id} – ${esc(s.name)}</option>`).join("");
-  $("scenario").innerHTML = opts;
-  $("runs-scenario").innerHTML = `<option value="">(todos)</option>` + opts;
-  renderScenarioParams();
-}
-function renderScenarioParams(values) {
-  const spec = scenarioSpec($("scenario").value); if (!spec) return;
-  $("scenario-desc").textContent = spec.description;
-  $("scenario-params-box").hidden = !spec.params.length;
-  const has = p => p.min !== null && p.min !== undefined;
-  const range = p => has(p) ? ` min="${p.min}" max="${p.max}"` : "";
-  $("scenario-params").innerHTML = spec.params.map(p => {
-    const v = values && p.name in values ? values[p.name] : p.default;
-    let field;
-    if (p.type === "int" || p.type === "float")
-      field = `<input type="number" data-p="${p.name}" step="${p.type === "int" ? 1 : "any"}"${range(p)} value="${v}">`;
-    else if (p.type === "machine")
-      field = `<select data-p="${p.name}">${MACHINES.map(m => `<option${m === v ? " selected" : ""}>${m}</option>`).join("")}</select>`;
-    else if (p.type === "machine_list")
-      field = MACHINES.map(m => `<label><input type="checkbox" data-p="${p.name}" value="${m}"${v.includes(m) ? " checked" : ""}> ${m}</label>`).join("");
-    else  // machine_times: one field per machine; empty = that machine does not change
-      field = `<table class="set"><tr>${MACHINES.map(m => `<th>${m}</th>`).join("")}</tr><tr>${MACHINES.map(m =>
-        `<td><input type="number" step="any" data-p="${p.name}" data-m="${m}"${range(p)} value="${v[m] ?? ""}" placeholder="sin cambio"></td>`).join("")}</tr></table>`;
-    return `<div><b>${p.name}</b> ${field} <span class="err" data-err="${p.name}"></span>
-      <div style="font-size:12px;color:#555">${esc(p.description)}${has(p) ? ` (${p.min}–${p.max})` : ""}</div></div>`;
-  }).join("");
-}
-$("scenario").onchange = () => renderScenarioParams();
-function showParamError(name, text) {
-  const box = document.querySelector(`#scenario-params [data-err="${name}"]`);
-  if (box) { box.textContent = text; $("scenario-params-box").open = true; return true; }
-  return false;
-}
-// Validated here and again by the server (same rules: ParamSpec min/max, at least one machine).
-function readScenario() {
-  const spec = scenarioSpec($("scenario").value);
-  if (!spec) return {ok: true};
-  const params = {}; let ok = true;
-  document.querySelectorAll("#scenario-params [data-err]").forEach(e => e.textContent = "");
-  const inRange = (p, n) => p.min === null || p.min === undefined || (n >= p.min && n <= p.max);
-  const bad = (p, t) => { ok = false; showParamError(p.name, t); };
-  for (const p of spec.params) {
-    const inputs = [...document.querySelectorAll(`#scenario-params [data-p="${p.name}"]`)];
-    if (p.type === "int" || p.type === "float") {
-      const raw = inputs[0].value.trim(), n = Number(raw);
-      if (raw === "" || !Number.isFinite(n) || (p.type === "int" && !Number.isInteger(n))) bad(p, p.type === "int" ? "entero" : "número");
-      else if (!inRange(p, n)) bad(p, `entre ${p.min} y ${p.max}`);
-      else params[p.name] = n;
-    } else if (p.type === "machine") params[p.name] = inputs[0].value;
-    else if (p.type === "machine_list") {
-      const chosen = inputs.filter(i => i.checked).map(i => i.value);
-      if (!chosen.length) bad(p, "elige al menos una máquina"); else params[p.name] = chosen;
-    } else {
-      const times = {};
-      for (const i of inputs) {
-        const raw = i.value.trim(); if (raw === "") continue;
-        const n = Number(raw);
-        if (!Number.isFinite(n) || !inRange(p, n)) { bad(p, `${i.dataset.m}: entre ${p.min} y ${p.max} u.t. (o vacío)`); continue; }
-        times[i.dataset.m] = n;
-      }
-      params[p.name] = times;
-    }
-  }
-  return {ok, scenario: {id: spec.id, params}};
-}
-function paramText(v) {
-  if (Array.isArray(v)) return v.join("/");
-  if (v && typeof v === "object") return Object.entries(v).map(([m, t]) => `${m}:${t}`).join(" ") || "–";
-  return String(v);
-}
+// Scenarios are not available on the platform (docs/scenarios.md); runs saved before keep theirs and show it.
+const hasScenario = r => !!r.scenario_id && r.scenario_id !== "S0";
 function scenarioText(sc) {
-  if (!sc) return "S0";
-  const spec = scenarioSpec(sc.id), parts = Object.entries(sc.params || {}).map(([k, v]) => `${k}=${paramText(v)}`);
-  return `${sc.id}${spec ? " " + spec.name : ""}${parts.length ? " (" + parts.join(", ") + ")" : ""}`;
+  const parts = Object.entries((sc && sc.params) || {}).map(([k, v]) => `${k}=${typeof v === "object" ? JSON.stringify(v) : v}`);
+  return `${sc ? sc.id : "S0"}${parts.length ? " (" + parts.join(", ") + ")" : ""}`;
 }
 
 // ----- session -----
@@ -260,10 +189,8 @@ function showRun(info) {
 }
 $("create").onclick = () => act(async () => {
   const s = sessionSeed(); if (!s.ok) throw new Error("Semilla inválida");
-  const sc = readScenario(); if (!sc.ok) throw new Error("Parámetros del escenario inválidos");
   if (sid) { await api("DELETE", `/sessions/${sid}`).catch(() => {}); }
   const body = {rule: +$("rule").value, horizon_ticks: +$("horizon").value};
-  if (sc.scenario) body.scenario = sc.scenario;
   if (s.seed !== undefined) body.seed = s.seed;
   if (body.rule === 4) body.strategy = "agent";  // for the user, rule 4 is the agent (b1 / b1b / none: API only)
   // "Lista actual": exactly the list shown in the Set de productos tab, in that order.
@@ -271,17 +198,8 @@ $("create").onclick = () => act(async () => {
     if (!setItems.length) throw new Error("La lista actual está vacía");
     body.products = setItems.map(p => ({type: p.type, priority: p.priority}));
   } else if ($("session-set").value) body.product_set_id = $("session-set").value;
-  let info;
-  try { info = await api("POST", "/sessions", body); }
-  catch (e) {  // 422 invalid_scenario: "name: reason" (or "name.M3: reason") goes next to its field
-    if (e.data && e.data.code === "invalid_scenario") {
-      const m = /^([a-z_]+)[.:]/.exec(e.data.detail);
-      if (m && showParamError(m[1], e.data.detail)) throw new Error("Parámetros del escenario inválidos");
-    }
-    throw e;
-  }
+  const info = await api("POST", "/sessions", body);
   sessionInfo = info;
-  $("scenario-used").textContent = "Escenario: " + scenarioText(info.scenario);
   if (info.warnings && info.warnings.includes("agent_unavailable")) msg("Aviso: el agente no está disponible (en vivo actuará la regla 3)", true);
   $("seed-value").textContent = info.parameters.seed + (info.seed_source === "random" ? " (aleatoria)" : "");
   $("seed-used").hidden = false;
@@ -314,17 +232,13 @@ setInterval(showDecisions, 2000);
 
 function connect() {
   if (ws) ws.close();
-  frames = []; events = [];
+  frames = []; events = []; liveDecisions = []; renderLiveDecisions();
   const proto = location.protocol === "https:" ? "wss" : "ws";
   ws = new WebSocket(`${proto}://${location.host}/ws/sessions/${sid}`);
   ws.onmessage = e => handle(JSON.parse(e.data));
   ws.onclose = e => msg(`WebSocket cerrado (${e.code} ${e.reason})`, e.code !== 1000);
 }
 function eventLine(ev) {
-  if (ev.type === "scenario") {
-    const text = ev.applied ? ev.label : `Falla saltada: ${ev.machine} libre`;
-    return `<div class="scenario${ev.applied ? "" : " skipped"}">${ev.tick} ESCENARIO ${esc(text)}</div>`;
-  }
   return `<div>${ev.tick} ${esc(ev.event)} p${ev.who} ${esc(ev.location ?? "")} → ${esc(ev.destination ?? "")}</div>`;
 }
 function addEvents(list) {
@@ -332,25 +246,6 @@ function addEvents(list) {
   if (events.length > MAX_EVENTS) events = events.slice(-MAX_EVENTS);
   $("events").innerHTML = events.map(eventLine).join("");
   $("events").scrollTop = 1e9;
-}
-// Scenario events: a toast for a few seconds; the machine is highlighted for a few seconds on a
-// failure (repair) and keeps a mark for a degradation or a changed time. Skipped: shown dimmed.
-const TOAST_MS = 5000, FAILURE_MS = 5000;
-const machineMarks = new Map(), machineFlash = new Map();
-let toastTimer = null;
-function toast(text, skipped) {
-  $("toast").textContent = text; $("toast").className = skipped ? "skipped" : ""; $("toast").hidden = false;
-  clearTimeout(toastTimer); toastTimer = setTimeout(() => { $("toast").hidden = true; }, TOAST_MS);
-}
-function markMachine(ev) {
-  if (!ev.applied) return;
-  if (ev.kind === "repair") machineFlash.set(ev.machine, performance.now() + FAILURE_MS);
-  else machineMarks.set(ev.machine, ev.kind === "scale_times" ? `×${ev.value}` : `${ev.value} u.t.`);
-}
-function scenarioEvent(ev) {
-  markMachine(ev);
-  toast(ev.applied ? `Tick ${ev.tick}: ${ev.label}` : `Tick ${ev.tick}: Falla saltada: ${ev.machine} libre`, !ev.applied);
-  addEvents([ev]);
 }
 function addFrame(tick, state) {
   if (!state) return;
@@ -379,9 +274,7 @@ function showKpis(k) {
 function handle(m) {
   switch (m.type) {
     case "snapshot":
-      layout = m.layout; frames = []; events = []; machineMarks.clear(); machineFlash.clear();
-      (m.scenario_events || []).filter(ev => ev.kind !== "repair").forEach(markMachine);  // already applied: marks, no toast
-      if (m.session && m.session.scenario) $("scenario-used").textContent = "Escenario: " + scenarioText(m.session.scenario);
+      layout = m.layout; frames = []; events = [];
       showRun(m.session); $("tick").textContent = m.tick; showKpis(m.kpis);
       addEvents(m.recent_events || []); addFrame(m.tick, m.state); break;
     case "tick":
@@ -391,14 +284,81 @@ function handle(m) {
       $("tick").textContent = m.tick; $("rate").textContent = m.ticks_per_s ? `${Math.round(m.ticks_per_s)} ticks/s` : "–";
       addFrame(m.tick, m.state); addEvents(m.events); showKpis(m.kpis); break;
     case "run_state": showRun(m); break;
-    case "decision": break;
-    case "scenario_event": scenarioEvent(m.event); break;
+    case "decision": addLiveDecision(m); break;
     case "finished": showKpis(m.kpis); msg(`Corrida terminada en el tick ${m.tick}` + (m.reason ? ` (${m.reason})` : "")); break;
     case "resync": msg(`Resincronizando (${m.reason}, ${m.dropped} mensajes descartados)`); break;
     case "run_error": msg(`Error en la corrida: ${m.error}`, true); break;
     case "closed": msg(`Sesión cerrada: ${m.code} – ${m.reason}`, true); break;
   }
 }
+
+// ----- decisions: live panel (WebSocket "decision") and a saved run's decisions (GET /runs/{id}/decisions) -----
+const MAX_LIVE_DECISIONS = 50, RUN_DECISIONS_PAGE = 50, REASON_CHARS = 60;
+let liveDecisions = [];
+const levelsSeen = new Set();
+// One shape for both: the WebSocket message and the saved record (decision_level instead of level).
+const asDecision = d => ({tick: d.tick, product: d.product, product_type: d.product_type, operation: d.operation,
+                          machine: d.machine, level: d.level ?? d.decision_level, reason: d.reason ?? "",
+                          latency_ms: d.latency_ms, late: !!d.late});
+function decisionRows(list) {
+  return list.map(d => {
+    const reason = String(d.reason ?? ""), short = reason.length > REASON_CHARS ? reason.slice(0, REASON_CHARS - 1) + "…" : reason;
+    return `<tr class="${d.late ? "late" : ""}"><td>${d.tick ?? "–"}</td><td>p${d.product}${d.product_type ? ` (${esc(d.product_type)})` : ""}</td>
+      <td>${esc(d.operation ?? "–")}</td><td>${esc(d.machine)}</td><td>${esc(d.level ?? "–")}</td>
+      <td class="reason" title="${esc(reason)}">${esc(short) || "–"}</td>
+      <td>${d.latency_ms === null || d.latency_ms === undefined ? "–" : Math.round(d.latency_ms) + " ms"}</td>
+      <td>${d.late ? "⚠ tarde" : ""}</td></tr>`;
+  }).join("");
+}
+function noteLevels(list) {  // the level filters offer every level seen
+  let added = false;
+  for (const d of list) if (d.level && !levelsSeen.has(d.level)) { levelsSeen.add(d.level); added = true; }
+  if (!added) return;
+  document.querySelectorAll("select.dec-level").forEach(sel => {
+    const v = sel.value;
+    sel.innerHTML = `<option value="">(todos)</option>` + [...levelsSeen].sort().map(l => `<option>${esc(l)}</option>`).join("");
+    sel.value = v;
+  });
+}
+const byLevel = (list, sel) => $(sel).value ? list.filter(d => d.level === $(sel).value) : list;
+function renderLiveDecisions() { $("dec-rows").innerHTML = decisionRows(byLevel(liveDecisions, "dec-level")); }
+function addLiveDecision(m) {
+  const d = asDecision(m);
+  liveDecisions.unshift(d);  // newest on top
+  if (liveDecisions.length > MAX_LIVE_DECISIONS) liveDecisions.length = MAX_LIVE_DECISIONS;
+  noteLevels([d]); renderLiveDecisions();
+}
+$("dec-level").onchange = renderLiveDecisions;
+
+let runDecisions = [], runDecisionsRun = null, runDecisionsPage = 0;
+async function showRunDecisions(r) {
+  const list = (await api("GET", `/runs/${r.run_id}/decisions`)).map(asDecision);
+  runDecisions = list.reverse(); runDecisionsRun = r; runDecisionsPage = 0;  // newest on top, as the live panel
+  noteLevels(runDecisions);
+  $("rd-title").textContent = `${r.run_id.slice(0, 8)} · ${ruleText(r)} · semilla ${r.seed} · ${runDecisions.length} decisiones`;
+  $("rd-box").hidden = false; renderRunDecisions(); $("rd-box").scrollIntoView();
+}
+function renderRunDecisions() {
+  const list = byLevel(runDecisions, "rd-level");
+  const pages = Math.max(1, Math.ceil(list.length / RUN_DECISIONS_PAGE));
+  runDecisionsPage = Math.max(0, Math.min(runDecisionsPage, pages - 1));
+  const start = runDecisionsPage * RUN_DECISIONS_PAGE;
+  $("rd-rows").innerHTML = decisionRows(list.slice(start, start + RUN_DECISIONS_PAGE));
+  $("rd-page").textContent = `página ${runDecisionsPage + 1} de ${pages} (${list.length} decisiones)`;
+  $("rd-prev").disabled = runDecisionsPage === 0; $("rd-next").disabled = runDecisionsPage >= pages - 1;
+}
+$("rd-level").onchange = () => { runDecisionsPage = 0; renderRunDecisions(); };
+$("rd-prev").onclick = () => { runDecisionsPage--; renderRunDecisions(); };
+$("rd-next").onclick = () => { runDecisionsPage++; renderRunDecisions(); };
+$("rd-close").onclick = () => { $("rd-box").hidden = true; };
+const csvCell = v => v === null || v === undefined ? "" : /[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : String(v);
+$("rd-csv").onclick = () => {  // every decision of the run, in order (oldest first), whatever the filter
+  const cols = ["tick", "product", "product_type", "operation", "machine", "level", "reason", "latency_ms", "late"];
+  const rows = [...runDecisions].reverse().map(d => cols.map(c => csvCell(d[c])).join(","));
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([[cols.join(","), ...rows].join("\n") + "\n"], {type: "text/csv"}));
+  a.download = `decisiones-${runDecisionsRun.run_id.slice(0, 8)}.csv`; a.click();
+};
 
 // ----- product set editor -----
 let setItems = [], setId = null, dirty = false, dragFrom = null;
@@ -528,7 +488,6 @@ $("set-delete").onclick = async () => {
   await api("DELETE", `/product-sets/${id}`); if (setId === id) setId = null; await refreshSaved();
 };
 refreshSaved().catch(() => {}); renderSet();
-loadScenarios().catch(e => msg(`No se pudieron leer los escenarios: ${e.message}`, true));
 
 // ----- past runs (L5.7) -----
 let runs = [], runsCursor = null;
@@ -537,7 +496,6 @@ async function loadRuns(reset) {
   const q = new URLSearchParams({limit: "50"});
   if ($("runs-seed").value.trim()) q.set("seed", $("runs-seed").value.trim());
   if ($("runs-rule").value) q.set("rule", $("runs-rule").value);
-  if ($("runs-scenario").value) q.set("scenario", $("runs-scenario").value);
   if (!reset && runsCursor) q.set("cursor", runsCursor);
   try {
     const page = await api("GET", `/runs?${q}`);
@@ -557,14 +515,14 @@ function renderRuns() {
     const k = r.kpis || {};
     const tr = document.createElement("tr");
     tr.innerHTML = `<td><input type="checkbox" data-id="${r.run_id}"></td><td>${new Date(r.created_at * 1000).toLocaleString()}</td>
-      <td>${r.status}${r.reason ? " (" + r.reason + ")" : ""}</td><td>${esc(ruleText(r))}</td>
-      <td title="${esc(scenarioText(r.scenario))}">${esc(r.scenario_id ?? "S0")}</td><td>${scenarioCounts(r)}</td>
+      <td>${r.status}${r.reason ? " (" + r.reason + ")" : ""}</td><td>${esc(ruleText(r))}${hasScenario(r) ? ` <span title="${esc(scenarioText(r.scenario))}">[${esc(r.scenario_id)}]</span>` : ""}</td>
       <td>${r.seed}${r.seed_source === "random" ? "*" : ""}</td><td>${r.products_hash ? r.products_hash.slice(0, 8) : "semilla"}</td>
       <td>${fmt(r.ticks)}</td><td><b>${makespanText(k)}</b></td><td>${fmt(k.mean_flow_time)}</td><td>${fmt(k.work_completed)}</td>
       <td>${fmt(k.finished)}</td><td>${fmt(k.created)}</td>
-      <td><button data-a="repeat">Repetir</button><button data-a="csv">CSV</button></td>`;
+      <td><button data-a="decisions">Ver decisiones</button><button data-a="repeat">Repetir</button><button data-a="csv">CSV</button></td>`;
     tr.querySelector('[data-a="repeat"]').onclick = () => repeatRun(r);
     tr.querySelector('[data-a="csv"]').onclick = () => exportRun(r);
+    tr.querySelector('[data-a="decisions"]').onclick = () => showRunDecisions(r).catch(e => { $("runs-msg").textContent = e.message; });
     body.appendChild(tr);
   });
 }
@@ -576,12 +534,9 @@ function ruleText(r) {
   if (r.strategy === "none") return "Regla 4";  // without a decider: tests only, not a user option
   return `Regla 4 (${STRATEGY_NAMES[r.strategy] ?? "agente"})`;
 }
-function scenarioCounts(r) {
-  const s = r.scenario_summary; return s ? `${s.applied} / ${s.skipped}` : "–";
-}
 async function repeatRun(r) {
   const body = {seed: r.seed, rule: r.rule, horizon_ticks: r.horizon_ticks};
-  if (r.scenario) body.scenario = {id: r.scenario.id, params: r.scenario.params};  // the same scenario and params
+  // A run saved with a scenario is repeated on the original plant (scenarios are not available).
   if (r.rule === 4 && r.strategy) body.strategy = r.strategy;  // the original strategy (b1 / b1b runs too)
   if (r.products) body.products = r.products;  // the run's own copy: the same set even if it was edited
   showTab("session");
@@ -589,11 +544,10 @@ async function repeatRun(r) {
     if (sid) { await api("DELETE", `/sessions/${sid}`).catch(() => {}); }
     const info = await api("POST", "/sessions", body);
     sessionInfo = info; sid = info.session_id; $("sid").textContent = sid;
-    $("scenario-used").textContent = "Escenario: " + scenarioText(info.scenario);
-    if (info.scenario && scenarioSpec(info.scenario.id)) { $("scenario").value = info.scenario.id; renderScenarioParams(info.scenario.params); }
     $("seed-value").textContent = info.parameters.seed; $("seed-used").hidden = false;
     $("rule").value = String(r.rule);
-    msg(`Sesión creada para repetir la corrida ${r.run_id.slice(0, 8)} (${ruleText(r)}, semilla ${r.seed}); iníciala en ${r.mode ?? "vivo"}`);
+    msg(`Sesión creada para repetir la corrida ${r.run_id.slice(0, 8)} (${ruleText(r)}, semilla ${r.seed}` +
+        `${hasScenario(r) ? `, sin el escenario ${r.scenario_id}` : ""}); iníciala en ${r.mode ?? "vivo"}`);
     connect(); return info;
   });
 }
@@ -602,8 +556,6 @@ async function exportRun(r) {
   const k = r.kpis || {};
   const lines = ["field,value", ...["run_id", "status", "reason", "rule", "strategy", "seed", "seed_source", "horizon_ticks",
     "mode", "product_set_id", "products_hash", "ticks", "scenario_id"].map(f => `${f},${r[f] ?? ""}`),
-    `scenario,${JSON.stringify(scenarioText(r.scenario))}`, `scenario_applied,${r.scenario_summary ? r.scenario_summary.applied : ""}`,
-    `scenario_skipped,${r.scenario_summary ? r.scenario_summary.skipped : ""}`,
     ...Object.keys(k).map(f => `kpi.${f},${k[f] ?? ""}`), "",
     "seq,tick,request_tick,product,seq_op,machine,decision_level,late,latency_ms,reason",
     ...decisions.map(d => [d.seq, d.tick, d.request_tick ?? "", d.product, d.seq_op ?? d["seq"], d.machine, d.decision_level,
@@ -618,16 +570,17 @@ $("runs-compare").onclick = () => {
   const ids = [...document.querySelectorAll('#runs-rows input[type=checkbox]:checked')].map(c => c.dataset.id);
   const chosen = runs.filter(r => ids.includes(r.run_id));
   if (chosen.length < 2) { $("runs-compare-box").textContent = "Selecciona al menos 2 corridas"; return; }
-  // Grouped by scenario (with its params) + seed + product set: runs are compared within a group.
+  // Grouped by seed + product set (and the scenario of an old run that had one): compared within a group.
   const groups = new Map();
   for (const r of chosen) {
-    const key = `${scenarioText(r.scenario)} · semilla ${r.seed} · set ${r.products_hash ? r.products_hash.slice(0, 8) : "semilla"}`;
+    const key = `semilla ${r.seed} · set ${r.products_hash ? r.products_hash.slice(0, 8) : "semilla"}` +
+                (hasScenario(r) ? ` · escenario ${scenarioText(r.scenario)}` : "");
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push(r);
   }
-  const keys = ["makespan", "mean_flow_time", "work_completed", "finished", "created", "throughput", "all_done", "fallas"];
-  const cell = (r, k) => k === "makespan" ? makespanText(r.kpis || {}) : k === "fallas" ? scenarioCounts(r) : fmt((r.kpis || {})[k]);
-  $("runs-compare-box").innerHTML = (groups.size > 1 ? `<p class="err">Ojo: las corridas no tienen el mismo escenario, la misma semilla y el mismo set; se comparan por grupo</p>` : "") +
+  const keys = ["makespan", "mean_flow_time", "work_completed", "finished", "created", "throughput", "all_done"];
+  const cell = (r, k) => k === "makespan" ? makespanText(r.kpis || {}) : fmt((r.kpis || {})[k]);
+  $("runs-compare-box").innerHTML = (groups.size > 1 ? `<p class="err">Ojo: las corridas no tienen la misma semilla y el mismo set; se comparan por grupo</p>` : "") +
     [...groups].map(([key, rs]) => {
       const head = `<tr><th>KPI</th>${rs.map(r => `<th>${esc(ruleText(r))} ${r.run_id.slice(0, 6)}</th>`).join("")}</tr>`;
       const rows = keys.map(k => `<tr><td>${k}</td>${rs.map(r => `<td>${cell(r, k)}</td>`).join("")}</tr>`).join("");
@@ -664,14 +617,9 @@ function draw() {
   ctx.fillStyle = "#ccc";
   for (const n of layout.nodes) { const [x, y] = tf(n); ctx.fillRect(x - 2, y - 2, 4, 4); }
   ctx.fillStyle = "#246"; ctx.font = "12px sans-serif";
-  const now = performance.now();
   for (const m of layout.machines) {
     const [x, y] = tf(m);
-    const flash = (machineFlash.get(m.name) || 0) > now, mark = machineMarks.get(m.name);
-    if (flash) { ctx.fillStyle = Math.floor(now / 300) % 2 ? "#e60" : "#fb0"; ctx.fillRect(x - 11, y - 11, 22, 22); }
-    if (mark) { ctx.strokeStyle = "#a40"; ctx.lineWidth = 3; ctx.strokeRect(x - 9, y - 9, 18, 18); }
-    ctx.fillStyle = "#246"; ctx.fillRect(x - 6, y - 6, 12, 12); ctx.fillText(m.name, x + 8, y - 8);
-    if (mark) { ctx.fillStyle = "#a40"; ctx.fillText(mark, x + 8, y + 16); }
+    ctx.fillRect(x - 6, y - 6, 12, 12); ctx.fillText(m.name, x + 8, y - 8);
   }
   const t = performance.now() - DELAY_MS;
   const [a, b] = framePair(t);

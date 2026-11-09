@@ -1,8 +1,9 @@
-"""Set de productos tab, scenario form and rule / strategy (live.html) in a headless browser, without NetLogo.
+"""Set de productos tab, rule / strategy, decision panels and no scenarios (live.html) in a headless
+browser, without NetLogo.
 
 A small FastAPI app serves the real page and the endpoints the tab uses: parse-csv with the real
-parser (aclopi.api.product_sets.parse_csv), product-sets, health, GET /scenarios (the real
-list_scenarios), GET /runs (the runs in RUNS) and POST /sessions (records the body). Needs Playwright with Chromium or Edge (`pip install playwright`); skipped otherwise.
+parser (aclopi.api.product_sets.parse_csv), product-sets, health, GET /runs (the runs in RUNS),
+GET /runs/{id}/decisions (DECISIONS) and POST /sessions (records the body). Needs Playwright with Chromium or Edge (`pip install playwright`); skipped otherwise.
 """
 
 from __future__ import annotations
@@ -23,22 +24,30 @@ from fastapi import FastAPI, File, Request, UploadFile  # noqa: E402
 from fastapi.responses import FileResponse, JSONResponse  # noqa: E402
 
 from aclopi.api.product_sets import parse_csv  # noqa: E402
-from aclopi.sim.scenarios import list_scenarios  # noqa: E402
 
 PAGE = Path(__file__).resolve().parents[1] / "aclopi" / "api" / "static" / "live.html"
 CSV_OK = "type,priority\nA,70\nI,80\nP,90\nB,60\nE,100\n"
 CSV_WITH_ERRORS = "type,priority\nA,70\nX,80\n\nB,60\nE,100\n"
 
 
-def _run(run_id: str, rule: int, strategy: str | None) -> dict[str, Any]:
+def _run(run_id: str, rule: int, strategy: str | None, scenario: dict[str, Any] | None = None) -> dict[str, Any]:
+    scenario = scenario or {"id": "S0", "params": {}}
     return {"run_id": run_id, "created_at": 1_700_000_000, "status": "finished", "reason": "horizon", "rule": rule,
             "strategy": strategy, "seed": 42, "seed_source": "given", "horizon_ticks": 3000, "mode": "fast",
-            "ticks": 3000, "scenario_id": "S0", "scenario": {"id": "S0", "params": {}}, "kpis": {"finished": 1}}
+            "ticks": 3000, "scenario_id": scenario["id"], "scenario": scenario, "kpis": {"finished": 1}}
 
 
-# Rule 4 runs as the API stores them: agent (the page), b1 / b1b (experiments), none (tests).
+# Rule 4 runs as the API stores them: agent (the page), b1 / b1b (experiments), none (tests); and a
+# rule 3 run saved before scenarios were taken out, with S2.
 RUNS = [_run("run-agent-0001", 4, "agent"), _run("run-b1-000001", 4, "b1"), _run("run-b1b-00001", 4, "b1b"),
-        _run("run-none-0001", 4, "none"), _run("run-rule3-001", 3, None)]
+        _run("run-none-0001", 4, "none"),
+        _run("run-rule3-001", 3, None, {"id": "S2", "params": {"machine": "M7", "factor": 1.75, "start_tick": 1000}})]
+LEVELS = ["code-obvious", "llm", "llm-what-if", "code-fallback"]
+# 120 saved decisions of run-agent-0001 (oldest first, as GET /runs/{id}/decisions gives them).
+DECISIONS = [{"seq": i, "tick": 100 + 10 * i, "request_tick": 99 + 10 * i, "product": 200 + i % 7, "product_type": "AIPBELT"[i % 7],
+              "operation": f"O{1 + i % 8}", "machine": f"M{2 + i % 6}", "decision_level": LEVELS[i % 4],
+              "reason": ("razón larga, " * 12 + f"fin {i}") if i % 4 == 1 else f"obvia {i}",
+              "latency_ms": 40.0 + i, "late": i % 10 == 9, "strategy": "agent", "result": "ok"} for i in range(120)]
 
 
 def fake_platform(sessions: list[dict[str, Any]]) -> FastAPI:
@@ -67,17 +76,15 @@ def fake_platform(sessions: list[dict[str, Any]]) -> FastAPI:
     def runs() -> dict[str, Any]:
         return {"runs": RUNS, "next_cursor": None}
 
-    @app.get("/scenarios")
-    def scenarios() -> list[Any]:
-        return [{"id": sc.id, "name": sc.name, "description": sc.description, "params": [vars(p) for p in sc.params]}
-                for sc in list_scenarios()]
+    @app.get("/runs/{run_id}/decisions")
+    def run_decisions(run_id: str) -> list[Any]:
+        return DECISIONS if run_id == "run-agent-0001" else []
 
     @app.post("/sessions")
     async def create(request: Request) -> dict[str, Any]:
         sessions.append(await request.json())
-        body = await request.json()
         return {"session_id": "s1", "parameters": {"seed": 1}, "seed_source": "random", "warnings": [],
-                "scenario": body.get("scenario") or {"id": "S0", "params": {}}}
+                "scenario": {"id": "S0", "params": {}}}
 
     return app
 
@@ -172,48 +179,72 @@ def _sent(sessions: list[dict[str, Any]], before: int) -> dict[str, Any]:
     raise AssertionError("POST /sessions not sent")
 
 
-def test_scenario_form_and_live_notices(server: tuple[str, list], browser: Any) -> None:
+def _ready(page: Any) -> None:
+    page.wait_for_function("typeof handle === 'function' && document.querySelector('#saved-sets') !== null")
+
+
+def test_no_scenarios_and_live_decision_panel(server: tuple[str, list], browser: Any) -> None:
     url, sessions = server
     page = browser.new_page()
     page.goto(f"{url}/ui")
-    page.wait_for_function("document.querySelectorAll('#scenario option').length === 4")
-    # S3: the machine list needs at least one machine (error next to the field, nothing sent)
-    page.select_option("#scenario", "S3")
-    page.click("#scenario-params-box summary")  # "Parámetros del escenario" starts folded
-    assert page.input_value('#scenario-params [data-p="interval_ticks"]') == "5000"
-    for box in page.query_selector_all('#scenario-params input[data-p="machines"]'):
-        box.uncheck()
+    _ready(page)
+    # No scenario selector, params, toast nor filter / columns in the runs tab; no scenario is sent.
+    for sel in ("#scenario", "#scenario-params", "#toast", "#runs-scenario"):
+        assert page.query_selector(sel) is None, sel
+    assert "Escenario" not in page.inner_text("body")
     before = len(sessions)
     page.click("#create")
-    page.wait_for_function("document.querySelector('[data-err=\"machines\"]').textContent !== ''")
-    assert "al menos una" in page.inner_text('[data-err="machines"]') and len(sessions) == before
-    page.check('#scenario-params input[value="M4"]')
-    page.fill('#scenario-params [data-p="interval_ticks"]', "300")  # out of range (500-1000000)
-    page.click("#create")
-    assert "entre 500" in page.inner_text('[data-err="interval_ticks"]') and len(sessions) == before
-    page.fill('#scenario-params [data-p="interval_ticks"]', "800")
-    page.click("#create")
-    assert _sent(sessions, before)["scenario"] == {"id": "S3", "params": {"interval_ticks": 800, "repair_ut": 300,
-                                                                           "machines": ["M4"]}}
-    # S1 partial: an empty field means "no change"
-    page.select_option("#scenario", "S1")
-    for m in ("M2", "M3", "M5", "M6", "M7"):
-        page.fill(f'#scenario-params [data-p="times"][data-m="{m}"]', "")
-    page.fill('#scenario-params [data-p="times"][data-m="M4"]', "350")
-    before = len(sessions)
-    page.click("#create")
-    assert _sent(sessions, before)["scenario"] == {"id": "S1", "params": {"times": {"M4": 350}}}
-    # Live notices: a toast, the event list, and a skipped event dimmed
-    event = {"type": "scenario", "tick": 800, "kind": "repair", "machine": "M4", "value": 300, "label": "Falla en M4: +300 u.t.",
-             "applied": True, "skip_reason": None, "before": None, "after": None}
-    page.evaluate("ev => handle({type: 'scenario_event', tick: ev.tick, event: ev})", event)
-    assert page.is_visible("#toast") and "Falla en M4" in page.inner_text("#toast")
-    assert "ESCENARIO Falla en M4: +300 u.t." in page.inner_text("#events")
-    page.evaluate("ev => handle({type: 'scenario_event', tick: 1600, event: {...ev, tick: 1600, applied: false, "
-                  "skip_reason: 'machine-idle'}})", event)
-    assert "Falla saltada: M4 libre" in page.inner_text("#toast")
-    assert page.eval_on_selector("#toast", "e => e.className") == "skipped"
-    assert page.eval_on_selector_all("#events div.skipped", "els => els.length") == 1
+    assert "scenario" not in _sent(sessions, before)
+    page.wait_for_function("document.querySelector('#sid').textContent === 's1'")  # connect() done: it clears the panel
+    # The live panel: WebSocket "decision" messages, newest on top, level filter, short reason with the
+    # full one on hover, latency, late mark.
+    long_reason = "M3 termina antes que M5 por 40 u.t.; M5 tiene dos productos en cola y uno en camino desde M2"
+    page.evaluate("""r => {
+        handle({type: 'decision', tick: 300, product: 201, product_type: 'A', seq_op: 1, operation: 'O2', machine: 'M3',
+                level: 'llm', reason: r, late: false, latency_ms: 812.4});
+        handle({type: 'decision', tick: 340, product: 202, product_type: 'E', seq_op: 2, operation: 'O5', machine: 'M6',
+                level: 'code-obvious', reason: 'única cercana', late: true, latency_ms: 95.0});
+    }""", long_reason)
+    rows = page.eval_on_selector_all("#dec-rows tr", "els => els.map(e => [...e.cells].map(c => c.textContent))")
+    assert rows[0] == ["340", "p202 (E)", "O5", "M6", "code-obvious", "única cercana", "95 ms", "⚠ tarde"]
+    assert rows[1][:5] == ["300", "p201 (A)", "O2", "M3", "llm"] and rows[1][6:] == ["812 ms", ""]
+    assert rows[1][5].endswith("…") and len(rows[1][5]) == 60
+    assert page.eval_on_selector("#dec-rows tr:nth-child(2) td.reason", "e => e.title") == long_reason
+    page.select_option("#dec-level", "llm")
+    assert page.eval_on_selector_all("#dec-rows tr", "els => els.length") == 1
+    page.select_option("#dec-level", "")
+    for k in range(60):  # at most 50 kept
+        page.evaluate("k => handle({type: 'decision', tick: 400 + k, product: 210, machine: 'M2', level: 'llm', late: false})", k)
+    assert page.eval_on_selector_all("#dec-rows tr", "els => els.length") == 50
+    assert page.inner_text("#dec-rows tr:first-child td:first-child") == "459"
+    page.close()
+
+
+def test_run_decisions_paged_filtered_and_csv(server: tuple[str, list], browser: Any) -> None:
+    url, _ = server
+    page = browser.new_page(accept_downloads=True)
+    page.goto(f"{url}/ui")
+    _ready(page)
+    page.click("#tab-runs")
+    page.wait_for_function("document.querySelectorAll('#runs-rows tr').length === 5")
+    page.click('#runs-rows tr:nth-child(1) [data-a="decisions"]')
+    page.wait_for_function("document.querySelectorAll('#rd-rows tr').length === 50")
+    assert "120 decisiones" in page.inner_text("#rd-title") and "página 1 de 3" in page.inner_text("#rd-page")
+    first = page.eval_on_selector("#rd-rows tr:first-child", "e => [...e.cells].map(c => c.textContent)")
+    assert first == ["1290", "p200 (A)", "O8", "M7", "code-fallback", "obvia 119", "159 ms", "⚠ tarde"]  # newest on top
+    page.click("#rd-next"); page.click("#rd-next")
+    assert page.eval_on_selector_all("#rd-rows tr", "els => els.length") == 20
+    assert page.is_disabled("#rd-next") and "página 3 de 3" in page.inner_text("#rd-page")
+    page.select_option("#rd-level", "llm")  # 30 decisions: one page
+    assert page.eval_on_selector_all("#rd-rows tr", "els => els.length") == 30 and "página 1 de 1" in page.inner_text("#rd-page")
+    with page.expect_download() as info:
+        page.click("#rd-csv")
+    lines = Path(info.value.path()).read_text(encoding="utf-8").splitlines()
+    assert lines[0] == "tick,product,product_type,operation,machine,level,reason,latency_ms,late"
+    assert len(lines) == 121 and lines[1] == "100,200,A,O1,M2,code-obvious,obvia 0,40,false"  # all of them, in order
+    assert lines[2].startswith('110,201,I,O2,M3,llm,"razón larga, ')
+    # An old run with a scenario still shows (rule cell), and Repetir sends no scenario.
+    assert page.inner_text("#runs-rows tr:nth-child(5) td:nth-child(4)") == "Regla 3 [S2]"
     page.close()
 
 
@@ -221,7 +252,7 @@ def test_rule_4_is_the_agent_and_runs_show_the_strategy(server: tuple[str, list]
     url, sessions = server
     page = browser.new_page()
     page.goto(f"{url}/ui")
-    page.wait_for_function("document.querySelectorAll('#scenario option').length === 4")
+    _ready(page)
     # No strategy selector; rule 4 is "Regla 4 — Agente IA" and always creates the session with agent.
     assert page.query_selector("#strategy") is None and page.query_selector("#strategy-box") is None
     assert page.eval_on_selector("#rule option[value='4']", "e => e.textContent") == "Regla 4 — Agente IA"
@@ -238,7 +269,7 @@ def test_rule_4_is_the_agent_and_runs_show_the_strategy(server: tuple[str, list]
     page.click("#tab-runs")
     page.wait_for_function("document.querySelectorAll('#runs-rows tr').length === 5")
     rules = page.eval_on_selector_all("#runs-rows tr td:nth-child(4)", "els => els.map(e => e.textContent)")
-    assert rules == ["Regla 4 (agente)", "Regla 4 (B1)", "Regla 4 (B1b)", "Regla 4", "Regla 3"]
+    assert rules == ["Regla 4 (agente)", "Regla 4 (B1)", "Regla 4 (B1b)", "Regla 4", "Regla 3 [S2]"]
     # The comparison uses the same names.
     for run_id in ("run-agent-0001", "run-b1-000001", "run-b1b-00001"):
         page.check(f'#runs-rows input[data-id="{run_id}"]')
@@ -259,4 +290,10 @@ def test_rule_4_is_the_agent_and_runs_show_the_strategy(server: tuple[str, list]
     before = len(sessions)
     page.click('#runs-rows tr:nth-child(1) [data-a="repeat"]')
     assert _sent(sessions, before)["strategy"] == "agent"
+    # The old S2 run is repeated on the original plant: no scenario in the body.
+    page.click("#tab-runs")
+    page.wait_for_function("document.querySelectorAll('#runs-rows tr').length === 5")
+    before = len(sessions)
+    page.click('#runs-rows tr:nth-child(5) [data-a="repeat"]')
+    assert "scenario" not in _sent(sessions, before)
     page.close()

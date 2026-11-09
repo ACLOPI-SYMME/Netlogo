@@ -976,62 +976,6 @@
         "title": "OthersMetric",
         "type": "object"
       },
-      "ParamSpecOut": {
-        "properties": {
-          "default": {
-            "title": "Default"
-          },
-          "description": {
-            "title": "Description",
-            "type": "string"
-          },
-          "max": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Max"
-          },
-          "min": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Min"
-          },
-          "name": {
-            "title": "Name",
-            "type": "string"
-          },
-          "type": {
-            "enum": [
-              "int",
-              "float",
-              "machine",
-              "machine_list",
-              "machine_times"
-            ],
-            "title": "Type",
-            "type": "string"
-          }
-        },
-        "required": [
-          "name",
-          "type",
-          "default",
-          "description"
-        ],
-        "title": "ParamSpecOut",
-        "type": "object"
-      },
       "ParsedCsv": {
         "properties": {
           "counts": {
@@ -1662,7 +1606,7 @@
         "properties": {
           "id": {
             "default": "S0",
-            "description": "Scenario id from GET /scenarios (S0 Base, S1, S2, S3...)",
+            "description": "Only S0 (the original plant): scenarios are not available",
             "title": "Id",
             "type": "string"
           },
@@ -1676,7 +1620,7 @@
                 "type": "null"
               }
             ],
-            "description": "Scenario parameters; the missing ones take their default (validate_params)",
+            "description": "Must be empty",
             "title": "Params"
           }
         },
@@ -1701,37 +1645,6 @@
           "params"
         ],
         "title": "ScenarioRef",
-        "type": "object"
-      },
-      "ScenarioSpecOut": {
-        "properties": {
-          "description": {
-            "title": "Description",
-            "type": "string"
-          },
-          "id": {
-            "title": "Id",
-            "type": "string"
-          },
-          "name": {
-            "title": "Name",
-            "type": "string"
-          },
-          "params": {
-            "items": {
-              "$ref": "#/components/schemas/ParamSpecOut"
-            },
-            "title": "Params",
-            "type": "array"
-          }
-        },
-        "required": [
-          "id",
-          "name",
-          "description",
-          "params"
-        ],
-        "title": "ScenarioSpecOut",
         "type": "object"
       },
       "ScenarioSummary": {
@@ -1838,7 +1751,7 @@
                 "type": "null"
               }
             ],
-            "description": "Scenario that changes the plant during the run (docs/scenarios.md). Default S0 (Base). Invalid id or params: 422 invalid_scenario with the reason"
+            "description": "Scenarios are not available on the platform (docs/scenarios.md): it is accepted only as S0 without params (the original plant); any other: 422 scenarios_unavailable"
           },
           "seed": {
             "anyOf": [
@@ -3204,7 +3117,7 @@
             }
           },
           {
-            "description": "Scenario id",
+            "description": "Scenario id (runs saved before scenarios were taken out)",
             "in": "query",
             "name": "scenario",
             "required": false,
@@ -3217,7 +3130,7 @@
                   "type": "null"
                 }
               ],
-              "description": "Scenario id",
+              "description": "Scenario id (runs saved before scenarios were taken out)",
               "title": "Scenario"
             }
           },
@@ -3384,31 +3297,6 @@
         "summary": "Get Run Decisions",
         "tags": [
           "runs-history"
-        ]
-      }
-    },
-    "/scenarios": {
-      "get": {
-        "operationId": "list_scenarios_scenarios_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/ScenarioSpecOut"
-                  },
-                  "title": "Response List Scenarios Scenarios Get",
-                  "type": "array"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "Available scenarios and their parameters (to build the form)",
-        "tags": [
-          "sessions"
         ]
       }
     },

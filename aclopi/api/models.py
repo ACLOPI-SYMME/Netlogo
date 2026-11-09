@@ -37,9 +37,8 @@ ProductList = Annotated[list[ProductItem], Field(min_length=1, max_length=1000)]
 class ScenarioChoice(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    id: str = Field("S0", description="Scenario id from GET /scenarios (S0 Base, S1, S2, S3...)")
-    params: dict[str, Any] | None = Field(None, description="Scenario parameters; the missing ones take "
-                                                            "their default (validate_params)")
+    id: str = Field("S0", description="Only S0 (the original plant): scenarios are not available")
+    params: dict[str, Any] | None = Field(None, description="Must be empty")
 
 
 class ScenarioRef(BaseModel):
@@ -50,22 +49,6 @@ class ScenarioRef(BaseModel):
 class ScenarioSummary(BaseModel):
     applied: int = 0
     skipped: int = Field(0, description="Events not applied, e.g. a failure on an idle machine (machine-idle)")
-
-
-class ParamSpecOut(BaseModel):
-    name: str
-    type: Literal["int", "float", "machine", "machine_list", "machine_times"]
-    default: Any
-    min: float | None = None
-    max: float | None = None
-    description: str
-
-
-class ScenarioSpecOut(BaseModel):
-    id: str
-    name: str
-    description: str
-    params: list[ParamSpecOut]
 
 
 class SessionCreate(BaseModel):
@@ -86,8 +69,8 @@ class SessionCreate(BaseModel):
                           "decider, same as rule 3; tests) are accepted but are not user options. Not accepted "
                           "with rules 1-3")
     scenario: ScenarioChoice | None = Field(
-        None, description="Scenario that changes the plant during the run (docs/scenarios.md). Default S0 (Base). "
-                          "Invalid id or params: 422 invalid_scenario with the reason")
+        None, description="Scenarios are not available on the platform (docs/scenarios.md): it is accepted only "
+                          "as S0 without params (the original plant); any other: 422 scenarios_unavailable")
 
     @model_validator(mode="after")
     def _strategy_needs_rule4(self) -> "SessionCreate":

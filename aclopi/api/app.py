@@ -28,14 +28,14 @@ from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 
 from aclopi.api import errors
 from aclopi.api.errors import (
-    InvalidRunState, InvalidScenario, NoWorkerAvailable, PlatformStarting, ProductSetNotFound, RunNotFound, Unauthorized,
+    InvalidRunState, NoWorkerAvailable, ScenariosUnavailable, PlatformStarting, ProductSetNotFound, RunNotFound, Unauthorized,
     WorkerUnavailable,
 )
 from aclopi.api.instance_lock import InstanceLock
 from aclopi.api.models import (
     STEP_N_DESCRIPTION, CandidatesResult, Event, Health, Kpis, PlantLayout, PlantState, Probe, RunRequest,
     GeneratedProducts, GenerateRequest, NextMachineRequest, NextMachineResponse, ParsedCsv, ProductSet, ProductSetIn,
-    ProductSetSummary, RunPage, RunRecord, ScenarioSpecOut, SessionCreate, SessionInfo, SessionMetrics, StepResult, WhatIfRequest,
+    ProductSetSummary, RunPage, RunRecord, SessionCreate, SessionInfo, SessionMetrics, StepResult, WhatIfRequest,
     WhatIfResponse,
 )
 from aclopi.workers.protocol import NoFreeWorker
@@ -48,7 +48,6 @@ from aclopi.api.ws import stream_session
 from aclopi.api.registry import SessionRegistry
 from aclopi.api.settings import Settings
 from aclopi.logjson import session_id_var
-from aclopi.sim import scenarios
 from aclopi.workers.pool import WorkerPool
 from aclopi.workers.protocol import MAX_STEP_TICKS, set_timeout_scale
 
@@ -303,12 +302,10 @@ def create_app(
               summary="Create a session on a free worker and run setup",
               responses=errors.responses(500, 503, 504))
     async def create_session(body: SessionCreate, request: Request) -> dict[str, Any]:
-        scenario_id = body.scenario.id if body.scenario else "S0"
-        try:
-            scenario = {"id": scenario_id,
-                        "params": scenarios.validate_params(scenario_id, body.scenario.params if body.scenario else None)}
-        except ValueError as exc:
-            raise InvalidScenario(str(exc)) from None
+        # Scenarios are not available on the platform (docs/scenarios.md): only S0, the original plant.
+        if body.scenario is not None and (body.scenario.id != "S0" or body.scenario.params):
+            raise ScenariosUnavailable("los escenarios no están disponibles")
+        scenario = {"id": "S0", "params": {}}
         registry = runtime.require_ready()
         seed, seed_source = (body.seed, "user") if body.seed is not None else (random_seed(), "random")
         products = None
@@ -325,18 +322,14 @@ def create_app(
         request.state.session_id = record.session_id
         return record.info()
 
-    @app.get("/scenarios", response_model=list[ScenarioSpecOut], tags=["sessions"],
-             summary="Available scenarios and their parameters (to build the form)")
-    async def list_scenarios() -> list[dict[str, Any]]:
-        return [{"id": s.id, "name": s.name, "description": s.description,
-                 "params": [vars(p) for p in s.params]} for s in scenarios.list_scenarios()]
-
     # ----- results (L5.7) -----
 
     @app.get("/runs", response_model=RunPage, tags=["runs-history"],
              summary="Saved runs, newest first; optional filters and simple paging (cursor)")
     async def list_runs(seed: int | None = None, strategy: str | None = None, rule: int | None = None,
-                        product_set_id: str | None = None, scenario: str | None = Query(None, description="Scenario id"),
+                        product_set_id: str | None = None,
+                        scenario: str | None = Query(None, description="Scenario id (runs saved before scenarios "
+                                                                        "were taken out)"),
                         limit: int = Query(50, ge=1, le=500), cursor: str | None = None) -> Any:
         filters = {"seed": seed, "strategy": strategy, "rule": rule, "product_set_id": product_set_id,
                    "scenario_id": scenario}

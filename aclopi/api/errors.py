@@ -90,10 +90,11 @@ class InvalidOption(ApiError):
     status_code, code = 422, "invalid_option"
 
 
-class InvalidScenario(ApiError):
-    """POST /sessions: unknown scenario or invalid params (the message of validate_params)."""
+class ScenariosUnavailable(ApiError):
+    """POST /sessions with a scenario other than S0: scenarios are not available on the platform
+    (docs/scenarios.md); the code stays in aclopi.sim.scenarios for Línea A's experiments."""
 
-    status_code, code = 422, "invalid_scenario"
+    status_code, code = 422, "scenarios_unavailable"
 
 
 class Unauthorized(ApiError):

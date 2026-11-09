@@ -13,12 +13,12 @@ La página de prueba `GET /ui` usa todo lo que se describe aquí.
 ## Orden de los mensajes
 
 1. **Primero, siempre `snapshot`:** una foto completa de la sesión.
-2. **Después, las actualizaciones** (`tick`, `progress`, `scenario_event`, `run_state`, `finished`, `run_error`), todas posteriores a la foto.
+2. **Después, las actualizaciones** (`tick`, `progress`, `decision`, `run_state`, `finished`, `run_error`), todas posteriores a la foto.
 3. **Si el cliente se atrasa** (ver "Cliente lento"): `resync` y luego un `snapshot` nuevo.
 4. **Si no hubo nada que enviar durante 5 s:** `heartbeat`.
 5. **Al cerrarse la sesión:** `closed` con el motivo, y el servidor cierra la conexión.
 
-Todos los mensajes son objetos JSON con `type`. Los que publica la sesión (`tick`, `progress`, `scenario_event`, `run_state`, `finished`, `run_error`) llevan además `seq`, correlativo por sesión e igual para todos los clientes. Un salto en `seq` significa que el cliente perdió mensajes, cosa que solo ocurre antes de un `resync`. `snapshot.seq` es el último `seq` que la foto ya incluye.
+Todos los mensajes son objetos JSON con `type`. Los que publica la sesión (`tick`, `progress`, `decision`, `run_state`, `finished`, `run_error`) llevan además `seq`, correlativo por sesión e igual para todos los clientes. Un salto en `seq` significa que el cliente perdió mensajes, cosa que solo ocurre antes de un `resync`. `snapshot.seq` es el último `seq` que la foto ya incluye.
 
 ## Mensajes
 
@@ -31,11 +31,11 @@ Todos los mensajes son objetos JSON con `type`. Los que publica la sesión (`tic
  "state": { ...platform-state, igual que GET /sessions/{id}/state... },
  "kpis": { ...igual que GET /sessions/{id}/kpis... },
  "recent_events": [ {"tick": 1288, "event": "...", "who": 230, ...}, ... ],
- "scenario": {"id": "S3", "params": {...}},
- "scenario_events": [ {"type": "scenario", "tick": 500, "kind": "repair", ...}, ... ]}
+ "scenario": {"id": "S0", "params": {}},
+ "scenario_events": []}
 ```
 
-- **`scenario` y `scenario_events`:** el escenario de la sesión y todos los eventos de escenario ya ocurridos en la corrida, aplicados o saltados (ver `docs/scenarios.md`). Los eventos de escenario también aparecen en `recent_events` como `type: "scenario"`.
+- **`scenario` y `scenario_events`:** los escenarios no están disponibles en la plataforma (`docs/scenarios.md`): siempre valen S0 y `[]`. Se mantienen por compatibilidad.
 
 - **`recent_events`:** los últimos 500 eventos de la sesión (desde el último `reset`). El cliente reemplaza su lista con estos.
 - **`state` y `state_tick`:** solo vienen si hay un estado conocido. En modo rápido no se transmite el estado, así que pueden faltar o ser anteriores a `tick`.
@@ -79,15 +79,9 @@ Formato de un evento:
 - **`events`:** llegan **todos**, en lote (~18 eventos por cada 1000 ticks). La API además los conserva para la persistencia de L5.6.
 - **`kpis`:** viene aproximadamente una vez por segundo.
 
-### `scenario_event`: se aplicó (o se saltó) un evento del escenario
+### `scenario_event`: ya no se envía
 
-```json
-{"type": "scenario_event", "seq": 812, "tick": 5000,
- "event": {"type": "scenario", "tick": 5000, "kind": "repair", "machine": "M4", "value": 300.0,
-           "label": "Falla en M4: +300 u.t.", "applied": true, "skip_reason": null, "before": null, "after": null}}
-```
-
-Se publica antes que el `tick` o el `progress` del bloque que termina en ese tick, y antes de enviar al agente las peticiones de ese bloque. Formato y reglas: `docs/scenarios.md`.
+Los escenarios no están disponibles en la plataforma (`docs/scenarios.md`), así que ninguna sesión publica este mensaje. El formato queda descrito en `docs/scenarios.md` para los experimentos.
 
 ### `run_state`: cambio de estado de la corrida
 
@@ -102,11 +96,14 @@ Se publica antes que el `tick` o el `progress` del bloque que termina en ese tic
 ### `decision`: se aplicó (o llegó tarde) una decisión del agente (L5.5)
 
 ```json
-{"type": "decision", "seq": 61, "product": 201, "seq_op": 1, "machine": "M3", "level": "llm",
- "late": false, "latency_ms": 3412.0, "tick": 1113}
+{"type": "decision", "seq": 61, "product": 201, "product_type": "A", "seq_op": 1, "operation": "O2",
+ "machine": "M3", "level": "llm", "reason": "M3 termina antes que M5", "late": false, "latency_ms": 3412.0,
+ "tick": 1113}
 ```
 
-Es un mensaje ligero: el detalle está en `GET /sessions/{id}/metrics` (`decisions`). Nota: el campo `seq` del mensaje es el número de mensaje del WebSocket, y el `seq` de la operación decidida va en **`seq_op`**.
+- `product_type` y `operation` (la operación decidida) vienen de la petición enviada al agente; `reason` es la razón que dio el agente (puede ser `null`).
+- La página lo usa para el panel "Últimas decisiones" (las 50 más nuevas arriba, con filtro por nivel).
+- Las métricas agregadas están en `GET /sessions/{id}/metrics` (`decisions`). Nota: el campo `seq` del mensaje es el número de mensaje del WebSocket, y el `seq` de la operación decidida va en **`seq_op`**.
 
 ### `finished`: la corrida llegó al horizonte
 
