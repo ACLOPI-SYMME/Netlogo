@@ -15,7 +15,7 @@ Un canal abierto entre la plataforma y quien mira una sesión (la página `/ui`,
 ## Cómo verlo
 
 - Conectarse a `ws://<host>:8000/ws/sessions/{session_id}` (por ejemplo, con la librería `websockets` de Python).
-- La página `/ui` lo usa para todo lo que muestra en la pestaña Sesión.
+- La página `/ui` lo usa para todo lo que muestra en la pestaña Session.
 
 ## Los mensajes, en el orden en que suelen llegar
 

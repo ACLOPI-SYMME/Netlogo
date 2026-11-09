@@ -8,7 +8,7 @@ Una lista fija de productos (tipo y priority, en orden de entrada) guardada con 
 
 ## Cómo se genera y cuándo está disponible
 
-- Se crea a mano: en la página (pestaña **Set de productos** → "Guardar") o con `POST /product-sets`.
+- Se crea a mano: en la página (pestaña **Product set** → "Save") o con `POST /product-sets`.
 - Disponible **siempre**, hasta que se borre. Con DynamoDB se guarda en la tabla **`aclopi_product_sets`** (clave `id`) y persiste; sin DynamoDB vive en memoria y se pierde al reiniciar la API.
 - La sesión guarda **su propia copia**: editar o borrar el set después no cambia las sesiones ni las corridas que ya lo usaron. La corrida guardada también trae la lista (`products`).
 
@@ -22,7 +22,7 @@ Una lista fija de productos (tipo y priority, en orden de entrada) guardada con 
 | `POST /product-sets`, `PUT /product-sets/{id}`, `DELETE /product-sets/{id}` | Crear, reemplazar, borrar |
 | `POST /product-sets/parse-csv` | Valida un CSV subido y devuelve la lista (no la guarda) |
 | `POST /product-sets/generate` | Los productos que el modelo generaría con una semilla (no los guarda) |
-| Página, pestaña **Set de productos** | Editor, "Subir CSV", "Descargar CSV", "Generar", "Guardar", "Abrir", "Borrar" |
+| Página, pestaña **Product set** | Editor, "Upload CSV", "Download CSV", "Generate from seed", "Save", "Open", "Delete" |
 
 ## Campos
 
@@ -30,7 +30,7 @@ Una lista fija de productos (tipo y priority, en orden de entrada) guardada con 
 |---|---|---|
 | `id` | Identificador | 32 caracteres hexadecimales |
 | `name` | Nombre | 1–200 caracteres |
-| `products` | La lista, en orden de entrada; cada uno con `type` y `priority` | 1 a 1.000 productos; `type` A, I, P, B, E, L, T; `priority` 60–100 (80 si no se da) |
+| `products` | La lista, en orden de entrada; cada uno con `type` y `priority` | 1 a 30 productos; `type` A, I, P, B, E, L, T; `priority` 60–100 (80 si no se da). La priority no la usa ninguna regla ni el agente; la página no la muestra y envía solo el tipo |
 | `total` | Cantidad de productos | conteo |
 | `counts` | Cantidad por tipo | `{"A": …, "I": …, "P": …, "B": …, "E": …, "L": …, "T": …}` |
 | `hash` | Huella (SHA-256) de la lista. Igual a `products_hash` de las sesiones y corridas que la usaron | 64 caracteres hexadecimales |

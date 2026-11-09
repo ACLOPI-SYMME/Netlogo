@@ -52,11 +52,11 @@ Con la regla 4, cada vez que un producto debe elegir máquina para su siguiente 
 | Dónde | Qué muestra |
 |---|---|
 | `GET /runs/{run_id}/decisions` | Todas las decisiones de una corrida guardada, en orden |
-| Página, pestaña Sesión, panel **"Últimas decisiones"** | Las 50 más nuevas de la corrida en curso, arriba la más nueva, con filtro por nivel |
-| Página, pestaña Corridas, botón **"Ver decisiones"** | Todas las de una corrida guardada, de a 50 por página, con filtro por nivel y "Descargar CSV" |
+| Página, pestaña Session, panel **"Latest decisions"** | Las 50 más nuevas de la corrida en curso, arriba la más nueva, con filtro por nivel |
+| Página, pestaña Runs, botón **"Decisions"** | Todas las de una corrida guardada, de a 50 por página, con filtro por nivel y "Download CSV" |
 | DynamoDB | Tabla `aclopi_decisions` |
 
-Las dos tablas de la página tienen las columnas: Tick, Producto (tipo), Operación, Máquina elegida, Nivel, Razón (corta; la completa al pasar el mouse), Latencia, Tarde.
+Las dos tablas de la página tienen las columnas: Tick, Product (type), Operation, Chosen machine, Level, Reason (corta; la completa al pasar el mouse), Latency, Late.
 
 ## Campos (`GET /runs/{id}/decisions`, tabla `aclopi_decisions`)
 
@@ -145,7 +145,7 @@ Corrida en vivo (1×), su única decisión:
 
 ## CSV de decisiones
 
-"Ver decisiones" → **"Descargar CSV"** genera `decisiones-<8 primeros caracteres del run_id>.csv`, con **todas** las decisiones de la corrida en orden cronológico, sin importar el filtro de nivel:
+"Decisions" → **"Download CSV"** genera `decisions-<8 primeros caracteres del run_id>.csv`, con **todas** las decisiones de la corrida en orden cronológico, sin importar el filtro de nivel:
 
 | Columna | Campo |
 |---|---|
@@ -159,7 +159,7 @@ Corrida en vivo (1×), su única decisión:
 | `latency_ms` | `latency_ms` |
 | `late` | `late` (`true` / `false`) |
 
-El CSV de la corrida (botón "CSV") trae otro bloque de decisiones, con `seq`, `request_tick` y `seq_op` pero sin tipo ni operación: ver [corridas.md](corridas.md#csv-de-una-corrida-botón-csv-en-la-pestaña-corridas).
+El CSV de la corrida (botón "CSV") trae otro bloque de decisiones, con `seq`, `request_tick` y `seq_op` pero sin tipo ni operación: ver [corridas.md](corridas.md#csv-de-una-corrida-botón-csv-en-la-pestaña-runs).
 
 ## Registro del lado del agente real (`decisions.jsonl`)
 

@@ -3,6 +3,7 @@
 El orden y el tipo de los productos que entran a la planta pueden venir de una **lista definida por el usuario**, en lugar de la semilla.
 
 - **Cada producto** tiene `type` ∈ {A, I, P, B, E, L, T} (los `PosibleProducts` del modelo) y `priority`, un entero de 60 a 100 (80 por defecto).
+- **La priority no se usa hoy:** el modelo la guarda en el producto, pero ninguna regla (1–4) ni el agente la usan para decidir. Lo que sí cuenta es el **orden** de la lista, que es el orden de entrada a la planta. Por eso la página (`/ui`) solo muestra y envía el tipo y el orden; la API sigue aceptando `priority` (80 si no viene) por compatibilidad.
 - **Orden de entrada:** es el de la lista.
 - **Momento de cada entrada:** lo sigue decidiendo el modelo como siempre: cada 100 u.t., si hay menos de 10 productos activos y la zona de entrada a M1 está libre (procedimiento `Go`).
 - **La semilla** sigue controlando todo el resto del azar.
@@ -25,7 +26,7 @@ Es el único cambio. Reutiliza la vía de creación del set fijo de la Línea A 
 ## Python
 
 `SimulationSession.setup(..., product_list=[(tipo, priority), ...])`:
-- valida la lista con `validate_product_list`: de 1 a 1000 productos, tipo válido y priority entera de 60 a 100;
+- valida la lista con `validate_product_list`: de 1 a 1000 productos, tipo válido y priority entera de 60 a 100 (la API limita a 30; la sesión en proceso acepta hasta 1000 para los experimentos);
 - la asigna después de `setup` y enciende el interruptor. La lista tiene prioridad sobre el set fijo.
 
 ## Garantías (probadas)
@@ -55,7 +56,7 @@ KPIs nuevos (`aclopi/sim/kpis.py`, `GET /kpis`):
 
 | Ruta | Qué hace |
 |---|---|
-| `POST /product-sets`, `GET /product-sets`, `GET`/`PUT`/`DELETE /product-sets/{id}` | Sets con `name` y `products` `[{type, priority}]` en orden, de 1 a 1000 productos. `type` acepta minúsculas |
+| `POST /product-sets`, `GET /product-sets`, `GET`/`PUT`/`DELETE /product-sets/{id}` | Sets con `name` y `products` `[{type, priority}]` en orden, de **1 a 30 productos** (el tamaño de los experimentos de la Línea A). `type` acepta minúsculas |
 | `POST /product-sets/parse-csv` (multipart, campo `file`) | Convierte un CSV en una lista validada, sin guardarla. Columnas `type` y `priority` (opcional, 80); separador `,` o `;`; UTF-8 con o sin BOM. Con errores responde 422 con `errors: [{line, error}]`, donde `line` es la línea del archivo (la cabecera es la 1) |
 | `GET /product-sets/{id}/csv` | Exporta el set (`type,priority`) |
 | `POST /product-sets/generate` `{seed?, count}` | La lista que el modelo genera con esa semilla (set fijo; operación corta en un worker de what-if prestado). Sin `seed` se sortea una y se devuelve |

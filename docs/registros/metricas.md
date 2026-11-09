@@ -16,7 +16,7 @@ Contadores y tiempos de una sesión, en dos grupos: **`decisions`** (cómo le fu
 ## Cómo verlo
 
 - `GET /sessions/{id}/metrics` → `{"whatif": {...}, "decisions": {...}}`.
-- La página la consulta cada 2 s y muestra un resumen en el cuadro "Decisiones" de la pestaña Sesión.
+- La página la consulta cada 2 s y muestra un resumen en el apartado "Agent" del panel Indicators de la pestaña Session.
 
 ## Grupo `decisions`
 

@@ -353,7 +353,7 @@ def create_app(
     # ----- product sets (L5.6) -----
 
     @app.post("/product-sets", response_model=ProductSet, status_code=201, tags=["product-sets"],
-              summary="Save a product set (name and products in entry order, 1-1000)")
+              summary="Save a product set (name and products in entry order, 1-30)")
     async def create_product_set(body: ProductSetIn) -> Any:
         return runtime.product_sets.create(body.name, [p.model_dump() for p in body.products])
 

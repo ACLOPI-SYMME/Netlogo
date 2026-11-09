@@ -13,8 +13,8 @@ Las respuestas completas quedaron en `results/docs_examples/`, que no está en g
 
 | Archivo | Fuente | Dónde se ve |
 |---|---|---|
-| [corridas.md](corridas.md) | Corridas guardadas | `GET /runs`, `GET /runs/{id}`, tabla `aclopi_runs`, pestaña Corridas, CSV de una corrida |
-| [decisiones.md](decisiones.md) | Decisiones del agente | `GET /runs/{id}/decisions`, tabla `aclopi_decisions`, panel "Últimas decisiones", "Ver decisiones", CSV de decisiones, registro del agente (`decisions.jsonl`) |
+| [corridas.md](corridas.md) | Corridas guardadas | `GET /runs`, `GET /runs/{id}`, tabla `aclopi_runs`, pestaña Runs, CSV de una corrida |
+| [decisiones.md](decisiones.md) | Decisiones del agente | `GET /runs/{id}/decisions`, tabla `aclopi_decisions`, panel "Latest decisions", "Decisions", CSV de decisiones, registro del agente (`decisions.jsonl`) |
 | [metricas.md](metricas.md) | Métricas de una sesión | `GET /sessions/{id}/metrics` (grupos `decisions` y `whatif`) |
 | [kpis.md](kpis.md) | Indicadores de la planta | `GET /sessions/{id}/kpis`, `kpis` de las corridas y de los mensajes del WebSocket |
 | [eventos.md](eventos.md) | Eventos del modelo | `GET /sessions/{id}/events`, `events` de los mensajes del WebSocket |

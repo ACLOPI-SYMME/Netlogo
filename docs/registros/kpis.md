@@ -15,7 +15,7 @@ Los indicadores de cómo va la planta: cuántos productos terminaron, cuánto ta
 ## Cómo verlo
 
 - `GET /sessions/{id}/kpis`.
-- Página, pestaña Sesión, cuadro **KPIs**; y en la pestaña Corridas, columnas Ticks, Makespan, Flujo medio, Trabajo, Terminados y Creados, y la comparación.
+- Página, pestaña Session, panel **Indicators**; y en la pestaña Runs, columnas Ticks, Makespan, Mean flow, Work, Finished y Created, y la comparación.
 
 ## Campos
 

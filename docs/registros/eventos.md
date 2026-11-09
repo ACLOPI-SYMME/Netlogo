@@ -20,7 +20,7 @@ El "diario" de los movimientos de los productos: cada vez que un producto **entr
 | WebSocket, mensajes `tick` / `progress` | Los eventos nuevos de cada bloque |
 | WebSocket, `snapshot` → `recent_events` | Los últimos 500 de la sesión (desde el último reinicio) |
 | `GET /sessions/{id}/events` | Los que quedaron sin leer. **Responde 409 mientras la sesión corre** |
-| Página, cuadro **Eventos** | Los últimos 200 |
+| Página, panel **Model events** | Los últimos 200 |
 
 ## Campos (los 9 del event-buffer)
 

@@ -1,160 +1,459 @@
 <!doctype html>
-<html lang="es">
+<html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ACLOPI – prueba</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>ACLOPI – Plant simulation</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Source+Serif+4:opsz,wght@8..60,500;8..60,600&display=swap">
 <style>
-  body { font-family: sans-serif; margin: 12px; }
-  fieldset { margin-bottom: 8px; }
-  input[type=number] { width: 7em; }
-  #main { display: flex; gap: 12px; flex-wrap: wrap; }
-  canvas { border: 1px solid #999; background: #fff; }
-  #side { min-width: 280px; max-width: 420px; }
-  #events { height: 220px; overflow-y: auto; font-family: monospace; font-size: 12px; border: 1px solid #ccc; padding: 4px; white-space: pre; }
-  pre { font-size: 12px; margin: 4px 0; }
-  .err { color: #b00; }
-  .tabs button { padding: 6px 12px; }
-  .tabs button.active { font-weight: bold; border-bottom: 2px solid #246; }
-  .info { cursor: help; border: 1px solid #888; border-radius: 50%; padding: 0 5px; font-size: 11px; }
-  table.set { border-collapse: collapse; }
-  table.set td, table.set th { border: 1px solid #ccc; padding: 2px 6px; font-size: 13px; }
-  table.set tr.dragging { opacity: 0.4; }
-  table.set tr.over td { border-top: 2px solid #246; }
-  .handle { cursor: grab; user-select: none; }
-  #set-errors { font-size: 12px; }
+  /* Direction: laboratory instrument. Warm neutral greys, 1px rules, small-caps labels, mono readouts,
+     one amber accent. Change the accent or the fonts here: every colour and font comes from these tokens. */
+  :root {
+    --paper: #eceae5; --panel: #f6f5f1; --panel-2: #e3e0d9; --ink: #1d1d1b; --ink-2: #57564f; --ink-3: #8a877e;
+    --rule: #cfcbc1; --rule-2: #b9b4a8;
+    --accent: #a8700a; --accent-soft: color-mix(in oklab, var(--accent) 16%, transparent); --accent-ink: #fff;
+    --ok: #3f6b33; --warn: #a8700a; --err: #a33a2a; --err-soft: color-mix(in oklab, var(--err) 12%, transparent);
+    --grid: color-mix(in oklab, var(--ink) 5%, transparent);
+    --track: #8f8b80; --node: #b3aea2; --machine: #2f3a45;
+    --font-serif: "Source Serif 4", Georgia, serif;
+    --font-sans: "IBM Plex Sans", system-ui, sans-serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+    --radius: 3px; --rule-w: 1px;
+    --s1: .25rem; --s2: .5rem; --s3: .75rem; --s4: 1rem; --s6: 1.5rem; --s8: 2rem;
+    --step--1: clamp(.78rem, .76rem + .1vw, .84rem);
+    --step-0: clamp(.9rem, .87rem + .15vw, .98rem);
+    --step-1: clamp(1.05rem, 1rem + .3vw, 1.2rem);
+    --step-2: clamp(1.25rem, 1.15rem + .5vw, 1.5rem);
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper: #232321; --panel: #2b2b29; --panel-2: #33332f; --ink: #e9e6de; --ink-2: #b4b0a5; --ink-3: #85827a;
+      --rule: #42413c; --rule-2: #55534d; --accent: #d9a23a; --accent-ink: #1d1d1b;
+      --ok: #8fb57d; --warn: #d9a23a; --err: #e07a63; --track: #7d7a72; --node: #5d5b55; --machine: #c9d3dc;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper: #232321; --panel: #2b2b29; --panel-2: #33332f; --ink: #e9e6de; --ink-2: #b4b0a5; --ink-3: #85827a;
+    --rule: #42413c; --rule-2: #55534d; --accent: #d9a23a; --accent-ink: #1d1d1b;
+    --ok: #8fb57d; --warn: #d9a23a; --err: #e07a63; --track: #7d7a72; --node: #5d5b55; --machine: #c9d3dc;
+    color-scheme: dark;
+  }
+  @media (min-width: 2560px) { html { font-size: clamp(16px, .55vw + 8px, 22px); } }
+
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--paper); color: var(--ink); font: 400 var(--step-0)/1.45 var(--font-sans);
+         padding-bottom: env(safe-area-inset-bottom); }
+  h1, h2, h3, h4 { font-family: var(--font-serif); font-weight: 600; margin: 0; letter-spacing: -.005em; }
+  .label { font: 500 var(--step--1)/1.2 var(--font-sans); text-transform: uppercase; letter-spacing: .07em; color: var(--ink-2); }
+  .mono, .num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+  .muted { color: var(--ink-3); }
+  [hidden] { display: none !important; }
+
+  /* ----- top bar ----- */
+  header.bar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s3) var(--s6); padding: var(--s3) var(--s4);
+               background: var(--panel); border-bottom: 3px double var(--rule-2); }
+  header.bar h1 { font-size: var(--step-2); }
+  header.bar h1 small { font: 400 var(--step--1) var(--font-sans); color: var(--ink-2); margin-left: var(--s2); letter-spacing: 0; }
+  .status { display: flex; flex-wrap: wrap; gap: var(--s2) var(--s6); margin-left: auto; align-items: baseline; }
+  .status > div { display: flex; flex-direction: column; min-width: 4.5rem; }
+  .status b { font: 500 var(--step-0) var(--font-mono); font-variant-numeric: tabular-nums; }
+  #runstate[data-state^="running"] { color: var(--ok); }
+  #runstate[data-state="failed"] { color: var(--err); }
+  #runstate[data-state="waiting_decision"], #runstate[data-state="paused"] { color: var(--warn); }
+
+  nav.tabs { display: flex; gap: 0; padding: 0 var(--s4); background: var(--panel); border-bottom: var(--rule-w) solid var(--rule); overflow-x: auto; }
+  nav.tabs button { border: 0; border-bottom: 2px solid transparent; background: none; border-radius: 0; padding: var(--s3) var(--s4);
+                    font: 500 var(--step--1) var(--font-sans); text-transform: uppercase; letter-spacing: .07em; color: var(--ink-2); }
+  nav.tabs button .n { font-family: var(--font-mono); color: var(--ink-3); margin-right: .4em; }
+  nav.tabs button.active { color: var(--ink); border-bottom-color: var(--accent); }
+
+  .notice { margin: var(--s3) var(--s4) 0; padding: var(--s2) var(--s3); border: var(--rule-w) solid var(--err);
+            background: var(--err-soft); color: var(--err); border-radius: var(--radius); font-size: var(--step--1); }
+  #msg { display: block; margin: var(--s3) var(--s4) 0; padding: var(--s2) var(--s3); border-left: 3px solid var(--rule-2);
+         background: var(--panel); font-size: var(--step--1); }
+  #msg:empty { display: none; }
+  #msg.err { border-left-color: var(--err); color: var(--err); background: var(--err-soft); }
+
+  main { padding: var(--s4); }
+  section.page { display: grid; gap: var(--s4); }
+
+  /* ----- panels ----- */
+  .panel { background: var(--panel); border: var(--rule-w) solid var(--rule); border-radius: var(--radius); padding: var(--s3) var(--s4); min-width: 0; }
+  .panel > h2, .panel > header h2 { font-size: var(--step-1); margin-bottom: var(--s2); }
+  h2 .sec, .figure figcaption .sec { font: 400 var(--step--1) var(--font-mono); color: var(--ink-3); margin-right: .4em; }
+  .row { display: flex; flex-wrap: wrap; gap: var(--s2) var(--s3); align-items: end; }
+  .row + .row { margin-top: var(--s3); }
+  .field { display: flex; flex-direction: column; gap: 3px; }
+  .field > span:first-child { font: 500 var(--step--1) var(--font-sans); text-transform: uppercase; letter-spacing: .07em; color: var(--ink-2); }
+  hr.rule { border: 0; border-top: var(--rule-w) solid var(--rule); margin: var(--s3) 0; }
+
+  input, select, button { font: inherit; color: var(--ink); }
+  input[type=number], input[type=text], input:not([type]), select {
+    background: var(--paper); border: var(--rule-w) solid var(--rule-2); border-radius: var(--radius); padding: 5px 8px; min-height: 34px; }
+  input[type=number] { width: 8.5em; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+  button { background: var(--panel-2); border: var(--rule-w) solid var(--rule-2); border-radius: var(--radius); padding: 5px 12px;
+           min-height: 34px; cursor: pointer; transition: background-color .15s ease-out, border-color .15s ease-out; }
+  button:hover:not(:disabled) { border-color: var(--ink-2); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+  button.ghost { background: transparent; }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  input[type=checkbox] { accent-color: var(--accent); width: 16px; height: 16px; }
+  .check { display: inline-flex; align-items: center; gap: var(--s2); min-height: 34px; }
+  .err { color: var(--err); font-size: var(--step--1); }
+
+  /* tooltip: hover, keyboard focus and tap */
+  .tip { position: relative; display: inline-flex; }
+  .tip > button { min-height: 22px; width: 22px; padding: 0; border-radius: 50%; font: 600 12px var(--font-serif); font-style: italic; }
+  .tip > [role=tooltip] { position: absolute; z-index: 20; left: 50%; top: calc(100% + 6px); transform: translateX(-50%);
+         width: max-content; max-width: 18rem; padding: var(--s2) var(--s3); background: var(--ink); color: var(--paper);
+         border-radius: var(--radius); font: 400 var(--step--1)/1.35 var(--font-sans); text-transform: none; letter-spacing: 0;
+         opacity: 0; visibility: hidden; transition: opacity .12s ease-out; pointer-events: none; }
+  .tip:focus-within > [role=tooltip], .tip.open > [role=tooltip] { opacity: 1; visibility: visible; }
+  @media (hover: hover) { .tip:hover > [role=tooltip] { opacity: 1; visibility: visible; } }
+
+  /* ----- session workbench ----- */
+  #page-session { grid-template-columns: minmax(0, 1fr); grid-template-areas: "figure" "setup" "readouts" "decisions" "events"; }
+  #setup { grid-area: setup; } .figure { grid-area: figure; } #readouts { grid-area: readouts; }
+  #decisions-panel { grid-area: decisions; } #events-panel { grid-area: events; }
+  @media (min-width: 700px) {
+    #page-session { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+                    grid-template-areas: "figure figure" "setup readouts" "decisions decisions" "events events"; }
+  }
+  @media (min-width: 1100px) {
+    #page-session { grid-template-columns: minmax(17rem, 21rem) minmax(0, 1fr) minmax(17rem, 22rem);
+                    grid-template-areas: "setup figure readouts" "decisions decisions events"; align-items: start; }
+  }
+  @media (min-width: 1100px) and (max-width: 1400px) {
+    #page-session { grid-template-areas: "setup figure readouts" "decisions decisions decisions" "events events events"; }
+  }
+
+  .figure { margin: 0; background: var(--panel); border: var(--rule-w) solid var(--rule); border-radius: var(--radius); padding: var(--s3); min-width: 0; }
+  .canvas-wrap { position: relative; width: 100%; aspect-ratio: 760 / 520; max-height: 72dvh;
+                 background-color: var(--paper); border: var(--rule-w) solid var(--rule);
+                 background-image: linear-gradient(var(--grid) 1px, transparent 1px), linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+                 background-size: 24px 24px; }
+  #plant { display: block; width: 100%; height: 100%; cursor: crosshair; }
+  #probe { position: absolute; left: var(--s2); bottom: var(--s2); padding: 2px 6px; background: var(--panel); border: var(--rule-w) solid var(--rule);
+           font: 400 var(--step--1) var(--font-mono); font-variant-numeric: tabular-nums; pointer-events: none; }
+  #probe:empty { display: none; }
+  .figure figcaption { margin-top: var(--s2); font-size: var(--step--1); color: var(--ink-2); line-height: 1.5; }
+  .figure figcaption b { font-family: var(--font-serif); color: var(--ink); }
+  .legend { display: flex; flex-wrap: wrap; gap: var(--s1) var(--s3); margin-top: var(--s2); font: 400 var(--step--1) var(--font-mono); }
+  .legend i { display: inline-grid; place-items: center; width: 16px; height: 16px; border-radius: 50%; margin-right: 4px;
+              font: 600 9px var(--font-sans); font-style: normal; color: #fff; vertical-align: -3px; }
+  .legend .mach { width: 14px; height: 14px; border-radius: 1px; }
+
+  .transport { display: grid; grid-template-columns: repeat(auto-fit, minmax(6.5rem, 1fr)); gap: var(--s2); }
+  .transport button { width: 100%; white-space: nowrap; }
+
+  .readout { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s2) var(--s3); margin: 0; }
+  .readout div { border-top: var(--rule-w) solid var(--rule); padding-top: 4px; min-width: 0; }
+  .readout dt { font: 500 var(--step--1) var(--font-sans); text-transform: uppercase; letter-spacing: .06em; color: var(--ink-2); }
+  .readout dd { margin: 0; font: 500 var(--step-1) var(--font-mono); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .readout dd small { font-size: var(--step--1); color: var(--ink-3); font-weight: 400; }
+  .util { display: grid; grid-template-columns: 2.2rem 1fr 3rem; gap: 2px var(--s2); align-items: center; font: 400 var(--step--1) var(--font-mono); margin-top: var(--s2); }
+  .util .bar { height: 8px; background: var(--panel-2); border: var(--rule-w) solid var(--rule); }
+  .util .bar span { display: block; height: 100%; background: var(--accent); }
+  .util .v { text-align: right; font-variant-numeric: tabular-nums; }
+
+  #events { height: 15rem; overflow-y: auto; font: 400 var(--step--1)/1.5 var(--font-mono); font-variant-numeric: tabular-nums;
+            background: var(--paper); border: var(--rule-w) solid var(--rule); padding: var(--s2); white-space: pre; }
+
+  /* ----- tables ----- */
+  .table-wrap { overflow-x: auto; border: var(--rule-w) solid var(--rule); border-radius: var(--radius); background: var(--paper); }
+  table.set { border-collapse: collapse; width: 100%; font-size: var(--step--1); }
+  table.set th { text-align: left; font: 500 var(--step--1) var(--font-sans); text-transform: uppercase; letter-spacing: .06em; color: var(--ink-2);
+                 background: var(--panel-2); border-bottom: var(--rule-w) solid var(--rule-2); padding: 6px 8px; white-space: nowrap; }
+  table.set td { border-bottom: var(--rule-w) solid var(--rule); padding: 5px 8px; vertical-align: middle; }
+  table.set td.num, table.set td.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+  table.set tbody tr:hover td { background: var(--accent-soft); }
+  table.set tr.dragging { opacity: .4; }
+  table.set tr.over td { border-top: 2px solid var(--accent); }
+  table.set td button { min-height: 28px; padding: 2px 8px; margin-right: 3px; }
+  .handle { cursor: grab; user-select: none; color: var(--ink-3); }
   table.dec td { white-space: nowrap; }
-  table.dec td.reason { max-width: 320px; overflow: hidden; text-overflow: ellipsis; cursor: help; }
-  table.dec tr.late td { background: #fff3e0; }
-  .dec-box { margin-top: 8px; }
+  table.dec td.reason { max-width: 22rem; overflow: hidden; text-overflow: ellipsis; cursor: help; white-space: nowrap; }
+  table.dec tr.late td { background: color-mix(in oklab, var(--warn) 14%, transparent); }
+  .type-dot { display: inline-grid; place-items: center; width: 18px; height: 18px; border-radius: 50%; color: #fff;
+              font: 600 10px var(--font-sans); margin-right: 6px; vertical-align: -4px; }
+  .empty { padding: var(--s4); color: var(--ink-3); font-style: italic; text-align: center; }
+
+  /* ----- product set ----- */
+  #page-set { grid-template-columns: minmax(0, 1fr); }
+  @media (min-width: 1000px) { #page-set { grid-template-columns: minmax(18rem, 24rem) minmax(0, 1fr); align-items: start; } }
+  #set-errors { white-space: pre-wrap; }
+  #set-errors:empty { display: none; }
+  .counts { display: flex; flex-wrap: wrap; gap: var(--s1) var(--s3); font: 400 var(--step--1) var(--font-mono); }
+  .counts span { display: inline-flex; align-items: center; }
+  .counts .type-dot { vertical-align: 0; margin-right: 4px; }
+  .big { font: 500 var(--step-2) var(--font-mono); font-variant-numeric: tabular-nums; }
+
+  /* ----- runs ----- */
+  #runs-compare-box h4 { font-size: var(--step-0); margin: var(--s3) 0 var(--s2); }
+  #runs-compare-box .err { margin: 0 0 var(--s2); }
+
+  @media (pointer: coarse) {
+    button, input[type=number], select, input:not([type]) { min-height: 44px; }
+    table.set td button { min-height: 40px; }
+    input[type=checkbox] { width: 22px; height: 22px; }
+  }
+  @media (max-height: 500px) { header.bar { padding: var(--s1) var(--s3); } .canvas-wrap { max-height: 85dvh; } }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+  @media print {
+    :root { --paper: #fff; --panel: #fff; }
+    nav.tabs, #setup, .transport, button, #agent-banner { display: none !important; }
+    #page-session { grid-template-columns: 1fr; grid-template-areas: "figure" "readouts" "decisions"; }
+  }
 </style>
 </head>
 <body>
-<h3>ACLOPI – página de prueba</h3>
-<div class="tabs"><button id="tab-session" class="active">Sesión</button> <button id="tab-set">Set de productos</button> <button id="tab-runs">Corridas</button></div>
-<div id="agent-banner" class="err" hidden>Agente no disponible: las corridas rápidas con la regla 4 no se pueden iniciar; en vivo actúa la regla 3.</div>
-
-<!-- ===================== Sesión ===================== -->
-<section id="page-session">
-<fieldset>
-  <label><input id="seed-on" type="checkbox"> Agregar semilla</label>
-  <span class="info" title="Define la semilla que se usará para el azar de la simulación. Si no la defines, se genera una aleatoria.">i</span>
-  <span id="seed-box" hidden><input id="seed" type="number" step="1"> <span id="seed-error" class="err"></span></span>
-  Regla <select id="rule"><option value="1">Regla 1 — Máquina aleatoria</option><option value="2">Regla 2 — Máquina más cercana</option>
-    <option value="3" selected>Regla 3 — Campos potenciales</option><option value="4">Regla 4 — Agente IA</option></select>
-  Horizonte <input id="horizon" type="number" value="10000">
-  Set <select id="session-set"><option value="">Generado con la semilla</option><option value="__current__">Lista actual (pestaña Set de productos)</option></select>
-  <button id="create">Crear sesión</button>
-  <span id="sid"></span>
-  <span id="seed-used" hidden>Semilla usada: <b id="seed-value"></b> <button id="seed-copy" title="Copiar">copiar</button></span>
-</fieldset>
-<fieldset>
-  Velocidad <select id="speed"><option>0.5</option><option selected>1</option><option>2</option><option>4</option></select>
-  <button id="live">En vivo</button>
-  <button id="fast">Rápido</button>
-  <button id="pause">Pausa</button>
-  <button id="resume">Reanudar</button>
-  <button id="reset">Reiniciar</button>
-  <button id="close">Cerrar</button>
-</fieldset>
-<div>Tick: <b id="tick">–</b> · Estado: <b id="runstate">–</b> · Ritmo: <span id="rate">–</span> · <span id="list-progress"></span> <span id="msg"></span></div>
-<div id="main">
-  <canvas id="plant" width="760" height="520"></canvas>
-  <div id="side">
-    <b>KPIs</b><pre id="kpis">–</pre>
-    <b>Decisiones</b><pre id="decisions">–</pre>
-    <b>Eventos</b> (últimos 200)<div id="events"></div>
+<header class="bar">
+  <h1>ACLOPI <small>Monorail plant · digital twin</small></h1>
+  <div class="status" aria-label="Run status">
+    <div><span class="label">Session</span><b id="sid" class="mono" title="Session id">–</b></div>
+    <div><span class="label">State</span><b id="runstate">–</b></div>
+    <div><span class="label">Tick</span><b id="tick" class="num">–</b></div>
+    <div><span class="label">Rate</span><b id="rate" class="num">–</b></div>
+    <div><span class="label">Set</span><b id="list-progress" class="num">–</b></div>
   </div>
-</div>
-<div class="dec-box">
-  <b>Últimas decisiones</b> (las 50 más nuevas arriba) · nivel <select id="dec-level" class="dec-level"><option value="">(todos)</option></select>
-  <table class="set dec"><thead><tr><th>Tick</th><th>Producto (tipo)</th><th>Operación</th><th>Máquina elegida</th><th>Nivel</th>
-    <th>Razón</th><th>Latencia</th><th>Tarde</th></tr></thead><tbody id="dec-rows"></tbody></table>
-</div>
+  <button id="theme" class="ghost" aria-label="Switch light / dark theme" title="Light / dark">◐</button>
+</header>
+<nav class="tabs" role="tablist">
+  <button id="tab-set" role="tab"><span class="n">1</span>Product set</button>
+  <button id="tab-session" role="tab" class="active"><span class="n">2</span>Session</button>
+  <button id="tab-runs" role="tab"><span class="n">3</span>Runs</button>
+</nav>
+<div id="agent-banner" class="notice" role="alert" hidden>The agent is not available: fast runs with rule 4 cannot start; live runs fall back to rule 3.</div>
+<div id="msg" role="status" aria-live="polite"></div>
+
+<main>
+<!-- ===================== Session ===================== -->
+<section id="page-session" class="page" role="tabpanel">
+  <div id="setup" class="panel">
+    <h2><span class="sec">§1</span>Setup</h2>
+    <div class="row">
+      <label class="field"><span>Rule</span>
+        <select id="rule"><option value="1">Rule 1 — Random machine</option><option value="2">Rule 2 — Nearest machine</option>
+          <option value="3" selected>Rule 3 — Potential fields</option><option value="4">Rule 4 — AI agent</option></select></label>
+    </div>
+    <div class="row">
+      <label class="field"><span>Product set</span>
+        <select id="session-set"><option value="">Generated from the seed</option><option value="__current__">Current list (Product set tab)</option></select></label>
+    </div>
+    <div class="row">
+      <label class="field"><span>Horizon (ticks)</span><input id="horizon" type="number" min="1" max="1000000" value="10000"></label>
+    </div>
+    <div class="row">
+      <label class="check"><input id="seed-on" type="checkbox"> Set a seed</label>
+      <span class="tip"><button type="button" aria-label="About the seed" aria-describedby="seed-tip">i</button>
+        <span id="seed-tip" role="tooltip">The seed fixes every random draw of the simulation (product arrivals, processing times). The same seed, rule and product set give the same run. Leave it unchecked and the platform draws a random seed and shows it here.</span></span>
+    </div>
+    <div class="row" id="seed-box" hidden>
+      <label class="field"><span>Seed</span><input id="seed" type="number" step="1"></label>
+      <span id="seed-error" class="err"></span>
+    </div>
+    <div class="row"><button id="create" class="primary">Create session</button></div>
+    <div class="row" id="seed-used" hidden><span class="label">Seed used</span> <b id="seed-value" class="mono"></b>
+      <button id="seed-copy" class="ghost" title="Copy the seed">Copy</button></div>
+    <hr class="rule">
+    <h2><span class="sec">§2</span>Run</h2>
+    <div class="row">
+      <label class="field"><span>Live speed</span>
+        <select id="speed"><option value="0.5">0.5× (16 ticks/s)</option><option value="1" selected>1× (32 ticks/s)</option>
+          <option value="2">2× (64 ticks/s)</option><option value="4">4× (128 ticks/s)</option></select></label>
+    </div>
+    <div class="row transport" style="margin-top: var(--s3)">
+      <button id="live" title="Run at the chosen speed (the speed can be changed while it runs)">▶ Live</button>
+      <button id="fast" title="Run as fast as possible">⏩ Fast</button>
+      <button id="pause" title="Pause (space)">❚❚ Pause</button>
+      <button id="resume" title="Resume (space)">▶ Resume</button>
+      <button id="reset" title="Back to tick 0 with the same parameters">↺ Reset</button>
+      <button id="close" title="Close the session">✕ Close</button>
+    </div>
+  </div>
+
+  <figure class="figure">
+    <div class="canvas-wrap"><canvas id="plant" aria-label="Plant: monorail, machines M1–M7 and products"></canvas><div id="probe"></div></div>
+    <figcaption><span class="sec">Fig. 1</span> <b>Plant layout and products.</b> Grey lines: monorail; squares: machines
+      (filled while processing); circles: products, coloured and lettered by type. Positions are interpolated in ticks between
+      the platform's updates; hover a product to read it.
+      <div class="legend" id="legend"></div></figcaption>
+  </figure>
+
+  <div id="readouts" class="panel">
+    <h2><span class="sec">§3</span>Indicators</h2>
+    <div id="kpis"><p class="muted">No session yet.</p></div>
+    <hr class="rule">
+    <h2><span class="sec">§4</span>Agent</h2>
+    <div id="decisions" class="muted">–</div>
+  </div>
+
+  <div id="decisions-panel" class="panel">
+    <div class="row" style="justify-content: space-between">
+      <h2><span class="sec">Tab. 1</span>Latest decisions <small class="muted">(50 newest first)</small></h2>
+      <label class="field"><span>Level</span><select id="dec-level" class="dec-level"><option value="">(all)</option></select></label>
+    </div>
+    <div class="table-wrap" style="margin-top: var(--s2)"><table class="set dec"><thead><tr><th>Tick</th><th>Product (type)</th><th>Operation</th>
+      <th>Chosen machine</th><th>Level</th><th>Reason</th><th>Latency</th><th>Late</th></tr></thead><tbody id="dec-rows"></tbody></table></div>
+  </div>
+
+  <div id="events-panel" class="panel">
+    <h2><span class="sec">Log</span>Model events <small class="muted">(last 200)</small></h2>
+    <div id="events"></div>
+  </div>
 </section>
 
-<!-- ===================== Set de productos ===================== -->
-<section id="page-set" hidden>
-<fieldset>
-  <b id="set-summary">0 productos</b> <span id="set-counts"></span> <span id="set-dirty" class="err"></span>
-</fieldset>
-<fieldset>
-  Agregar: tipo <select id="add-type"><option>A</option><option>I</option><option>P</option><option>B</option><option>E</option><option>L</option><option>T</option></select>
-  priority <input id="add-priority" type="number" min="60" max="100" value="80">
-  cantidad <input id="add-count" type="number" min="1" max="1000" value="1">
-  <button id="add">Agregar</button>
-  | <label>Subir CSV <input id="csv-file" type="file" accept=".csv,text/csv"></label>
-  <button id="csv-download">Descargar CSV</button>
-  <button id="clear">Vaciar</button>
-</fieldset>
-<fieldset>
-  Generar desde semilla:
-  <label><input id="gen-seed-on" type="checkbox"> Agregar semilla</label>
-  <span class="info" title="Define la semilla que se usará para generar los productos. Si no la defines, se genera una aleatoria.">i</span>
-  <span id="gen-seed-box" hidden><input id="gen-seed" type="number" step="1"> <span id="gen-seed-error" class="err"></span></span>
-  cantidad <input id="gen-count" type="number" min="1" max="1000" value="50">
-  <button id="generate">Generar</button> <span id="gen-used"></span>
-</fieldset>
-<fieldset>
-  Nombre <input id="set-name" value="Mi set"> <button id="set-save">Guardar</button>
-  | Guardados <select id="saved-sets"></select> <button id="set-open">Abrir</button> <button id="set-delete">Borrar</button>
-</fieldset>
-<div id="set-errors" class="err"></div>
-<table class="set"><thead><tr><th></th><th>#</th><th>Tipo</th><th>Priority</th><th>Acciones</th></tr></thead><tbody id="set-rows"></tbody></table>
+<!-- ===================== Product set ===================== -->
+<section id="page-set" class="page" role="tabpanel" hidden>
+  <div class="panel">
+    <h2><span class="sec">§1</span>Build the list</h2>
+    <p class="muted" style="margin: 0 0 var(--s3)">Products enter the plant in the order of the list. At most <span class="mono">30</span> products.</p>
+    <div class="row">
+      <label class="field"><span>Type</span><select id="add-type"><option>A</option><option>I</option><option>P</option><option>B</option><option>E</option><option>L</option><option>T</option></select></label>
+      <label class="field"><span>Quantity</span><input id="add-count" type="number" min="1" max="30" value="1"></label>
+      <button id="add">Add</button>
+    </div>
+    <hr class="rule">
+    <div class="row">
+      <label class="check"><input id="gen-seed-on" type="checkbox"> Set a seed</label>
+      <span class="tip"><button type="button" aria-label="About the generator seed" aria-describedby="gen-seed-tip">i</button>
+        <span id="gen-seed-tip" role="tooltip">Generates the same products the model would create with this seed, in the same order. Leave it unchecked for a random seed.</span></span>
+    </div>
+    <div class="row" id="gen-seed-box" hidden>
+      <label class="field"><span>Seed</span><input id="gen-seed" type="number" step="1"></label>
+      <span id="gen-seed-error" class="err"></span>
+    </div>
+    <div class="row">
+      <label class="field"><span>Quantity</span><input id="gen-count" type="number" min="1" max="30" value="10"></label>
+      <button id="generate">Generate from seed</button>
+    </div>
+    <div class="row"><span id="gen-used" class="muted mono"></span></div>
+    <hr class="rule">
+    <div class="row">
+      <label class="field"><span>Upload CSV</span><input id="csv-file" type="file" accept=".csv,text/csv"></label>
+    </div>
+    <div class="row"><button id="csv-download">Download CSV</button><button id="clear">Clear list</button></div>
+    <hr class="rule">
+    <h2><span class="sec">§2</span>Saved sets</h2>
+    <div class="row">
+      <label class="field"><span>Name</span><input id="set-name" value="My set"></label>
+      <button id="set-save" class="primary">Save</button>
+    </div>
+    <div class="row">
+      <label class="field"><span>Saved</span><select id="saved-sets"></select></label>
+      <button id="set-open">Open</button><button id="set-delete">Delete</button>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="row" style="justify-content: space-between; align-items: baseline">
+      <h2><span class="sec">Tab. 2</span>Current list</h2>
+      <span><b id="set-summary" class="big">0</b> <span class="muted">/ 30 products</span> <span id="set-dirty" class="err"></span></span>
+    </div>
+    <div id="set-counts" class="counts"></div>
+    <div id="set-errors" class="err" role="alert" style="margin: var(--s2) 0"></div>
+    <div class="table-wrap" style="margin-top: var(--s2)"><table class="set"><thead><tr><th></th><th>#</th><th>Type</th><th>Actions</th></tr></thead>
+      <tbody id="set-rows"></tbody></table></div>
+  </div>
 </section>
 
-<!-- ===================== Corridas ===================== -->
-<section id="page-runs" hidden>
-<fieldset>
-  Filtrar: semilla <input id="runs-seed" type="number">
-  regla <select id="runs-rule"><option value="">(todas)</option><option>1</option><option>2</option><option>3</option><option>4</option></select>
-  <button id="runs-refresh">Actualizar</button> <button id="runs-more" hidden>Más</button>
-  | <button id="runs-compare">Comparar seleccionadas</button>
-</fieldset>
-<div id="runs-msg" class="err"></div>
-<table class="set"><thead><tr><th></th><th>Inicio</th><th>Estado</th><th>Regla</th><th>Semilla</th><th>Set</th>
-  <th>Ticks</th><th>Makespan</th><th>Flujo medio</th><th>Trabajo</th><th>Terminados</th><th>Creados</th><th></th></tr></thead>
-  <tbody id="runs-rows"></tbody></table>
-<h4>Comparación</h4><div id="runs-compare-box">–</div>
-<div id="rd-box" class="dec-box" hidden>
-  <h4>Decisiones de la corrida <span id="rd-title"></span></h4>
-  nivel <select id="rd-level" class="dec-level"><option value="">(todos)</option></select>
-  <button id="rd-prev">Anterior</button> <span id="rd-page"></span> <button id="rd-next">Siguiente</button>
-  <button id="rd-csv">Descargar CSV</button> <button id="rd-close">Cerrar</button>
-  <table class="set dec"><thead><tr><th>Tick</th><th>Producto (tipo)</th><th>Operación</th><th>Máquina elegida</th><th>Nivel</th>
-    <th>Razón</th><th>Latencia</th><th>Tarde</th></tr></thead><tbody id="rd-rows"></tbody></table>
-</div>
+<!-- ===================== Runs ===================== -->
+<section id="page-runs" class="page" role="tabpanel" hidden>
+  <div class="panel">
+    <div class="row">
+      <label class="field"><span>Seed</span><input id="runs-seed" type="number"></label>
+      <label class="field"><span>Rule</span><select id="runs-rule"><option value="">(all)</option><option value="1">Rule 1</option><option value="2">Rule 2</option><option value="3">Rule 3</option><option value="4">Rule 4</option></select></label>
+      <button id="runs-refresh">Refresh</button> <button id="runs-more" hidden>More</button>
+      <button id="runs-compare" class="primary">Compare selected</button>
+    </div>
+    <div id="runs-msg" class="err" style="margin-top: var(--s2)"></div>
+    <div class="table-wrap" style="margin-top: var(--s3)"><table class="set"><thead><tr><th></th><th>Started</th><th>Status</th><th>Rule</th><th>Seed</th><th>Set</th>
+      <th>Ticks</th><th>Makespan</th><th>Mean flow</th><th>Work</th><th>Finished</th><th>Created</th><th></th></tr></thead>
+      <tbody id="runs-rows"></tbody></table></div>
+  </div>
+  <div class="panel">
+    <h2><span class="sec">Tab. 3</span>Comparison</h2>
+    <div id="runs-compare-box" class="muted">Select at least 2 runs and press “Compare selected”.</div>
+  </div>
+  <div id="rd-box" class="panel" hidden>
+    <h2><span class="sec">Tab. 4</span>Decisions of run <span id="rd-title" class="mono"></span></h2>
+    <div class="row">
+      <label class="field"><span>Level</span><select id="rd-level" class="dec-level"><option value="">(all)</option></select></label>
+      <button id="rd-prev">‹ Previous</button> <span id="rd-page" class="mono"></span> <button id="rd-next">Next ›</button>
+      <button id="rd-csv">Download CSV</button> <button id="rd-close" class="ghost">Close</button>
+    </div>
+    <div class="table-wrap" style="margin-top: var(--s2)"><table class="set dec"><thead><tr><th>Tick</th><th>Product (type)</th><th>Operation</th>
+      <th>Chosen machine</th><th>Level</th><th>Reason</th><th>Latency</th><th>Late</th></tr></thead><tbody id="rd-rows"></tbody></table></div>
+  </div>
 </section>
+</main>
 
 <script>
 "use strict";
-const DELAY_MS = 400, MAX_EVENTS = 200, MAX_INTERP_MS = 300;
+const MAX_EVENTS = 200, MAX_PRODUCTS = 30;
 const TYPES = ["A", "I", "P", "B", "E", "L", "T"];
+// One colour per product type (distinct in light and dark; the type letter is drawn too, so colour is never the only cue).
+const TYPE_COLORS = {A: "#1f77b4", I: "#d1495b", P: "#2a9d8f", B: "#7b5ea7", E: "#e07b39", L: "#5c7c2b", T: "#8c564b"};
 const SEED_MIN = -2147483648, SEED_MAX = 2147483647;
-let sid = null, ws = null, layout = null, frames = [], events = [], sessionInfo = null, lastState = null;
+let sid = null, ws = null, layout = null, events = [], sessionInfo = null, lastState = null;
+let runState = null, runMode = null, colorsCache = null;
 const $ = id => document.getElementById(id);
+const esc = t => String(t).replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
+const typeDot = t => t ? `<span class="type-dot" style="background:${TYPE_COLORS[t] || "#777"}">${esc(t)}</span>` : "";
 
-function msg(text, error) { $("msg").textContent = text; $("msg").className = error ? "err" : ""; }
+// ----- theme (light / dark), kept per viewer -----
+function applyTheme(t) { if (t) document.documentElement.dataset.theme = t; else delete document.documentElement.dataset.theme; colorsCache = null; }
+try { applyTheme(localStorage.getItem("aclopi-theme")); } catch (e) {}
+$("theme").onclick = () => {
+  const dark = document.documentElement.dataset.theme
+    ? document.documentElement.dataset.theme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+  const next = dark ? "light" : "dark";
+  applyTheme(next); try { localStorage.setItem("aclopi-theme", next); } catch (e) {}
+};
+
+// ----- messages: an error stays until the next action that succeeds -----
+function msg(text, error) { $("msg").textContent = text || ""; $("msg").className = error ? "err" : ""; }
+function clearError() { if ($("msg").className === "err") msg(""); }
 async function api(method, path, body, raw) {
   const r = await fetch(path, raw ? {method, body} : {method, headers: {"Content-Type": "application/json"},
                                                        body: body ? JSON.stringify(body) : undefined});
   if (r.status === 204) return null;
-  const data = await r.json();
-  if (!r.ok) { const e = new Error(`${r.status} ${data.code || ""}: ${typeof data.detail === "string" ? data.detail : JSON.stringify(data.detail)}`); e.data = data; throw e; }
+  let data = {};
+  try { data = await r.json(); } catch (e) { if (!r.ok) throw new Error(`${r.status} ${r.statusText}`); }
+  if (!r.ok) {
+    const e = new Error(`${r.status} ${data.code || ""}: ${typeof data.detail === "string" ? data.detail : JSON.stringify(data.detail)}`);
+    e.data = data; throw e;
+  }
   return data;
 }
-async function act(fn) { try { const info = await fn(); if (info && info.run_state) showRun(info); } catch (e) { msg(e.message, true); } }
+function requireSession() { if (!sid) throw new Error("Create a session first"); }
+async function act(fn) {
+  try { const info = await fn(); clearError(); if (info && info.run_state) showRun(info); }
+  catch (e) { msg(e.message, true); }
+}
 
-// ----- tabs -----
+// ----- tabs (order: product set, session, runs) -----
 function showTab(name) {
-  for (const t of ["session", "set", "runs"]) {
+  for (const t of ["set", "session", "runs"]) {
     $(`page-${t}`).hidden = name !== t; $(`tab-${t}`).classList.toggle("active", name === t);
+    $(`tab-${t}`).setAttribute("aria-selected", String(name === t));
   }
   if (name === "runs") loadRuns(true);
+  if (name === "session") resizeCanvas();
 }
 $("tab-session").onclick = () => showTab("session");
 $("tab-set").onclick = () => showTab("set");
 $("tab-runs").onclick = () => showTab("runs");
+
+// tooltips also open with a tap (touch screens have no hover)
+document.querySelectorAll(".tip > button").forEach(b => {
+  b.onclick = e => { e.stopPropagation(); b.parentElement.classList.toggle("open"); };
+});
+document.addEventListener("click", () => document.querySelectorAll(".tip.open").forEach(t => t.classList.remove("open")));
 
 // ----- seed pattern: checkbox + mandatory integer in range when checked -----
 function seedField(onId, boxId, inputId, errorId) {
@@ -163,7 +462,7 @@ function seedField(onId, boxId, inputId, errorId) {
     if (!$(onId).checked) return {ok: true};
     const raw = $(inputId).value.trim(), n = Number(raw);
     if (raw === "" || !Number.isInteger(n) || n < SEED_MIN || n > SEED_MAX) {
-      $(errorId).textContent = `entero entre ${SEED_MIN} y ${SEED_MAX}`; return {ok: false};
+      $(errorId).textContent = `integer between ${SEED_MIN} and ${SEED_MAX}`; return {ok: false};
     }
     $(errorId).textContent = ""; return {ok: true, seed: n};
   };
@@ -171,8 +470,6 @@ function seedField(onId, boxId, inputId, errorId) {
 const sessionSeed = seedField("seed-on", "seed-box", "seed", "seed-error");
 const generateSeed = seedField("gen-seed-on", "gen-seed-box", "gen-seed", "gen-seed-error");
 
-
-const esc = t => String(t).replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
 // Scenarios are not available on the platform (docs/scenarios.md); runs saved before keep theirs and show it.
 const hasScenario = r => !!r.scenario_id && r.scenario_id !== "S0";
 function scenarioText(sc) {
@@ -181,37 +478,66 @@ function scenarioText(sc) {
 }
 
 // ----- session -----
+const STATE_TEXT = {idle: "idle", running_live: "live", running_fast: "fast", waiting_decision: "waiting for agent",
+                    paused: "paused", finished: "finished", failed: "failed"};
 function showRun(info) {
-  $("runstate").textContent = info.run_state + (info.mode ? ` (${info.mode}${info.speed ? " " + info.speed + "×" : ""})` : "");
+  runState = info.run_state; runMode = info.mode ?? null;
+  $("runstate").dataset.state = info.run_state;
+  $("runstate").textContent = (STATE_TEXT[info.run_state] ?? info.run_state) +
+    (info.mode === "live" && info.speed ? ` ${info.speed}×` : "");
+  if (info.mode === "live" && info.speed) $("speed").value = String(info.speed);
   const reason = info.reason ?? info.run_reason;
-  if (info.run_state === "failed" && reason === "agent_unavailable") msg("Agente no disponible: la corrida se detuvo", true);
-  if (info.run_state === "finished" && reason === "all_products_done") msg("Terminaron todos los productos del set");
+  if (info.run_state === "failed" && reason === "agent_unavailable") msg("Agent not available: the run stopped", true);
+  if (info.run_state === "finished" && reason === "all_products_done") msg("Every product of the set is finished");
+}
+async function createSession(body) {
+  if (sid) { await api("DELETE", `/sessions/${sid}`).catch(() => {}); }
+  const info = await api("POST", "/sessions", body);
+  sessionInfo = info; sid = info.session_id;
+  $("sid").textContent = sid.slice(0, 8); $("sid").title = sid;
+  $("seed-value").textContent = info.parameters.seed + (info.seed_source === "random" ? " (random)" : "");
+  $("seed-used").hidden = false;
+  connect();
+  return info;
 }
 $("create").onclick = () => act(async () => {
-  const s = sessionSeed(); if (!s.ok) throw new Error("Semilla inválida");
-  if (sid) { await api("DELETE", `/sessions/${sid}`).catch(() => {}); }
+  const s = sessionSeed(); if (!s.ok) throw new Error("Invalid seed");
   const body = {rule: +$("rule").value, horizon_ticks: +$("horizon").value};
   if (s.seed !== undefined) body.seed = s.seed;
   if (body.rule === 4) body.strategy = "agent";  // for the user, rule 4 is the agent (b1 / b1b / none: API only)
-  // "Lista actual": exactly the list shown in the Set de productos tab, in that order.
+  // "Current list": exactly the list shown in the Product set tab, in that order.
   if ($("session-set").value === CURRENT_LIST) {
-    if (!setItems.length) throw new Error("La lista actual está vacía");
-    body.products = setItems.map(p => ({type: p.type, priority: p.priority}));
+    if (!setItems.length) throw new Error("The current list is empty (Product set tab)");
+    body.products = setItems.map(p => ({type: p.type}));
   } else if ($("session-set").value) body.product_set_id = $("session-set").value;
-  const info = await api("POST", "/sessions", body);
-  sessionInfo = info;
-  if (info.warnings && info.warnings.includes("agent_unavailable")) msg("Aviso: el agente no está disponible (en vivo actuará la regla 3)", true);
-  $("seed-value").textContent = info.parameters.seed + (info.seed_source === "random" ? " (aleatoria)" : "");
-  $("seed-used").hidden = false;
-  sid = info.session_id; $("sid").textContent = sid; connect(); return info;
+  const info = await createSession(body);
+  if (info.warnings && info.warnings.includes("agent_unavailable")) msg("Warning: the agent is not available (live runs will use rule 3)", true);
+  return info;
 });
-$("seed-copy").onclick = () => navigator.clipboard && navigator.clipboard.writeText(String(sessionInfo.parameters.seed));
-$("live").onclick = () => act(() => api("POST", `/sessions/${sid}/run`, {mode: "live", speed: +$("speed").value}));
-$("fast").onclick = () => act(() => api("POST", `/sessions/${sid}/run`, {mode: "fast"}));
-$("pause").onclick = () => act(() => api("POST", `/sessions/${sid}/pause`));
-$("resume").onclick = () => act(() => api("POST", `/sessions/${sid}/resume`));
-$("reset").onclick = () => act(() => api("POST", `/sessions/${sid}/reset`));
-$("close").onclick = () => act(async () => { await api("DELETE", `/sessions/${sid}`); sid = null; $("sid").textContent = ""; });
+$("seed-copy").onclick = () => { try { navigator.clipboard.writeText(String(sessionInfo.parameters.seed)); } catch (e) {} };
+$("live").onclick = () => act(() => { requireSession(); return api("POST", `/sessions/${sid}/run`, {mode: "live", speed: +$("speed").value}); });
+$("fast").onclick = () => act(() => { requireSession(); return api("POST", `/sessions/${sid}/run`, {mode: "fast"}); });
+$("pause").onclick = () => act(() => { requireSession(); return api("POST", `/sessions/${sid}/pause`); });
+$("resume").onclick = () => act(() => {
+  requireSession();
+  // a paused live run resumes at the speed now selected (POST /run changes the speed of a paused or running run)
+  if (runMode === "live") return api("POST", `/sessions/${sid}/run`, {mode: "live", speed: +$("speed").value});
+  return api("POST", `/sessions/${sid}/resume`);
+});
+$("speed").onchange = () => {
+  if (sid && runState === "running_live") act(() => api("POST", `/sessions/${sid}/run`, {mode: "live", speed: +$("speed").value}));
+};
+$("reset").onclick = () => act(() => { requireSession(); return api("POST", `/sessions/${sid}/reset`); });
+$("close").onclick = () => act(async () => {
+  requireSession();
+  await api("DELETE", `/sessions/${sid}`);
+  sid = null; $("sid").textContent = "–"; disconnect();
+});
+document.addEventListener("keydown", e => {  // space: pause / resume
+  if (e.code !== "Space" || !sid || e.target.closest("input, select, textarea, button")) return;
+  e.preventDefault();
+  if (runState && runState.startsWith("running")) $("pause").click(); else if (runState === "paused") $("resume").click();
+});
 
 async function pollAgent() {
   try { const h = await (await fetch("/health")).json(); $("agent-banner").hidden = !h.agent || h.agent.status !== "down"; } catch (e) {}
@@ -221,74 +547,82 @@ async function showDecisions() {
   if (!sid) return;
   try {
     const m = (await (await fetch(`/sessions/${sid}/metrics`)).json()).decisions;
-    if (!m || !m.strategy || m.strategy === "none") { $("decisions").textContent = "–"; return; }
-    const levels = Object.entries(m.by_level_pct).map(([k, v]) => `${k} ${v}%`).join("  ") || "–";
-    $("decisions").textContent = `aplicadas ${m.applied}  tarde ${m.late}  sin respuesta ${m.unanswered}\n${levels}\n` +
-      `rule3-fallback ${m.rule3_fallback_pct ?? "–"}%  single-option ${m.single_option}` +
-      (m.latency_ms ? `\nlatencia media ${m.latency_ms.mean} ms  p95 ${m.latency_ms.p95} ms` : "");
+    $("decisions").classList.remove("muted");
+    if (!m || !m.strategy || m.strategy === "none") { $("decisions").innerHTML = `<span class="muted">Only with rule 4.</span>`; return; }
+    const levels = Object.entries(m.by_level_pct).map(([k, v]) => `<div><dt>${esc(k)}</dt><dd>${v}<small> %</small></dd></div>`).join("");
+    $("decisions").innerHTML = `<dl class="readout">
+      <div><dt>Applied</dt><dd>${m.applied}</dd></div><div><dt>Late</dt><dd>${m.late}</dd></div>
+      <div><dt>Unanswered</dt><dd>${m.unanswered}</dd></div><div><dt>Single option</dt><dd>${m.single_option}</dd></div>
+      <div><dt>Rule 3 fallback</dt><dd>${m.rule3_fallback_pct ?? "–"}<small> %</small></dd></div>
+      <div><dt>Latency p95</dt><dd>${m.latency_ms ? Math.round(m.latency_ms.p95) : "–"}<small> ms</small></dd></div>
+      ${levels}</dl>`;
   } catch (e) {}
 }
 setInterval(showDecisions, 2000);
 
+function disconnect() {
+  if (!ws) return;
+  ws.onclose = ws.onmessage = ws.onopen = null;  // a socket we close on purpose is not an error
+  ws.close(); ws = null;
+}
 function connect() {
-  if (ws) ws.close();
+  disconnect();
   frames = []; events = []; liveDecisions = []; renderLiveDecisions();
   const proto = location.protocol === "https:" ? "wss" : "ws";
-  ws = new WebSocket(`${proto}://${location.host}/ws/sessions/${sid}`);
-  ws.onmessage = e => handle(JSON.parse(e.data));
-  ws.onclose = e => msg(`WebSocket cerrado (${e.code} ${e.reason})`, e.code !== 1000);
+  const socket = new WebSocket(`${proto}://${location.host}/ws/sessions/${sid}`);
+  ws = socket;
+  socket.onmessage = e => handle(JSON.parse(e.data));
+  socket.onclose = e => { if (ws === socket) msg(`Live connection closed (${e.code}${e.reason ? " " + e.reason : ""})`, e.code !== 1000); };
 }
 function eventLine(ev) {
-  return `<div>${ev.tick} ${esc(ev.event)} p${ev.who} ${esc(ev.location ?? "")} → ${esc(ev.destination ?? "")}</div>`;
+  return `<div>${String(ev.tick).padStart(6)}  ${esc(ev.event)}  p${ev.who}${ev.product_type ? " " + esc(ev.product_type) : ""}  ${esc(ev.location ?? "")} → ${esc(ev.destination ?? "")}</div>`;
 }
 function addEvents(list) {
+  if (!list || !list.length) return;
   events.push(...list);
   if (events.length > MAX_EVENTS) events = events.slice(-MAX_EVENTS);
   $("events").innerHTML = events.map(eventLine).join("");
   $("events").scrollTop = 1e9;
 }
-function addFrame(tick, state) {
-  if (!state) return;
-  lastState = state;
-  showListProgress();
-  frames.push({t: performance.now(), tick, products: new Map(state.products.map(p => [p.id, p]))});
-  if (frames.length > 60) frames.shift();
-}
 function showListProgress() {
-  if (!lastState || !lastState.product_list_active) { $("list-progress").textContent = ""; return; }
-  const total = lastState.product_list_length, entered = lastState.product_list_next, done = lastState.finished;
-  $("list-progress").textContent = `Set: entraron ${entered} · terminaron ${done} · faltan ${total - done} de ${total} ·`;
+  if (!lastState || !lastState.product_list_active) { $("list-progress").textContent = "–"; return; }
+  const total = lastState.product_list_length, entered = Math.min(total, lastState.product_list_next - 1), done = lastState.finished;
+  $("list-progress").textContent = `${done}/${total} done · ${entered} in`;
 }
 function showKpis(k) {
   if (!k) return;
-  const u = Object.entries(k.utilization).map(([m, v]) => `${m} ${(100 * v).toFixed(0)}%`).join(" ");
-  let text = `ticks ${k.ticks}  creados ${k.created ?? "–"}  terminados ${k.finished}  WIP ${k.wip}\n` +
-    `throughput ${k.throughput.toFixed(5)}  flujo medio ${k.mean_flow_time === null ? "–" : k.mean_flow_time.toFixed(1)}` +
-    ` (desde la 1.ª operación)\ntrabajo completado ${k.work_completed === undefined ? "–" : k.work_completed.toFixed(1)}\n${u}`;
+  const n = (v, d = 1) => v === null || v === undefined ? "–" : Number(v).toFixed(d);
+  let html = `<dl class="readout">
+    <div><dt>Created</dt><dd>${k.created ?? "–"}</dd></div><div><dt>Finished</dt><dd>${k.finished}</dd></div>
+    <div><dt>WIP</dt><dd>${k.wip}</dd></div><div><dt>Time</dt><dd>${n(k.simulated_time)}<small> u.t.</small></dd></div>
+    <div><dt>Mean flow</dt><dd>${n(k.mean_flow_time)}<small> u.t.</small></dd></div>
+    <div><dt>Work done</dt><dd>${n(k.work_completed)}<small> u.t.</small></dd></div>
+    <div><dt>Throughput</dt><dd>${(k.throughput * 1000).toFixed(2)}<small> /1000 u.t.</small></dd></div>`;
   if (k.products_total !== null && k.products_total !== undefined) {
-    text += `\nset: ${k.products_total} productos  todos terminados ${k.all_done ? "sí" : "no"}` +
-      `  makespan ${k.makespan_time === null ? "–" : `${k.makespan_time.toFixed(1)} u.t. (${k.makespan_ticks} ticks)`}`;
+    html += `<div><dt>Makespan</dt><dd>${k.all_done && k.makespan_time !== null ? `${n(k.makespan_time)}<small> u.t.</small>` : "–"}</dd></div>`;
   }
-  $("kpis").textContent = text;
+  html += `</dl><div class="util">` + Object.entries(k.utilization).map(([m, v]) =>
+    `<span>${m}</span><span class="bar"><span style="width:${(100 * v).toFixed(1)}%"></span></span><span class="v">${(100 * v).toFixed(0)}%</span>`).join("") + `</div>`;
+  $("kpis").innerHTML = html;
 }
 function handle(m) {
   switch (m.type) {
     case "snapshot":
-      layout = m.layout; frames = []; events = [];
+      layout = m.layout; frames = []; events = []; $("events").innerHTML = "";
       showRun(m.session); $("tick").textContent = m.tick; showKpis(m.kpis);
-      addEvents(m.recent_events || []); addFrame(m.tick, m.state); break;
+      addEvents(m.recent_events || []); addFrame(m.tick, m.state); resizeCanvas(); break;
     case "tick":
-      $("tick").textContent = m.tick; $("rate").textContent = m.rate ? `${m.rate} ticks/s` : "–";
+      $("tick").textContent = m.tick; $("rate").textContent = m.rate ? `${Math.round(m.rate)}/s` : "–";
       addFrame(m.tick, m.state); addEvents(m.events); showKpis(m.kpis); break;
     case "progress":
-      $("tick").textContent = m.tick; $("rate").textContent = m.ticks_per_s ? `${Math.round(m.ticks_per_s)} ticks/s` : "–";
+      $("tick").textContent = m.tick; $("rate").textContent = m.ticks_per_s ? `${Math.round(m.ticks_per_s)}/s` : "–";
       addFrame(m.tick, m.state); addEvents(m.events); showKpis(m.kpis); break;
     case "run_state": showRun(m); break;
     case "decision": addLiveDecision(m); break;
-    case "finished": showKpis(m.kpis); msg(`Corrida terminada en el tick ${m.tick}` + (m.reason ? ` (${m.reason})` : "")); break;
-    case "resync": msg(`Resincronizando (${m.reason}, ${m.dropped} mensajes descartados)`); break;
-    case "run_error": msg(`Error en la corrida: ${m.error}`, true); break;
-    case "closed": msg(`Sesión cerrada: ${m.code} – ${m.reason}`, true); break;
+    case "finished": showKpis(m.kpis); msg(`Run finished at tick ${m.tick}` + (m.reason ? ` (${m.reason})` : "")); break;
+    case "resync": msg(`Resynchronising (${m.reason}, ${m.dropped} messages dropped)`); break;
+    case "run_error": msg(`Run error: ${m.error}`, true); break;
+    case "closed": msg(`Session closed: ${m.code} – ${m.reason}`, true); break;
   }
 }
 
@@ -301,13 +635,14 @@ const asDecision = d => ({tick: d.tick, product: d.product, product_type: d.prod
                           machine: d.machine, level: d.level ?? d.decision_level, reason: d.reason ?? "",
                           latency_ms: d.latency_ms, late: !!d.late});
 function decisionRows(list) {
+  if (!list.length) return `<tr><td colspan="8" class="empty">No decisions.</td></tr>`;
   return list.map(d => {
     const reason = String(d.reason ?? ""), short = reason.length > REASON_CHARS ? reason.slice(0, REASON_CHARS - 1) + "…" : reason;
-    return `<tr class="${d.late ? "late" : ""}"><td>${d.tick ?? "–"}</td><td>p${d.product}${d.product_type ? ` (${esc(d.product_type)})` : ""}</td>
-      <td>${esc(d.operation ?? "–")}</td><td>${esc(d.machine)}</td><td>${esc(d.level ?? "–")}</td>
+    return `<tr class="${d.late ? "late" : ""}"><td class="num">${d.tick ?? "–"}</td><td>p${d.product}${d.product_type ? ` (${esc(d.product_type)})` : ""}</td>
+      <td class="mono">${esc(d.operation ?? "–")}</td><td class="mono">${esc(d.machine)}</td><td>${esc(d.level ?? "–")}</td>
       <td class="reason" title="${esc(reason)}">${esc(short) || "–"}</td>
-      <td>${d.latency_ms === null || d.latency_ms === undefined ? "–" : Math.round(d.latency_ms) + " ms"}</td>
-      <td>${d.late ? "⚠ tarde" : ""}</td></tr>`;
+      <td class="num">${d.latency_ms === null || d.latency_ms === undefined ? "–" : Math.round(d.latency_ms) + " ms"}</td>
+      <td>${d.late ? "⚠ late" : ""}</td></tr>`;
   }).join("");
 }
 function noteLevels(list) {  // the level filters offer every level seen
@@ -316,12 +651,12 @@ function noteLevels(list) {  // the level filters offer every level seen
   if (!added) return;
   document.querySelectorAll("select.dec-level").forEach(sel => {
     const v = sel.value;
-    sel.innerHTML = `<option value="">(todos)</option>` + [...levelsSeen].sort().map(l => `<option>${esc(l)}</option>`).join("");
+    sel.innerHTML = `<option value="">(all)</option>` + [...levelsSeen].sort().map(l => `<option>${esc(l)}</option>`).join("");
     sel.value = v;
   });
 }
 const byLevel = (list, sel) => $(sel).value ? list.filter(d => d.level === $(sel).value) : list;
-function renderLiveDecisions() { $("dec-rows").innerHTML = decisionRows(byLevel(liveDecisions, "dec-level")); }
+function renderLiveDecisions() { $("dec-rows").innerHTML = liveDecisions.length ? decisionRows(byLevel(liveDecisions, "dec-level")) : ""; }
 function addLiveDecision(m) {
   const d = asDecision(m);
   liveDecisions.unshift(d);  // newest on top
@@ -335,7 +670,7 @@ async function showRunDecisions(r) {
   const list = (await api("GET", `/runs/${r.run_id}/decisions`)).map(asDecision);
   runDecisions = list.reverse(); runDecisionsRun = r; runDecisionsPage = 0;  // newest on top, as the live panel
   noteLevels(runDecisions);
-  $("rd-title").textContent = `${r.run_id.slice(0, 8)} · ${ruleText(r)} · semilla ${r.seed} · ${runDecisions.length} decisiones`;
+  $("rd-title").textContent = `${r.run_id.slice(0, 8)} · ${ruleText(r)} · seed ${r.seed} · ${runDecisions.length} decisions`;
   $("rd-box").hidden = false; renderRunDecisions(); $("rd-box").scrollIntoView();
 }
 function renderRunDecisions() {
@@ -343,58 +678,62 @@ function renderRunDecisions() {
   const pages = Math.max(1, Math.ceil(list.length / RUN_DECISIONS_PAGE));
   runDecisionsPage = Math.max(0, Math.min(runDecisionsPage, pages - 1));
   const start = runDecisionsPage * RUN_DECISIONS_PAGE;
-  $("rd-rows").innerHTML = decisionRows(list.slice(start, start + RUN_DECISIONS_PAGE));
-  $("rd-page").textContent = `página ${runDecisionsPage + 1} de ${pages} (${list.length} decisiones)`;
+  $("rd-rows").innerHTML = list.length ? decisionRows(list.slice(start, start + RUN_DECISIONS_PAGE)) : "";
+  $("rd-page").textContent = `page ${runDecisionsPage + 1} of ${pages} (${list.length} decisions)`;
   $("rd-prev").disabled = runDecisionsPage === 0; $("rd-next").disabled = runDecisionsPage >= pages - 1;
+  $("rd-csv").disabled = !runDecisions.length;
 }
 $("rd-level").onchange = () => { runDecisionsPage = 0; renderRunDecisions(); };
 $("rd-prev").onclick = () => { runDecisionsPage--; renderRunDecisions(); };
 $("rd-next").onclick = () => { runDecisionsPage++; renderRunDecisions(); };
 $("rd-close").onclick = () => { $("rd-box").hidden = true; };
 const csvCell = v => v === null || v === undefined ? "" : /[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : String(v);
+function download(name, text) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([text], {type: "text/csv"})); a.download = name; a.click();
+}
 $("rd-csv").onclick = () => {  // every decision of the run, in order (oldest first), whatever the filter
   const cols = ["tick", "product", "product_type", "operation", "machine", "level", "reason", "latency_ms", "late"];
   const rows = [...runDecisions].reverse().map(d => cols.map(c => csvCell(d[c])).join(","));
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(new Blob([[cols.join(","), ...rows].join("\n") + "\n"], {type: "text/csv"}));
-  a.download = `decisiones-${runDecisionsRun.run_id.slice(0, 8)}.csv`; a.click();
+  download(`decisions-${runDecisionsRun.run_id.slice(0, 8)}.csv`, [cols.join(","), ...rows].join("\n") + "\n");
 };
 
-// ----- product set editor -----
+// ----- product set editor (type and order; at most 30 products) -----
 let setItems = [], setId = null, dirty = false, dragFrom = null;
 const CURRENT_LIST = "__current__";  // session-set option: send the list being edited
+function setError(text) { $("set-errors").textContent = text || ""; }
+async function setAct(fn) { try { await fn(); } catch (err) { setError(err.message); } }  // every action reports its error here
 function markDirty(v) {
-  dirty = v; $("set-dirty").textContent = v ? "(cambios sin guardar)" : "";
+  dirty = v; $("set-dirty").textContent = v ? "unsaved changes" : "";
   if (v && setItems.length) $("session-set").value = CURRENT_LIST;  // what the user sees is what runs
 }
 window.addEventListener("beforeunload", e => { if (dirty) { e.preventDefault(); e.returnValue = ""; } });
-function confirmDiscard() { return !dirty || confirm("Hay cambios sin guardar en el set. ¿Descartarlos?"); }
+function confirmDiscard() { return !dirty || confirm("The set has unsaved changes. Discard them?"); }
 function renderSet() {
   const counts = Object.fromEntries(TYPES.map(t => [t, 0]));
   setItems.forEach(p => counts[p.type]++);
-  $("set-summary").textContent = `${setItems.length} productos`;
-  $("set-counts").textContent = TYPES.map(t => `${t}: ${counts[t]}`).join("  ");
+  $("set-summary").textContent = String(setItems.length);
+  $("set-counts").innerHTML = TYPES.map(t => `<span>${typeDot(t)}${counts[t]}</span>`).join("");
+  $("csv-download").disabled = !setItems.length;
+  $("set-save").disabled = !setItems.length;
+  $("add").disabled = setItems.length >= MAX_PRODUCTS;
   const body = $("set-rows"); body.textContent = "";
+  if (!setItems.length) { body.innerHTML = `<tr><td colspan="4" class="empty">The list is empty: add products, generate them from a seed or upload a CSV.</td></tr>`; return; }
   setItems.forEach((p, i) => {
     const tr = document.createElement("tr"); tr.draggable = true; tr.dataset.i = i;
-    tr.innerHTML = `<td class="handle" title="Arrastrar">☰</td><td>${i + 1}</td>
-      <td><select>${TYPES.map(t => `<option${t === p.type ? " selected" : ""}>${t}</option>`).join("")}</select></td>
-      <td><input type="number" min="60" max="100" value="${p.priority}"></td>
-      <td><button data-a="up" title="Subir">↑</button><button data-a="down" title="Bajar">↓</button>
-          <button data-a="dup">Duplicar</button><button data-a="del">Eliminar</button></td>`;
+    tr.innerHTML = `<td class="handle" title="Drag to reorder">⋮⋮</td><td class="num">${i + 1}</td>
+      <td>${typeDot(p.type)}<select aria-label="Type of product ${i + 1}">${TYPES.map(t => `<option${t === p.type ? " selected" : ""}>${t}</option>`).join("")}</select></td>
+      <td><button data-a="up" title="Move up" aria-label="Move up">↑</button><button data-a="down" title="Move down" aria-label="Move down">↓</button>
+          <button data-a="dup">Duplicate</button><button data-a="del">Delete</button></td>`;
     tr.querySelector("select").onchange = e => { p.type = e.target.value; markDirty(true); renderSet(); };
-    tr.querySelector("input").onchange = e => {
-      const v = Number(e.target.value);
-      if (!Number.isInteger(v) || v < 60 || v > 100) { e.target.value = p.priority; $("set-errors").textContent = "priority: entero 60–100"; return; }
-      p.priority = v; markDirty(true);
-    };
     tr.querySelectorAll("button").forEach(b => b.onclick = () => {
       const a = b.dataset.a;
+      if (a === "dup" && setItems.length >= MAX_PRODUCTS) { setError(`At most ${MAX_PRODUCTS} products`); return; }
       if (a === "up" && i > 0) [setItems[i - 1], setItems[i]] = [setItems[i], setItems[i - 1]];
       if (a === "down" && i < setItems.length - 1) [setItems[i + 1], setItems[i]] = [setItems[i], setItems[i + 1]];
       if (a === "dup") setItems.splice(i + 1, 0, {...p});
       if (a === "del") setItems.splice(i, 1);
-      markDirty(true); renderSet();
+      setError(""); markDirty(true); renderSet();
     });
     tr.ondragstart = () => { dragFrom = i; tr.classList.add("dragging"); };
     tr.ondragend = () => { tr.classList.remove("dragging"); };
@@ -409,85 +748,85 @@ function renderSet() {
     body.appendChild(tr);
   });
 }
-function setList(items, dirtyAfter) { setItems = items.map(p => ({type: p.type, priority: p.priority})); markDirty(dirtyAfter); renderSet(); }
+// The priority of a product is not used by any rule nor by the agent: the page keeps only the type and the order.
+function setList(items, dirtyAfter) { setItems = items.map(p => ({type: p.type})); markDirty(dirtyAfter); renderSet(); }
 $("add").onclick = () => {
-  const n = Number($("add-count").value), pr = Number($("add-priority").value);
-  if (!Number.isInteger(n) || n < 1 || setItems.length + n > 1000) { $("set-errors").textContent = "cantidad: 1–1000 en total"; return; }
-  if (!Number.isInteger(pr) || pr < 60 || pr > 100) { $("set-errors").textContent = "priority: entero 60–100"; return; }
-  for (let k = 0; k < n; k++) setItems.push({type: $("add-type").value, priority: pr});
-  $("set-errors").textContent = ""; markDirty(true); renderSet();
+  const n = Number($("add-count").value);
+  if (!Number.isInteger(n) || n < 1) { setError("Quantity: a whole number from 1"); return; }
+  if (setItems.length + n > MAX_PRODUCTS) { setError(`At most ${MAX_PRODUCTS} products (the list has ${setItems.length})`); return; }
+  for (let k = 0; k < n; k++) setItems.push({type: $("add-type").value});
+  setError(""); markDirty(true); renderSet();
 };
-$("clear").onclick = () => { if (confirmDiscard()) { setList([], setItems.length > 0); setId = null; } };
-$("csv-file").onchange = async e => {
+$("clear").onclick = () => { if (confirmDiscard()) { setList([], false); setId = null; setError(""); } };
+$("csv-file").onchange = e => setAct(async () => {
   const file = e.target.files[0]; if (!file) return;
   if (!confirmDiscard()) { e.target.value = ""; return; }
   const parse = text => { const form = new FormData(); form.append("file", new Blob([text], {type: "text/csv"}), file.name); return api("POST", "/product-sets/parse-csv", form, true); };
   const text = await file.text();
-  $("set-errors").style.whiteSpace = "pre";
   // The API skips empty rows silently: report them here (the last newline of the file is not a row).
-  const empty = text.split(/\r?\n/).map((l, k, all) => (l.trim() === "" && k > 0 && k < all.length - 1) ? `línea ${k + 1}: fila vacía (omitida)` : null).filter(Boolean);
+  const empty = text.split(/\r?\n/).map((l, k, all) => (l.trim() === "" && k > 0 && k < all.length - 1) ? `line ${k + 1}: empty row (skipped)` : null).filter(Boolean);
   try {
     const parsed = await parse(text);
-    setList(parsed.products, true); setId = null; $("set-errors").textContent = empty.join("\n");
+    setList(parsed.products, true); setId = null; setError(empty.join("\n"));
   } catch (err) {
-    if (!(err.data && err.data.errors)) { $("set-errors").textContent = err.message; e.target.value = ""; return; }
+    if (!(err.data && err.data.errors)) throw err;
     // Errors by line: load the other rows (validated again by the API) and show the errors.
     const bad = new Set(err.data.errors.map(x => x.line));
     const lines = text.split(/\r?\n/);
-    const errs = err.data.errors.map(x => `línea ${x.line}: ${x.error}`).concat(empty).join("\n");
+    const errs = err.data.errors.map(x => x.line ? `line ${x.line}: ${x.error}` : x.error).concat(empty).join("\n");
     try {
-      if (bad.has(1)) throw new Error("cabecera inválida");
+      if (bad.has(1) || bad.has(0)) throw new Error("not loadable");
       const parsed = await parse(lines.filter((_, k) => !bad.has(k + 1)).join("\n"));
       setList(parsed.products, true); setId = null;
-      $("set-errors").textContent = `Se cargaron ${parsed.products.length} filas; se omitieron ${bad.size} con errores:\n${errs}`;
+      setError(`Loaded ${parsed.products.length} rows; skipped ${bad.size} with errors:\n${errs}`);
     } catch (err2) {
-      $("set-errors").textContent = errs;
+      setError(errs);
     }
+  } finally {
+    e.target.value = "";
   }
-  e.target.value = "";
-};
+});
 $("csv-download").onclick = () => {
-  const csv = "type,priority\n" + setItems.map(p => `${p.type},${p.priority}`).join("\n") + "\n";
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(new Blob([csv], {type: "text/csv"})); a.download = `${$("set-name").value || "set"}.csv`; a.click();
+  if (!setItems.length) return;
+  download(`${$("set-name").value || "set"}.csv`, "type\n" + setItems.map(p => p.type).join("\n") + "\n");
 };
-$("generate").onclick = async () => {
+$("generate").onclick = () => setAct(async () => {
   const s = generateSeed(); if (!s.ok) return;
+  const n = Number($("gen-count").value);
+  if (!Number.isInteger(n) || n < 1 || n > MAX_PRODUCTS) { setError(`Quantity: 1 to ${MAX_PRODUCTS}`); return; }
   if (!confirmDiscard()) return;
-  try {
-    const body = {count: Number($("gen-count").value)}; if (s.seed !== undefined) body.seed = s.seed;
-    const g = await api("POST", "/product-sets/generate", body);
-    setList(g.products, true); setId = null;
-    $("gen-used").textContent = `Semilla usada: ${g.seed}${g.seed_source === "random" ? " (aleatoria)" : ""}`;
-  } catch (err) { $("set-errors").textContent = err.message; }
-};
+  const body = {count: n}; if (s.seed !== undefined) body.seed = s.seed;
+  const g = await api("POST", "/product-sets/generate", body);
+  setList(g.products, true); setId = null; setError("");
+  $("gen-used").textContent = `Seed used: ${g.seed}${g.seed_source === "random" ? " (random)" : ""}`;
+});
 async function refreshSaved() {
   const sets = await api("GET", "/product-sets");
-  const opts = sets.map(s => `<option value="${s.id}">${s.name} (${s.total})</option>`).join("");
-  $("saved-sets").innerHTML = opts;
+  const opts = sets.map(s => `<option value="${s.id}">${esc(s.name)} (${s.total})</option>`).join("");
+  $("saved-sets").innerHTML = opts || `<option value="">(no saved sets)</option>`;
+  $("set-open").disabled = $("set-delete").disabled = !sets.length;
   const chosen = $("session-set").value;
-  $("session-set").innerHTML = `<option value="">Generado con la semilla</option>`
-    + `<option value="${CURRENT_LIST}">Lista actual (pestaña Set de productos)</option>` + opts;
+  $("session-set").innerHTML = `<option value="">Generated from the seed</option>`
+    + `<option value="${CURRENT_LIST}">Current list (Product set tab)</option>` + opts;
   $("session-set").value = chosen;
   if ($("session-set").value !== chosen) $("session-set").value = "";
 }
-$("set-save").onclick = async () => {
-  try {
-    const body = {name: $("set-name").value, products: setItems};
-    const saved = setId ? await api("PUT", `/product-sets/${setId}`, body) : await api("POST", "/product-sets", body);
-    setId = saved.id; markDirty(false); $("set-errors").textContent = ""; await refreshSaved();
-  } catch (err) { $("set-errors").textContent = err.message; }
-};
-$("set-open").onclick = async () => {
+$("set-save").onclick = () => setAct(async () => {
+  if (!$("set-name").value.trim()) throw new Error("Give the set a name");
+  const body = {name: $("set-name").value.trim(), products: setItems.map(p => ({type: p.type}))};
+  const saved = setId ? await api("PUT", `/product-sets/${setId}`, body) : await api("POST", "/product-sets", body);
+  setId = saved.id; markDirty(false); setError(""); await refreshSaved();
+});
+$("set-open").onclick = () => setAct(async () => {
   const id = $("saved-sets").value; if (!id || !confirmDiscard()) return;
   const s = await api("GET", `/product-sets/${id}`);
-  setId = s.id; $("set-name").value = s.name; setList(s.products, false);
-};
-$("set-delete").onclick = async () => {
-  const id = $("saved-sets").value; if (!id || !confirm("¿Borrar el set guardado?")) return;
-  await api("DELETE", `/product-sets/${id}`); if (setId === id) setId = null; await refreshSaved();
-};
-refreshSaved().catch(() => {}); renderSet();
+  setId = s.id; $("set-name").value = s.name; setList(s.products, false); setError("");
+});
+$("set-delete").onclick = () => setAct(async () => {
+  const id = $("saved-sets").value; if (!id || !confirm("Delete the saved set?")) return;
+  await api("DELETE", `/product-sets/${id}`); if (setId === id) setId = null; setError(""); await refreshSaved();
+});
+setAct(refreshSaved); renderSet();
 
 // ----- past runs (L5.7) -----
 let runs = [], runsCursor = null;
@@ -503,36 +842,36 @@ async function loadRuns(reset) {
     $("runs-more").hidden = !runsCursor; $("runs-msg").textContent = ""; renderRuns();
   } catch (e) { $("runs-msg").textContent = e.message; }
 }
-// Makespan: the main KPI of the experiments. Only with a product list; "no terminó" if the list was not finished.
+// Makespan: the main KPI of the experiments. Only with a product list; "not finished" if the list was not finished.
 function makespanText(k) {
   if (k.products_total === null || k.products_total === undefined) return "–";
-  if (!k.all_done || k.makespan_time === null || k.makespan_time === undefined) return "no terminó";
+  if (!k.all_done || k.makespan_time === null || k.makespan_time === undefined) return "not finished";
   return `${k.makespan_time.toFixed(1)} u.t. (${k.makespan_ticks} ticks)`;
 }
 function renderRuns() {
   const body = $("runs-rows"); body.textContent = "";
+  if (!runs.length) { body.innerHTML = `<tr><td colspan="13" class="empty">No runs saved yet.</td></tr>`; return; }
   runs.forEach(r => {
     const k = r.kpis || {};
     const tr = document.createElement("tr");
-    tr.innerHTML = `<td><input type="checkbox" data-id="${r.run_id}"></td><td>${new Date(r.created_at * 1000).toLocaleString()}</td>
-      <td>${r.status}${r.reason ? " (" + r.reason + ")" : ""}</td><td>${esc(ruleText(r))}${hasScenario(r) ? ` <span title="${esc(scenarioText(r.scenario))}">[${esc(r.scenario_id)}]</span>` : ""}</td>
-      <td>${r.seed}${r.seed_source === "random" ? "*" : ""}</td><td>${r.products_hash ? r.products_hash.slice(0, 8) : "semilla"}</td>
-      <td>${fmt(r.ticks)}</td><td><b>${makespanText(k)}</b></td><td>${fmt(k.mean_flow_time)}</td><td>${fmt(k.work_completed)}</td>
-      <td>${fmt(k.finished)}</td><td>${fmt(k.created)}</td>
-      <td><button data-a="decisions">Ver decisiones</button><button data-a="repeat">Repetir</button><button data-a="csv">CSV</button></td>`;
+    tr.innerHTML = `<td><input type="checkbox" data-id="${r.run_id}" aria-label="Select run ${r.run_id.slice(0, 8)}"></td><td class="num">${new Date(r.created_at * 1000).toLocaleString()}</td>
+      <td>${r.status}${r.reason ? " (" + esc(r.reason) + ")" : ""}</td><td>${esc(ruleText(r))}${hasScenario(r) ? ` <span title="${esc(scenarioText(r.scenario))}">[${esc(r.scenario_id)}]</span>` : ""}</td>
+      <td class="num">${r.seed}${r.seed_source === "random" ? "*" : ""}</td><td class="mono">${r.products_hash ? r.products_hash.slice(0, 8) : "seed"}</td>
+      <td class="num">${fmt(r.ticks)}</td><td class="num"><b>${makespanText(k)}</b></td><td class="num">${fmt(k.mean_flow_time)}</td><td class="num">${fmt(k.work_completed)}</td>
+      <td class="num">${fmt(k.finished)}</td><td class="num">${fmt(k.created)}</td>
+      <td style="white-space:nowrap"><button data-a="decisions">Decisions</button><button data-a="repeat">Repeat</button><button data-a="csv">CSV</button></td>`;
     tr.querySelector('[data-a="repeat"]').onclick = () => repeatRun(r);
-    tr.querySelector('[data-a="csv"]').onclick = () => exportRun(r);
+    tr.querySelector('[data-a="csv"]').onclick = () => exportRun(r).catch(e => { $("runs-msg").textContent = e.message; });
     tr.querySelector('[data-a="decisions"]').onclick = () => showRunDecisions(r).catch(e => { $("runs-msg").textContent = e.message; });
     body.appendChild(tr);
   });
 }
 // Rule as the user sees it: rule 4 is the agent; b1 / b1b runs (created through the API) say so.
-const RULE_NAMES = {1: "Regla 1", 2: "Regla 2", 3: "Regla 3"};
 const STRATEGY_NAMES = {b1: "B1", b1b: "B1b"};
 function ruleText(r) {
-  if (r.rule !== 4) return RULE_NAMES[r.rule] ?? `Regla ${r.rule}`;
-  if (r.strategy === "none") return "Regla 4";  // without a decider: tests only, not a user option
-  return `Regla 4 (${STRATEGY_NAMES[r.strategy] ?? "agente"})`;
+  if (r.rule !== 4) return `Rule ${r.rule}`;
+  if (r.strategy === "none") return "Rule 4";  // without a decider: tests only, not a user option
+  return `Rule 4 (${STRATEGY_NAMES[r.strategy] ?? "agent"})`;
 }
 async function repeatRun(r) {
   const body = {seed: r.seed, rule: r.rule, horizon_ticks: r.horizon_ticks};
@@ -541,14 +880,11 @@ async function repeatRun(r) {
   if (r.products) body.products = r.products;  // the run's own copy: the same set even if it was edited
   showTab("session");
   await act(async () => {
-    if (sid) { await api("DELETE", `/sessions/${sid}`).catch(() => {}); }
-    const info = await api("POST", "/sessions", body);
-    sessionInfo = info; sid = info.session_id; $("sid").textContent = sid;
-    $("seed-value").textContent = info.parameters.seed; $("seed-used").hidden = false;
+    const info = await createSession(body);
     $("rule").value = String(r.rule);
-    msg(`Sesión creada para repetir la corrida ${r.run_id.slice(0, 8)} (${ruleText(r)}, semilla ${r.seed}` +
-        `${hasScenario(r) ? `, sin el escenario ${r.scenario_id}` : ""}); iníciala en ${r.mode ?? "vivo"}`);
-    connect(); return info;
+    msg(`Session created to repeat run ${r.run_id.slice(0, 8)} (${ruleText(r)}, seed ${r.seed}` +
+        `${hasScenario(r) ? `, without scenario ${r.scenario_id}` : ""}); start it ${r.mode === "fast" ? "fast" : "live"}`);
+    return info;
   });
 }
 async function exportRun(r) {
@@ -560,78 +896,166 @@ async function exportRun(r) {
     "seq,tick,request_tick,product,seq_op,machine,decision_level,late,latency_ms,reason",
     ...decisions.map(d => [d.seq, d.tick, d.request_tick ?? "", d.product, d.seq_op ?? d["seq"], d.machine, d.decision_level,
                            d.late, d.latency_ms ?? "", JSON.stringify(d.reason ?? "")].join(","))];
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(new Blob([lines.join("\n") + "\n"], {type: "text/csv"}));
-  a.download = `run-${r.run_id.slice(0, 8)}.csv`; a.click();
+  download(`run-${r.run_id.slice(0, 8)}.csv`, lines.join("\n") + "\n");
 }
 $("runs-refresh").onclick = () => loadRuns(true);
 $("runs-more").onclick = () => loadRuns(false);
 $("runs-compare").onclick = () => {
   const ids = [...document.querySelectorAll('#runs-rows input[type=checkbox]:checked')].map(c => c.dataset.id);
   const chosen = runs.filter(r => ids.includes(r.run_id));
-  if (chosen.length < 2) { $("runs-compare-box").textContent = "Selecciona al menos 2 corridas"; return; }
+  if (chosen.length < 2) { $("runs-compare-box").textContent = "Select at least 2 runs"; return; }
   // Grouped by seed + product set (and the scenario of an old run that had one): compared within a group.
   const groups = new Map();
   for (const r of chosen) {
-    const key = `semilla ${r.seed} · set ${r.products_hash ? r.products_hash.slice(0, 8) : "semilla"}` +
-                (hasScenario(r) ? ` · escenario ${scenarioText(r.scenario)}` : "");
+    const key = `seed ${r.seed} · set ${r.products_hash ? r.products_hash.slice(0, 8) : "from seed"}` +
+                (hasScenario(r) ? ` · scenario ${scenarioText(r.scenario)}` : "");
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push(r);
   }
   const keys = ["makespan", "mean_flow_time", "work_completed", "finished", "created", "throughput", "all_done"];
   const cell = (r, k) => k === "makespan" ? makespanText(r.kpis || {}) : fmt((r.kpis || {})[k]);
-  $("runs-compare-box").innerHTML = (groups.size > 1 ? `<p class="err">Ojo: las corridas no tienen la misma semilla y el mismo set; se comparan por grupo</p>` : "") +
+  $("runs-compare-box").classList.remove("muted");
+  $("runs-compare-box").innerHTML = (groups.size > 1 ? `<p class="err">The runs do not share the same seed and set: they are compared by group</p>` : "") +
     [...groups].map(([key, rs]) => {
       const head = `<tr><th>KPI</th>${rs.map(r => `<th>${esc(ruleText(r))} ${r.run_id.slice(0, 6)}</th>`).join("")}</tr>`;
-      const rows = keys.map(k => `<tr><td>${k}</td>${rs.map(r => `<td>${cell(r, k)}</td>`).join("")}</tr>`).join("");
-      return `<h5>${esc(key)}</h5><table class="set">${head}${rows}</table>`;
+      const rows = keys.map(k => `<tr><td>${k}</td>${rs.map(r => `<td class="num">${cell(r, k)}</td>`).join("")}</tr>`).join("");
+      return `<h4>${esc(key)}</h4><div class="table-wrap"><table class="set">${head}${rows}</table></div>`;
     }).join("");
 };
 
 // ----- drawing -----
+// Playback runs on a clock in TICKS, not on the arrival time of the messages: the clock advances at the
+// measured tick rate and stays ~0.35 s behind the newest frame, so jitter in the arrival of the updates
+// (GC pauses, a slow block, a KPI computation) does not make the products jump. Gaps of many ticks
+// (fast mode, a resync) are shown as they are, without sliding products across the plant.
 const canvas = $("plant"), ctx = canvas.getContext("2d");
-function transform() {
+const BEHIND_S = 0.35, MAX_INTERP_TICKS = 30;
+let frames = [], playTick = null, lastDraw = null, tickRate = 32;
+let cssW = 760, cssH = 520, view = null;
+function addFrame(tick, state) {
+  if (!state) return;
+  lastState = state;
+  showListProgress();
+  const now = performance.now();
+  const prev = frames[frames.length - 1];
+  if (prev && tick > prev.tick && tick - prev.tick <= MAX_INTERP_TICKS) {  // measured rate, smoothed
+    const r = (tick - prev.tick) / Math.max(0.02, (now - prev.t) / 1000);
+    tickRate = 0.85 * tickRate + 0.15 * Math.min(r, 600);
+  }
+  if (prev && tick < prev.tick) frames = [];  // reset or resync: start again
+  frames.push({t: now, tick, state, products: new Map(state.products.map(p => [p.id, p]))});
+  if (frames.length > 80) frames.shift();
+}
+function colors() {
+  if (!colorsCache) {
+    const cs = getComputedStyle(document.documentElement), v = n => cs.getPropertyValue(n).trim();
+    colorsCache = {track: v("--track"), node: v("--node"), machine: v("--machine"), accent: v("--accent"), ink: v("--ink"),
+                   paper: v("--paper"), font: v("--font-mono"), sans: v("--font-sans")};
+  }
+  return colorsCache;
+}
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { colorsCache = null; });
+function bounds() {
   const pts = layout.nodes.concat(layout.machines);
   const xs = pts.map(p => p.x), ys = pts.map(p => p.y);
-  const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys);
-  const s = Math.min((canvas.width - 40) / (maxX - minX || 1), (canvas.height - 40) / (maxY - minY || 1));
-  return p => [20 + (p.x - minX) * s, canvas.height - 20 - (p.y - minY) * s];
+  return {minX: Math.min(...xs), maxX: Math.max(...xs), minY: Math.min(...ys), maxY: Math.max(...ys)};
 }
-function framePair(t) {
-  for (let i = frames.length - 1; i > 0; i--) { if (frames[i - 1].t <= t) return [frames[i - 1], frames[i]]; }
-  return frames.length ? [frames[0], frames[0]] : [null, null];
+function resizeCanvas() {
+  const wrap = canvas.parentElement;
+  if (layout) {  // the figure takes the plant's own proportions
+    const b = bounds();
+    wrap.style.aspectRatio = `${(b.maxX - b.minX) + 24} / ${(b.maxY - b.minY) + 24}`;
+  }
+  const rect = wrap.getBoundingClientRect();
+  if (!rect.width || !rect.height) return;
+  const dpr = Math.min(3, window.devicePixelRatio || 1);
+  cssW = rect.width; cssH = rect.height;
+  canvas.width = Math.round(cssW * dpr); canvas.height = Math.round(cssH * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  view = null;
 }
-function draw() {
+new ResizeObserver(resizeCanvas).observe(canvas.parentElement);
+function transform() {
+  if (view && view.w === cssW && view.h === cssH && view.layout === layout) return view.tf;
+  const b = bounds(), pad = 22;
+  const s = Math.min((cssW - 2 * pad) / (b.maxX - b.minX || 1), (cssH - 2 * pad) / (b.maxY - b.minY || 1));
+  const ox = (cssW - (b.maxX - b.minX) * s) / 2, oy = (cssH - (b.maxY - b.minY) * s) / 2;
+  const tf = p => [ox + (p.x - b.minX) * s, cssH - oy - (p.y - b.minY) * s];
+  view = {w: cssW, h: cssH, layout, tf, s};
+  return tf;
+}
+function framesAt(tick) {
+  for (let i = frames.length - 1; i > 0; i--) { if (frames[i - 1].tick <= tick) return [frames[i - 1], frames[i]]; }
+  return [frames[0], frames[0]];
+}
+function advanceClock(now) {
+  const dt = lastDraw === null ? 0 : Math.min(0.25, (now - lastDraw) / 1000);
+  lastDraw = now;
+  if (!frames.length) return;
+  const newest = frames[frames.length - 1].tick, oldest = frames[0].tick;
+  const running = runState === "running_live";
+  if (!running) { playTick = newest; return; }  // paused, fast, idle: show the latest state
+  const target = newest - tickRate * BEHIND_S;
+  if (playTick === null || playTick < oldest || newest - playTick > tickRate * 2) playTick = Math.max(oldest, target);
+  // follow the target smoothly: a little faster when behind, slower when ahead
+  const speed = tickRate * Math.min(1.5, Math.max(0.5, 1 + (target - playTick) / Math.max(1, tickRate)));
+  playTick = Math.min(newest, playTick + speed * dt);
+}
+let hover = null;
+canvas.addEventListener("mousemove", e => { const r = canvas.getBoundingClientRect(); hover = {x: e.clientX - r.left, y: e.clientY - r.top}; });
+canvas.addEventListener("mouseleave", () => { hover = null; $("probe").textContent = ""; });
+function draw(now) {
   requestAnimationFrame(draw);
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  advanceClock(now);
+  ctx.clearRect(0, 0, cssW, cssH);
   if (!layout) return;
-  const tf = transform();
+  const c = colors(), tf = transform();
   const nodes = new Map(layout.nodes.map(n => [n.id, n]));
-  ctx.strokeStyle = "#999"; ctx.lineWidth = 2;
-  for (const c of layout.conveyors) {
-    const a = nodes.get(c.from), b = nodes.get(c.to);
+  ctx.strokeStyle = c.track; ctx.lineWidth = 2; ctx.lineCap = "round";
+  for (const cv of layout.conveyors) {
+    const a = nodes.get(cv.from), b = nodes.get(cv.to);
     if (!a || !b) continue;
     const [x1, y1] = tf(a), [x2, y2] = tf(b);
     ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
   }
-  ctx.fillStyle = "#ccc";
-  for (const n of layout.nodes) { const [x, y] = tf(n); ctx.fillRect(x - 2, y - 2, 4, 4); }
-  ctx.fillStyle = "#246"; ctx.font = "12px sans-serif";
+  ctx.fillStyle = c.node;
+  for (const n of layout.nodes) { const [x, y] = tf(n); ctx.fillRect(x - 1.5, y - 1.5, 3, 3); }
+  let pair = frames.length ? framesAt(playTick ?? frames[frames.length - 1].tick) : [null, null];
+  const [a, b] = pair;
+  const latest = frames.length ? frames[frames.length - 1].state : lastState;
+  const busy = new Map((latest ? latest.machines : []).map(m => [m.name, m]));
+  ctx.font = `600 12px ${c.font}`; ctx.textBaseline = "middle";
   for (const m of layout.machines) {
-    const [x, y] = tf(m);
-    ctx.fillRect(x - 6, y - 6, 12, 12); ctx.fillText(m.name, x + 8, y - 8);
+    const [x, y] = tf(m), st = busy.get(m.name), processing = st && st.state === "Machine.Processing";
+    ctx.lineWidth = 2; ctx.strokeStyle = c.machine;
+    if (processing) { ctx.fillStyle = c.machine; ctx.fillRect(x - 8, y - 8, 16, 16); }
+    else { ctx.fillStyle = c.paper; ctx.fillRect(x - 8, y - 8, 16, 16); ctx.strokeRect(x - 8, y - 8, 16, 16); }
+    ctx.fillStyle = c.ink; ctx.textAlign = "left"; ctx.fillText(m.name, x + 12, y - 10);
   }
-  const t = performance.now() - DELAY_MS;
-  const [a, b] = framePair(t);
   if (!a) return;
-  const f = b === a || b.t === a.t || b.t - a.t > MAX_INTERP_MS ? 1 : Math.min(1, Math.max(0, (t - a.t) / (b.t - a.t)));
-  ctx.fillStyle = "#d33";
+  const span = b.tick - a.tick;
+  const f = span <= 0 || span > MAX_INTERP_TICKS ? 1 : Math.min(1, Math.max(0, (playTick - a.tick) / span));
+  const r = Math.max(7, Math.min(11, view.s * 2.2));  // grows with the figure
+  let found = null;
+  ctx.font = `600 ${Math.round(Math.max(9, Math.min(12, view.s * 2.6)))}px ${c.sans}`; ctx.textAlign = "center";
   for (const [id, pb] of b.products) {
     const pa = a.products.get(id) || pb;
     const [x, y] = tf({x: pa.x + (pb.x - pa.x) * f, y: pa.y + (pb.y - pa.y) * f});
-    ctx.beginPath(); ctx.arc(x, y, 4, 0, 2 * Math.PI); ctx.fill();
+    ctx.beginPath(); ctx.arc(x, y, r, 0, 2 * Math.PI);
+    ctx.fillStyle = TYPE_COLORS[pb.type] || "#777"; ctx.fill();
+    ctx.lineWidth = 1.5; ctx.strokeStyle = c.paper; ctx.stroke();
+    ctx.fillStyle = "#fff"; ctx.fillText(pb.type || "?", x, y + 0.5);
+    if (hover && Math.hypot(hover.x - x, hover.y - y) <= r + 3) found = pb;
+  }
+  if (hover) {
+    $("probe").textContent = found
+      ? `p${found.id} · type ${found.type} · ${found.state} · op ${found.next_operation ?? "–"} → ${found.heading_workstation ?? "–"}`
+      : "";
   }
 }
+document.getElementById("legend").innerHTML = TYPES.map(t => `<span><i style="background:${TYPE_COLORS[t]}">${t}</i>type ${t}</span>`).join("")
+  + `<span><i class="mach" style="background:var(--machine)"></i>processing</span>`
+  + `<span><i class="mach" style="background:var(--paper);border:2px solid var(--machine)"></i>idle</span>`;
 requestAnimationFrame(draw);
 </script>
 </body>

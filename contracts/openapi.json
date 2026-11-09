@@ -533,7 +533,7 @@
         "additionalProperties": false,
         "properties": {
           "count": {
-            "maximum": 1000.0,
+            "maximum": 30.0,
             "minimum": 1.0,
             "title": "Count",
             "type": "integer"
@@ -1159,6 +1159,7 @@
         "properties": {
           "priority": {
             "default": 80,
+            "description": "Stored on the product; no rule nor the agent uses it today",
             "maximum": 100.0,
             "minimum": 60.0,
             "title": "Priority",
@@ -1252,7 +1253,7 @@
             "items": {
               "$ref": "#/components/schemas/ProductItem"
             },
-            "maxItems": 1000,
+            "maxItems": 30,
             "minItems": 1,
             "title": "Products",
             "type": "array"
@@ -1720,7 +1721,7 @@
                 "items": {
                   "$ref": "#/components/schemas/ProductItem"
                 },
-                "maxItems": 1000,
+                "maxItems": 30,
                 "minItems": 1,
                 "type": "array"
               },
@@ -2750,7 +2751,7 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Save a product set (name and products in entry order, 1-1000)",
+        "summary": "Save a product set (name and products in entry order, 1-30)",
         "tags": [
           "product-sets"
         ]

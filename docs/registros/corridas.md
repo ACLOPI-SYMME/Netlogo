@@ -24,7 +24,7 @@ Cada corrida que termina, falla o se detiene deja **un registro** con sus parám
 |---|---|
 | `GET /runs` | Lista, de la más nueva a la más vieja. Filtros: `seed`, `strategy`, `rule`, `product_set_id`, `scenario`; paginación: `limit` (1–500, por defecto 50) y `cursor` |
 | `GET /runs/{run_id}` | Un registro completo |
-| Página `/ui`, pestaña **Corridas** | Tabla con filtros, "Comparar seleccionadas", "Ver decisiones", "Repetir" y "CSV" |
+| Página `/ui`, pestaña **Runs** | Tabla con filtros, "Compare selected", "Decisions", "Repeat" y "CSV" |
 | DynamoDB | Tabla `aclopi_runs` (ver `docs/deploy-local.md`) |
 
 `GET /runs` responde `{"runs": [...], "next_cursor": "..."}`. Si `next_cursor` no es `null`, hay más: se pide de nuevo con `cursor=<ese valor>`.
@@ -110,9 +110,9 @@ Y la corrida en vivo, que se detuvo al borrar la sesión:
 - **`makespan_*`, `products_total` y `all_done` solo tienen valor con un set de productos.** Sin set valen `null` y `false`.
 - **En memoria, se pierde todo al reiniciar la API.** Solo con DynamoDB las corridas persisten.
 - **Orden con DynamoDB:** `GET /runs` lee la tabla por páginas y ordena cada página por fecha; entre páginas el orden puede no ser perfecto.
-- **"Repetir" no repite el modo:** crea una sesión nueva con la misma regla, estrategia, semilla, horizonte y lista; el modo (en vivo o rápido) se elige al iniciarla.
+- **"Repeat" no repite el modo:** crea una sesión nueva con la misma regla, estrategia, semilla, horizonte y lista; el modo (en vivo o rápido) se elige al iniciarla.
 
-## CSV de una corrida (botón "CSV" en la pestaña Corridas)
+## CSV de una corrida (botón "CSV" en la pestaña Runs)
 
 Un archivo `run-<8 primeros caracteres del run_id>.csv` con dos bloques separados por una línea vacía:
 
@@ -120,4 +120,4 @@ Un archivo `run-<8 primeros caracteres del run_id>.csv` con dos bloques separado
    `run_id`, `status`, `reason`, `rule`, `strategy`, `seed`, `seed_source`, `horizon_ticks`, `mode`, `product_set_id`, `products_hash`, `ticks`, `scenario_id`, y luego `kpi.<nombre>` por cada campo de `kpis`.
 2. **Decisiones**, con la cabecera `seq,tick,request_tick,product,seq_op,machine,decision_level,late,latency_ms,reason`. Los campos son los de [decisiones.md](decisiones.md); `reason` va entre comillas.
 
-Para un CSV de decisiones con tipo de producto y operación, usar "Ver decisiones" → "Descargar CSV" ([decisiones.md](decisiones.md#csv-de-decisiones)).
+Para un CSV de decisiones con tipo de producto y operación, usar "Decisions" → "Download CSV" ([decisiones.md](decisiones.md#csv-de-decisiones)).

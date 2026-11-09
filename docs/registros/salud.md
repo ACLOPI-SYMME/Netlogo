@@ -8,7 +8,7 @@ Tres consultas para saber si la plataforma está viva y lista: `/health/live` (�
 
 ## Cómo se genera y cuándo está disponible
 
-Siempre, calculadas en el momento de cada consulta. No se guardan. La página consulta `/health` cada 10 s para mostrar el aviso "Agente no disponible".
+Siempre, calculadas en el momento de cada consulta. No se guardan. La página consulta `/health` cada 10 s para mostrar el aviso "The agent is not available".
 
 ## Cómo verlo
 

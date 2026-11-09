@@ -23,7 +23,7 @@ class ProductItem(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     type: ProductType = Field(description="One of the model's product types (case-insensitive on input)")
-    priority: int = Field(80, ge=60, le=100)
+    priority: int = Field(80, ge=60, le=100, description="Stored on the product; no rule nor the agent uses it today")
 
     @field_validator("type", mode="before")
     @classmethod
@@ -31,7 +31,10 @@ class ProductItem(BaseModel):
         return value.strip().upper() if isinstance(value, str) else value
 
 
-ProductList = Annotated[list[ProductItem], Field(min_length=1, max_length=1000)]
+# The platform runs at most 30 products per list (the size of Línea A's experiments); SimulationSession
+# itself accepts up to MAX_PRODUCT_LIST (1000) for in-process experiments.
+MAX_PLATFORM_PRODUCTS = 30
+ProductList = Annotated[list[ProductItem], Field(min_length=1, max_length=MAX_PLATFORM_PRODUCTS)]
 
 
 class ScenarioChoice(BaseModel):
@@ -317,7 +320,7 @@ class GenerateRequest(BaseModel):
 
     seed: int | None = Field(None, ge=NETLOGO_SEED_MIN, le=NETLOGO_SEED_MAX,
                              description="Optional; without it a random seed is drawn and returned")
-    count: int = Field(ge=1, le=1000)
+    count: int = Field(ge=1, le=MAX_PLATFORM_PRODUCTS)
 
 
 class GeneratedProducts(BaseModel):

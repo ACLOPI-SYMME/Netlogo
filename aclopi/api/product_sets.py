@@ -14,7 +14,8 @@ import time
 import uuid
 from typing import Any, Protocol
 
-from aclopi.sim.session import MAX_PRODUCT_LIST, PRIORITY_MAX, PRIORITY_MIN, PRODUCT_TYPES
+from aclopi.api.models import MAX_PLATFORM_PRODUCTS
+from aclopi.sim.session import PRIORITY_MAX, PRIORITY_MIN, PRODUCT_TYPES
 
 DEFAULT_PRIORITY = 80
 
@@ -116,8 +117,8 @@ def parse_csv(data: bytes) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         products.append({"type": ptype, "priority": priority})
     if not errors and not products:
         errors.append({"line": 2, "error": "the list is empty"})
-    if len(products) > MAX_PRODUCT_LIST:
-        errors.append({"line": 0, "error": f"at most {MAX_PRODUCT_LIST} products (got {len(products)})"})
+    if len(products) > MAX_PLATFORM_PRODUCTS:
+        errors.append({"line": 0, "error": f"at most {MAX_PLATFORM_PRODUCTS} products (got {len(products)})"})
     return products, errors
 
 
