@@ -124,7 +124,7 @@ def main() -> int:
     results: dict[str, Any] = {}
     try:
         with httpx.Client(base_url=server.url, timeout=120) as http:
-            live = [http.post("/sessions", json={"seed": 42 + i, "rule": 4}).json()["session_id"] for i in range(5)]
+            live = [http.post("/sessions", json={"seed": 42 + i, "rule": 4, "strategy": "none"}).json()["session_id"] for i in range(5)]
             for sid in live:
                 http.post(f"/sessions/{sid}/run", json={"mode": "live", "speed": 1}).raise_for_status()
             time.sleep(5.0)

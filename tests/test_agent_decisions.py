@@ -104,7 +104,10 @@ def _wait_run(c: httpx.Client, sid: str, states: tuple[str, ...], timeout_s: flo
 def test_strategy_validation(client: httpx.Client) -> None:
     assert client.post("/sessions", json={"seed": 1, "rule": 4, "strategy": "random"}).status_code == 422
     assert client.post("/sessions", json={"seed": 1, "rule": 3, "strategy": "b1"}).status_code == 422
-    sid = _session(client, None)
+    sid = _session(client, None)  # rule 4 without strategy: the agent
+    assert client.get(f"/sessions/{sid}").json()["strategy"] == "agent"
+    client.delete(f"/sessions/{sid}")
+    sid = _session(client, "none")  # still accepted (tests)
     info = client.get(f"/sessions/{sid}").json()
     assert info["strategy"] == "none" and info["warnings"] == []
     client.delete(f"/sessions/{sid}")

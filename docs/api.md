@@ -75,13 +75,16 @@ Si el arranque falla, el log JSON indica qué worker falló y por qué. Luego el
 - Una sesión con lista termina con `run_reason: "all_products_done"`.
 - Detalle en `docs/product-sets.md`.
 
-**Estrategias (L5.5).** Con `rule: 4`, `POST /sessions` acepta `strategy`:
+**Estrategias (L5.5).** Con `rule: 4`, `POST /sessions` acepta `strategy`, que es **opcional**:
 
-| `strategy` | Comportamiento |
-|---|---|
-| `b1`, `b1b`, `agent` | Llaman al agente en cada decisión |
-| `none` (por defecto) | Regla 4 sin decisor, igual a la regla 3 |
+| `strategy` | Comportamiento | ¿Opción de usuario? |
+|---|---|---|
+| `agent` (por defecto) | El agente IA decide (código → LLM → what-if) | Sí: para el usuario, la regla 4 **es** el agente |
+| `b1`, `b1b` | Llaman al agente con las estrategias de referencia | No: puntos de comparación de los experimentos de la Línea A |
+| `none` | Regla 4 sin decisor, igual a la regla 3 | No: solo para tests |
 
+- Con `rule: 4` y sin `strategy`, el valor es `agent`.
+- `b1`, `b1b` y `none` se siguen aceptando por la API, pero la página (`/ui`) no los ofrece: la regla 4 siempre crea la sesión con `agent`. En la lista de corridas, una corrida con `b1`/`b1b` se muestra como "Regla 4 (B1)" o "Regla 4 (B1b)", y "Repetir" conserva su estrategia.
 - Con las reglas 1–3, enviar `strategy` responde 422.
 - `SessionInfo` incluye `strategy`, `run_reason` (por ejemplo `agent_unavailable`), `pending_decisions` y `warnings`.
 - `candidates`, `what-if` y `next-machine` exigen `Authorization: Bearer` cuando `ACLOPI_AGENT_TOKEN` está definida.

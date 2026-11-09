@@ -7,7 +7,8 @@
 Con la **regla 4**, cuando un producto **entra** a una máquina y su siguiente operación tiene varias máquinas posibles, el modelo deja una petición en `decision-queue` (`docs/rule4-decision-hook.md`). Con una sola máquina posible no hay petición, y el registro lo marca como `single-option`.
 
 - **La plataforma siempre llama al agente** si la sesión tiene `strategy` = `b1`, `b1b` o `agent`. El filtro de los casos obvios vive dentro del agente.
-- **`strategy: "none"`** es la regla 4 sin decisor (igual a la regla 3): no se llama a nadie.
+- **`strategy: "none"`** es la regla 4 sin decisor (igual a la regla 3): no se llama a nadie. Solo para tests.
+- Con la regla 4 y sin `strategy`, la sesión usa `agent`. `b1`, `b1b` y `none` no son opciones de usuario (ver `docs/api.md`).
 
 ## Plataforma → agente: `POST {ACLOPI_AGENT_URL}/decide`
 

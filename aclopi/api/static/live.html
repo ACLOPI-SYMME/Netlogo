@@ -36,7 +36,7 @@
 <body>
 <h3>ACLOPI – página de prueba</h3>
 <div class="tabs"><button id="tab-session" class="active">Sesión</button> <button id="tab-set">Set de productos</button> <button id="tab-runs">Corridas</button></div>
-<div id="agent-banner" class="err" hidden>Agente no disponible: las corridas rápidas con b1 / b1b / agent no se pueden iniciar; en vivo actúa la regla 3.</div>
+<div id="agent-banner" class="err" hidden>Agente no disponible: las corridas rápidas con la regla 4 no se pueden iniciar; en vivo actúa la regla 3.</div>
 
 <!-- ===================== Sesión ===================== -->
 <section id="page-session">
@@ -44,10 +44,8 @@
   <label><input id="seed-on" type="checkbox"> Agregar semilla</label>
   <span class="info" title="Define la semilla que se usará para el azar de la simulación. Si no la defines, se genera una aleatoria.">i</span>
   <span id="seed-box" hidden><input id="seed" type="number" step="1"> <span id="seed-error" class="err"></span></span>
-  Regla <select id="rule"><option>1</option><option>2</option><option selected>3</option><option>4</option></select>
-  <span id="strategy-box" hidden>Estrategia <select id="strategy">
-    <option value="none">none (regla 3)</option><option>b1</option><option>b1b</option><option selected>agent</option>
-  </select></span>
+  Regla <select id="rule"><option value="1">Regla 1 — Máquina aleatoria</option><option value="2">Regla 2 — Máquina más cercana</option>
+    <option value="3" selected>Regla 3 — Campos potenciales</option><option value="4">Regla 4 — Agente IA</option></select>
   Horizonte <input id="horizon" type="number" value="10000">
   Set <select id="session-set"><option value="">Generado con la semilla</option><option value="__current__">Lista actual (pestaña Set de productos)</option></select>
   <button id="create">Crear sesión</button>
@@ -112,14 +110,14 @@
 <!-- ===================== Corridas ===================== -->
 <section id="page-runs" hidden>
 <fieldset>
-  Filtrar: semilla <input id="runs-seed" type="number"> estrategia <select id="runs-strategy"><option value="">(todas)</option><option>none</option><option>b1</option><option>b1b</option><option>agent</option></select>
+  Filtrar: semilla <input id="runs-seed" type="number">
   regla <select id="runs-rule"><option value="">(todas)</option><option>1</option><option>2</option><option>3</option><option>4</option></select>
   escenario <select id="runs-scenario"><option value="">(todos)</option></select>
   <button id="runs-refresh">Actualizar</button> <button id="runs-more" hidden>Más</button>
   | <button id="runs-compare">Comparar seleccionadas</button>
 </fieldset>
 <div id="runs-msg" class="err"></div>
-<table class="set"><thead><tr><th></th><th>Inicio</th><th>Estado</th><th>Regla</th><th>Estrategia</th><th>Escenario</th><th>Fallas (aplic./salt.)</th><th>Semilla</th><th>Set</th>
+<table class="set"><thead><tr><th></th><th>Inicio</th><th>Estado</th><th>Regla</th><th>Escenario</th><th>Fallas (aplic./salt.)</th><th>Semilla</th><th>Set</th>
   <th>Ticks</th><th>Makespan</th><th>Flujo medio</th><th>Trabajo</th><th>Terminados</th><th>Creados</th><th></th></tr></thead>
   <tbody id="runs-rows"></tbody></table>
 <h4>Comparación</h4><div id="runs-compare-box">–</div>
@@ -260,7 +258,6 @@ function showRun(info) {
   if (info.run_state === "failed" && reason === "agent_unavailable") msg("Agente no disponible: la corrida se detuvo", true);
   if (info.run_state === "finished" && reason === "all_products_done") msg("Terminaron todos los productos del set");
 }
-$("rule").onchange = () => { $("strategy-box").hidden = $("rule").value !== "4"; };
 $("create").onclick = () => act(async () => {
   const s = sessionSeed(); if (!s.ok) throw new Error("Semilla inválida");
   const sc = readScenario(); if (!sc.ok) throw new Error("Parámetros del escenario inválidos");
@@ -268,7 +265,7 @@ $("create").onclick = () => act(async () => {
   const body = {rule: +$("rule").value, horizon_ticks: +$("horizon").value};
   if (sc.scenario) body.scenario = sc.scenario;
   if (s.seed !== undefined) body.seed = s.seed;
-  if (body.rule === 4) body.strategy = $("strategy").value;
+  if (body.rule === 4) body.strategy = "agent";  // for the user, rule 4 is the agent (b1 / b1b / none: API only)
   // "Lista actual": exactly the list shown in the Set de productos tab, in that order.
   if ($("session-set").value === CURRENT_LIST) {
     if (!setItems.length) throw new Error("La lista actual está vacía");
@@ -539,7 +536,6 @@ const fmt = v => v === null || v === undefined ? "–" : (typeof v === "number" 
 async function loadRuns(reset) {
   const q = new URLSearchParams({limit: "50"});
   if ($("runs-seed").value.trim()) q.set("seed", $("runs-seed").value.trim());
-  if ($("runs-strategy").value) q.set("strategy", $("runs-strategy").value);
   if ($("runs-rule").value) q.set("rule", $("runs-rule").value);
   if ($("runs-scenario").value) q.set("scenario", $("runs-scenario").value);
   if (!reset && runsCursor) q.set("cursor", runsCursor);
@@ -561,7 +557,7 @@ function renderRuns() {
     const k = r.kpis || {};
     const tr = document.createElement("tr");
     tr.innerHTML = `<td><input type="checkbox" data-id="${r.run_id}"></td><td>${new Date(r.created_at * 1000).toLocaleString()}</td>
-      <td>${r.status}${r.reason ? " (" + r.reason + ")" : ""}</td><td>${r.rule}</td><td>${r.strategy ?? "–"}</td>
+      <td>${r.status}${r.reason ? " (" + r.reason + ")" : ""}</td><td>${esc(ruleText(r))}</td>
       <td title="${esc(scenarioText(r.scenario))}">${esc(r.scenario_id ?? "S0")}</td><td>${scenarioCounts(r)}</td>
       <td>${r.seed}${r.seed_source === "random" ? "*" : ""}</td><td>${r.products_hash ? r.products_hash.slice(0, 8) : "semilla"}</td>
       <td>${fmt(r.ticks)}</td><td><b>${makespanText(k)}</b></td><td>${fmt(k.mean_flow_time)}</td><td>${fmt(k.work_completed)}</td>
@@ -572,13 +568,21 @@ function renderRuns() {
     body.appendChild(tr);
   });
 }
+// Rule as the user sees it: rule 4 is the agent; b1 / b1b runs (created through the API) say so.
+const RULE_NAMES = {1: "Regla 1", 2: "Regla 2", 3: "Regla 3"};
+const STRATEGY_NAMES = {b1: "B1", b1b: "B1b"};
+function ruleText(r) {
+  if (r.rule !== 4) return RULE_NAMES[r.rule] ?? `Regla ${r.rule}`;
+  if (r.strategy === "none") return "Regla 4";  // without a decider: tests only, not a user option
+  return `Regla 4 (${STRATEGY_NAMES[r.strategy] ?? "agente"})`;
+}
 function scenarioCounts(r) {
   const s = r.scenario_summary; return s ? `${s.applied} / ${s.skipped}` : "–";
 }
 async function repeatRun(r) {
   const body = {seed: r.seed, rule: r.rule, horizon_ticks: r.horizon_ticks};
   if (r.scenario) body.scenario = {id: r.scenario.id, params: r.scenario.params};  // the same scenario and params
-  if (r.rule === 4 && r.strategy) body.strategy = r.strategy;
+  if (r.rule === 4 && r.strategy) body.strategy = r.strategy;  // the original strategy (b1 / b1b runs too)
   if (r.products) body.products = r.products;  // the run's own copy: the same set even if it was edited
   showTab("session");
   await act(async () => {
@@ -588,7 +592,8 @@ async function repeatRun(r) {
     $("scenario-used").textContent = "Escenario: " + scenarioText(info.scenario);
     if (info.scenario && scenarioSpec(info.scenario.id)) { $("scenario").value = info.scenario.id; renderScenarioParams(info.scenario.params); }
     $("seed-value").textContent = info.parameters.seed; $("seed-used").hidden = false;
-    msg(`Sesión creada para repetir la corrida ${r.run_id.slice(0, 8)} (semilla ${r.seed}); iníciala en ${r.mode ?? "vivo"}`);
+    $("rule").value = String(r.rule);
+    msg(`Sesión creada para repetir la corrida ${r.run_id.slice(0, 8)} (${ruleText(r)}, semilla ${r.seed}); iníciala en ${r.mode ?? "vivo"}`);
     connect(); return info;
   });
 }
@@ -624,7 +629,7 @@ $("runs-compare").onclick = () => {
   const cell = (r, k) => k === "makespan" ? makespanText(r.kpis || {}) : k === "fallas" ? scenarioCounts(r) : fmt((r.kpis || {})[k]);
   $("runs-compare-box").innerHTML = (groups.size > 1 ? `<p class="err">Ojo: las corridas no tienen el mismo escenario, la misma semilla y el mismo set; se comparan por grupo</p>` : "") +
     [...groups].map(([key, rs]) => {
-      const head = `<tr><th>KPI</th>${rs.map(r => `<th>${r.rule}/${r.strategy ?? "–"} ${r.run_id.slice(0, 6)}</th>`).join("")}</tr>`;
+      const head = `<tr><th>KPI</th>${rs.map(r => `<th>${esc(ruleText(r))} ${r.run_id.slice(0, 6)}</th>`).join("")}</tr>`;
       const rows = keys.map(k => `<tr><td>${k}</td>${rs.map(r => `<td>${cell(r, k)}</td>`).join("")}</tr>`).join("");
       return `<h5>${esc(key)}</h5><table class="set">${head}${rows}</table>`;
     }).join("");
