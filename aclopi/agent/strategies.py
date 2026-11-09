@@ -38,10 +38,16 @@ def _rel(value: float, ctx_time: Any) -> str:
     return f"+{float(value) - float(ctx_time or 0.0):.0f} u.t."
 
 
-def obvious_reason(t: Triage) -> str:
-    if len(t.finalists) == 1:
-        return f"Obvia: {t.best_by_finish} es la única candidata"
-    return f"Obvia: {t.best_by_finish} termina {t.gap_finish:.0f} u.t. antes"
+def obvious_reason(t: Triage, candidates: list[dict[str, Any]], current_machine: str | None = None) -> str:
+    """candidates: all the capable machines (before the discard); current_machine: where the product is."""
+    m = t.best_by_finish
+    if len(candidates) == 1:
+        return f"Única máquina capaz: {m}"
+    if len(t.finalists) == 1:  # the discard left one: real gap to the second best by finish
+        gap = sorted(float(c["finish"]) for c in candidates)[1] - float(t.finalists[0]["finish"])
+        stay = "se queda en la misma máquina; " if m == current_machine else ""
+        return short_reason(f"Obvia: {m} ({stay}las demás ≥{gap:.0f} u.t. peor)")
+    return f"Obvia: {m} termina {t.gap_finish:.0f} u.t. antes"
 
 
 def fallback_reason(error: str | None, best: dict[str, Any], now: Any) -> str:
@@ -98,7 +104,8 @@ def decide_agent_code(ctx: DecisionContext, params: TriageParams = TriageParams(
     """The code level of the agent: a Decision when obvious, else None plus the triage for the LLM."""
     t = classify(_candidates(ctx), params)
     if t.level == "obvious":
-        return Decision(t.best_by_finish, ctx.seq, "code-obvious", obvious_reason(t), triage=t), t
+        return Decision(t.best_by_finish, ctx.seq, "code-obvious",
+                        obvious_reason(t, _candidates(ctx), ctx.candidates.get("current_machine")), triage=t), t
     return None, t
 
 

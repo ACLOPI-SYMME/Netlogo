@@ -208,7 +208,8 @@ class Agent:
 
     async def _code(self, f: Flow) -> None:
         t = f.triage
-        f.decision = Decision(t.best_by_finish, f.request["seq"], "code-obvious", obvious_reason(t), triage=t)
+        f.decision = Decision(t.best_by_finish, f.request["seq"], "code-obvious",
+                              obvious_reason(t, f.candidates["candidates"], f.candidates.get("current_machine")), triage=t)
 
     def _offer_what_if(self, f: Flow) -> bool:
         if f.triage.level != "very_close" or f.triage.what_if_options is None:
