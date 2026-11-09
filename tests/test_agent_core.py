@@ -8,7 +8,7 @@ from typing import Any
 from aclopi.agent.core import Agent, AgentConfig, context_from_state
 from aclopi.agent.llm.base import LLMClient
 from aclopi.agent.llm.fake import FakeLLM
-from aclopi.agent.strategies import REASON_MAX, DecisionContext, decide_b1, decide_b1b, short_reason
+from aclopi.agent.strategies import REASON_MAX, DecisionContext, decide_agent_code, decide_b1, decide_b1b, short_reason
 
 
 def cands(finishes: dict[str, tuple[float, float]], current: str = "M2", own: float = 150.0) -> dict[str, Any]:
@@ -174,7 +174,16 @@ def test_code_levels_give_the_number_that_decided() -> None:
     d, _ = decide(FakePlatform(cands(OBVIOUS)), FakeLLM(), request())
     assert d.reason == "Obvia: M3 termina 300 u.t. antes"
     d, _ = decide(FakePlatform(cands({"M3": (300, 400)})), FakeLLM(), request())
-    assert d.reason == "Obvia: M3 es la única candidata"
+    assert d.reason == "Única máquina capaz: M3"
+    # the discard leaves one (M2 and M3 > 100 u.t. worse in both criteria): real gap to the second
+    discard = {"M5": (300, 400), "M2": (530, 640), "M3": (600, 700)}
+    d, _ = decide(FakePlatform(cands(discard, current="M2")), FakeLLM(), request())
+    assert (d.machine, d.reason) == ("M5", "Obvia: M5 (las demás ≥230 u.t. peor)")
+    d, _ = decide(FakePlatform(cands(discard, current="M5")), FakeLLM(), request())
+    assert d.reason == "Obvia: M5 (se queda en la misma máquina; las demás ≥230 u.t. peor)"
+    assert len(d.reason) <= REASON_MAX
+    ctx = DecisionContext("s1", 200, 2, "agent", "fast", cands(discard, current="M5"))
+    assert decide_agent_code(ctx)[0].reason == d.reason
     d, _ = decide(FakePlatform(cands(UNCERTAIN)), FakeLLM(invalid_rate=1.0), request())
     assert d.reason == "Respaldo (respuesta del LLM no válida): M3 termina antes (+300 u.t.)"
     d, _ = decide(FakePlatform(cands(UNCERTAIN)), FakeLLM(latency_s=0.3), request(), AgentConfig(fast_deadline_s=0.1))
