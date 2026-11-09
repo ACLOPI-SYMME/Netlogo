@@ -1,6 +1,7 @@
 .git
 .venv
 .env
+.env.agent
 .vscode
 .idea
 results

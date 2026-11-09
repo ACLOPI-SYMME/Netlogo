@@ -56,21 +56,21 @@ services:
     networks: [internal]
 
   # Línea A's agent. Off by default (the mock stays the default):
-  #   ACLOPI_AGENT_URL=http://agent:8100 docker compose --profile agent up
+  #   ACLOPI_AGENT_URL=http://agent:8100 docker compose --profile agent up --build
+  # LLM and triage settings come from .env.agent (not in git; see .env.agent.example; without it: fake LLM).
+  # Only the internal values are fixed here: environment wins over env_file.
   agent:
     profiles: [agent]
     build:
       context: .
       dockerfile: docker/agent.Dockerfile
     image: aclopi-agent
+    env_file:
+      - path: .env.agent
+        required: false
     environment:
       ACLOPI_PLATFORM_URL: http://platform:8000
       ACLOPI_AGENT_TOKEN: ${ACLOPI_AGENT_TOKEN:-}
-      ACLOPI_LLM_PROVIDER: ${ACLOPI_LLM_PROVIDER:-fake}
-      ACLOPI_LLM_MODEL: ${ACLOPI_LLM_MODEL:-}
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-      ACLOPI_OLLAMA_URL: ${ACLOPI_OLLAMA_URL:-http://host.docker.internal:11434}
-      LLM_MAX_PARALLEL: ${LLM_MAX_PARALLEL:-2}
       ACLOPI_AGENT_LOG: /app/results/agent/decisions.jsonl
     volumes:
       - ./results:/app/results
