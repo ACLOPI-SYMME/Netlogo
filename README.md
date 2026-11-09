@@ -141,6 +141,8 @@ El diseño, la regla de duración de los pedidos y el manejo de caídas están e
 
 API HTTP (FastAPI) sobre el pool de workers. El contrato para la Línea A está en `contracts/openapi.json`, y el diseño, los errores y la configuración en `docs/api.md`.
 
+Qué significa cada dato que produce la plataforma (corridas, decisiones, métricas, KPIs, eventos, WebSocket, logs) y cómo leerlo: [`docs/registros/README.md`](docs/registros/README.md).
+
 **Siempre un solo proceso con un solo worker de uvicorn.** Cada proceso de API arranca su propio pool (7 JVM, ~3,3 GB). Por eso no hay que usar `uvicorn --workers N`: varios workers de uvicorn o varias APIs sobre la misma carpeta multiplicarían las JVM y la memoria. Un archivo de bloqueo (`results/workers/api.lock`) impide arrancar una segunda instancia.
 
 ### En Windows
