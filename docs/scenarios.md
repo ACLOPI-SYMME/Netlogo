@@ -1,5 +1,13 @@
 # Escenarios: lado plataforma
 
+> **Los escenarios no están disponibles en la plataforma** (decisión del 9 de noviembre de 2026). La plataforma simula la planta original, solo en modo Stochastic, sin escenarios: sin tiempos cambiados, sin degradación y sin fallas.
+>
+> - `POST /sessions` responde `422 scenarios_unavailable` ("los escenarios no están disponibles") a cualquier escenario distinto de S0. `GET /scenarios` ya no existe.
+> - La página no tiene selector ni avisos de escenario. Las corridas guardadas antes con un escenario se siguen mostrando (la regla lleva `[S2]`, por ejemplo), y "Repetir" las repite sin escenario.
+> - El código queda **solo para experimentos** de la Línea A: `aclopi/sim/scenarios.py` y el mecanismo del worker (`ScenarioSchedule`, cortes de bloque) siguen en el repositorio, con sus tests (`tests/test_scenarios_repro.py`, `tests/test_scenarios_model.py`, `tests/test_scenarios.py`). El registro de la API rechaza crear una sesión con un escenario distinto de S0, así que ninguna sesión de la plataforma puede activarlo.
+>
+> El resto de este documento describe cómo funcionaba en la plataforma y cómo sigue funcionando el mecanismo dentro del worker.
+
 Un escenario cambia la planta durante la corrida, desde Python y sin tocar el modelo. Son lo más importante de la demo: ver al agente reaccionar a una falla.
 
 **Reparto del trabajo.**

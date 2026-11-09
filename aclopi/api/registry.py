@@ -266,8 +266,11 @@ class SessionRegistry:
                      product_list: list[dict[str, Any]] | None = None,
                      product_set_id: str | None = None,
                      scenario: dict[str, Any] | None = None) -> SessionRecord:
-        """scenario: {id, params} already completed by aclopi.sim.scenarios.validate_params."""
+        """scenario: only S0 (the original plant). Scenarios are not available on the platform
+        (docs/scenarios.md): no session can turn one on, whatever the caller."""
         scenario = scenario or {"id": "S0", "params": {}}
+        if scenario.get("id") != "S0" or scenario.get("params"):
+            raise ValueError("scenarios are not available on the platform (only S0)")
         session_id = uuid.uuid4().hex
         session_id_var.set(session_id)
         try:
@@ -513,7 +516,8 @@ class SessionRegistry:
             **{k: req.get(k) for k in DECIDE_CONTEXT_FIELDS},
         }
         record.decision_requests[(payload["product"], payload["seq"])] = {
-            "sent_mono": time.monotonic(), "tick": payload["tick"], "mode": payload["mode"]}
+            "sent_mono": time.monotonic(), "tick": payload["tick"], "mode": payload["mode"],
+            "operation": payload["operation"], "product_type": payload.get("product_type")}
         if self.agent is None:
             return
 
@@ -538,26 +542,34 @@ class SessionRegistry:
             "tick": int(out["tick"]), "request_tick": request["tick"] if request else None, "product": product,
             "seq": seq, "strategy": record.strategy, "decision_level": level, "machine": machine,
             "reason": reason, "latency_ms": round(1000 * (time.monotonic() - request["sent_mono"]), 1) if request else None,
+            "operation": request.get("operation") if request else None,
+            "product_type": request.get("product_type") if request else None,
             "agent_latencies": latencies, "late": False, "result": result,
         }
         if result == "ok":
             record.decision_requests.pop((product, seq), None)
             record.apply_run(out)
             self._log_decision(record, entry)
-            record.hub.publish({"type": "decision", "product": product, "seq_op": seq, "machine": machine,
-                                "level": level, "late": False, "latency_ms": entry["latency_ms"], "tick": entry["tick"]})
+            self._publish_decision(record, entry)
             return {"applied": True, "tick": entry["tick"], "late": False, "run_state": record.run_state,
                     "pending_decisions": record.pending_decisions}
         if result in NOT_PENDING:
             entry["late"] = True
             record.decision_requests.pop((product, seq), None)
             self._log_decision(record, entry)
-            record.hub.publish({"type": "decision", "product": product, "seq_op": seq, "machine": machine,
-                                "level": level, "late": True, "latency_ms": entry["latency_ms"], "tick": entry["tick"]})
+            self._publish_decision(record, entry)
             raise DecisionNotPending(f"the decision is no longer pending ({result}): registered as late", session_id)
         if result == "rule4-not-active":
             raise Rule4Required("next-machine needs a session with rule 4", session_id)
         raise InvalidOption(f"invalid next machine: {result}", session_id)
+
+    @staticmethod
+    def _publish_decision(record: SessionRecord, entry: dict[str, Any]) -> None:
+        """The WebSocket "decision" message: what the page's decision panel shows (docs/websocket.md)."""
+        record.hub.publish({"type": "decision", "product": entry["product"], "product_type": entry["product_type"],
+                            "seq_op": entry["seq"], "operation": entry["operation"], "machine": entry["machine"],
+                            "level": entry["decision_level"], "reason": entry["reason"], "late": entry["late"],
+                            "latency_ms": entry["latency_ms"], "tick": entry["tick"]})
 
     def _log_decision(self, record: SessionRecord, entry: dict[str, Any]) -> None:
         record.decision_log.append(entry)

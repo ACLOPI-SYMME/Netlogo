@@ -249,3 +249,39 @@ def test_fast_agent_with_whatif(stack: Any, client: httpx.Client) -> None:
     assert d["by_level"].get("llm-what-if", 0) >= 1 and d["late"] == 0 and d["unanswered"] == 0
     assert metrics["whatif"]["ok"] + metrics["whatif"]["timeout"] >= 1 and metrics["whatif"]["error"] == 0
     client.delete(f"/sessions/{sid}")
+
+
+# ----- page (/ui): live decision panel -----
+
+def test_ui_decision_panel_shows_the_agents_decisions(stack: Any, client: httpx.Client) -> None:
+    """Real platform + simulated agent, rule 4 in the browser: the panel gets rows from the WebSocket
+    "decision" messages (with the product type, operation and reason added to the message)."""
+    playwright_sync = pytest.importorskip("playwright.sync_api")
+    api, _ = stack
+    with playwright_sync.sync_playwright() as p:
+        try:
+            browser = p.chromium.launch(channel="msedge")
+        except Exception:  # noqa: BLE001 - Playwright's own Chromium, if installed
+            browser = p.chromium.launch()
+        try:
+            page = browser.new_page()
+            page.goto(f"{api.url}/ui")
+            page.check("#seed-on")
+            page.fill("#seed", "42")
+            page.select_option("#rule", "4")
+            page.fill("#horizon", "10000")
+            page.click("#create")
+            page.wait_for_function("document.querySelector('#sid').textContent !== ''")
+            sid = page.inner_text("#sid")
+            assert client.get(f"/sessions/{sid}").json()["strategy"] == "agent"
+            page.select_option("#speed", "4")
+            page.click("#live")
+            page.wait_for_function("document.querySelectorAll('#dec-rows tr').length >= 1", timeout=90_000)
+            cells = page.eval_on_selector("#dec-rows tr:first-child", "e => [...e.cells].map(c => c.textContent)")
+            tick, product, operation, machine, level = cells[:5]
+            assert int(tick) > 0 and product.startswith("p") and "(" in product, cells
+            assert operation.startswith("O") and machine.startswith("M") and level != "–", cells
+            assert cells[6].endswith(" ms"), cells
+            page.click("#close")
+        finally:
+            browser.close()

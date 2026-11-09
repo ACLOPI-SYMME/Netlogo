@@ -1,11 +1,11 @@
-"""Scenarios without NetLogo: validation (defaults, ranges, S1 partial/empty), the S3 calendar,
-POST /sessions -> 422 invalid_scenario, GET /scenarios, and the registry (scenario event published
-before the /decide request; summary saved with the run)."""
+"""Scenarios without NetLogo. aclopi.sim.scenarios (Línea A, experiments only): validation (defaults,
+ranges, S1 partial/empty), the specs and the S3 calendar. The platform (scenarios not available,
+docs/scenarios.md): POST /sessions with a scenario other than S0 -> 422 scenarios_unavailable,
+no GET /scenarios, and the registry refuses any scenario other than S0."""
 
 from __future__ import annotations
 
 import asyncio
-import time
 from pathlib import Path
 from typing import Any
 
@@ -14,9 +14,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from aclopi.api import Settings, create_app
-from aclopi.api.hub import SessionHub
-from aclopi.api.registry import SessionRecord, SessionRegistry
-from aclopi.api.results import InMemoryResultsStore
+from aclopi.api.registry import SessionRegistry
 from aclopi.sim.scenarios import list_scenarios, scenario_events, validate_params
 
 
@@ -65,7 +63,17 @@ def test_s3_calendar_is_deterministic_and_range_independent() -> None:
     assert [e.machine for e in scenario_events("S3", params, 8, 0, 5000)] != [e.machine for e in full]
 
 
-# ----- HTTP (the platform is not started: validation answers before) -----
+def test_scenario_specs() -> None:
+    specs = {s.id: s for s in list_scenarios()}
+    assert list(specs) == ["S0", "S1", "S2", "S3"] and specs["S2"].name == "Degradación"
+    assert {p.name: (p.type, p.default, p.min, p.max) for p in specs["S2"].params} == {
+        "machine": ("machine", "M7", None, None), "factor": ("float", 1.75, 1.0, 5.0),
+        "start_tick": ("int", 10000, 0, 1_000_000)}
+    assert [p.type for p in specs["S3"].params] == ["int", "int", "machine_list"]
+    assert specs["S1"].params[0].type == "machine_times"
+
+
+# ----- platform: scenarios not available (the platform is not started: the check answers before) -----
 
 @pytest.fixture()
 def http(tmp_path: Path) -> Any:
@@ -73,91 +81,30 @@ def http(tmp_path: Path) -> Any:
     return TestClient(app)  # no lifespan: phase "starting"
 
 
-def test_post_sessions_invalid_scenario_is_422(http: TestClient) -> None:
-    r = http.post("/sessions", json={"rule": 3, "scenario": {"id": "S2", "params": {"factor": 9}}})
-    assert r.status_code == 422 and r.json()["code"] == "invalid_scenario"
-    assert r.json()["detail"].startswith("factor: must be between 1 and 5")
-    r = http.post("/sessions", json={"rule": 3, "scenario": {"id": "S3", "params": {"machines": []}}})
-    assert r.status_code == 422 and "machines" in r.json()["detail"]
-    r = http.post("/sessions", json={"rule": 3, "scenario": {"id": "nope"}})
-    assert r.status_code == 422 and "unknown scenario" in r.json()["detail"]
-    # valid (S1 partial, S1 empty): passes validation and only then meets the platform starting
-    for sc in ({"id": "S1", "params": {"times": {"M5": 400}}}, {"id": "S1", "params": {"times": {}}}, {"id": "S0"}):
-        assert http.post("/sessions", json={"rule": 3, "scenario": sc}).status_code == 503
+@pytest.mark.parametrize("scenario", [{"id": "S1"}, {"id": "S2", "params": {"start_tick": 1000}},
+                                      {"id": "S3", "params": {"interval_ticks": 1000}}, {"id": "nope"},
+                                      {"id": "S0", "params": {"x": 1}}])
+def test_post_sessions_with_a_scenario_is_422(http: TestClient, scenario: dict[str, Any]) -> None:
+    r = http.post("/sessions", json={"rule": 3, "scenario": scenario})
+    assert r.status_code == 422, r.text
+    assert r.json()["code"] == "scenarios_unavailable" and r.json()["detail"] == "los escenarios no están disponibles"
 
 
-def test_get_scenarios(http: TestClient) -> None:
-    body = http.get("/scenarios").json()
-    assert [s["id"] for s in body] == [s.id for s in list_scenarios()] == ["S0", "S1", "S2", "S3"]
-    s2 = next(s for s in body if s["id"] == "S2")
-    assert s2["name"] == "Degradación"
-    assert {p["name"]: (p["type"], p["default"], p["min"], p["max"]) for p in s2["params"]} == {
-        "machine": ("machine", "M7", None, None), "factor": ("float", 1.75, 1.0, 5.0),
-        "start_tick": ("int", 10000, 0, 1_000_000)}
-    s3 = next(s for s in body if s["id"] == "S3")
-    assert [p["type"] for p in s3["params"]] == ["int", "int", "machine_list"]
-    assert next(s for s in body if s["id"] == "S1")["params"][0]["type"] == "machine_times"
+def test_post_sessions_s0_or_no_scenario_passes(http: TestClient) -> None:
+    # passes the check and only then meets the platform starting
+    for body in ({"rule": 3}, {"rule": 3, "scenario": {"id": "S0"}}, {"rule": 4, "scenario": {"id": "S0", "params": {}}}):
+        assert http.post("/sessions", json=body).status_code == 503
 
 
-# ----- registry -----
-
-def _event(tick: int, applied: bool = True) -> dict[str, Any]:
-    return {"type": "scenario", "tick": tick, "kind": "repair", "machine": "M4", "value": 300.0,
-            "label": "Falla en M4: +300 u.t.", "applied": applied,
-            "skip_reason": None if applied else "machine-idle", "before": None, "after": None}
+def test_no_get_scenarios(http: TestClient) -> None:
+    assert http.get("/scenarios").status_code == 404
+    assert "/scenarios" not in http.get("/openapi.json").json()["paths"]
 
 
-def _registry() -> tuple[SessionRegistry, SessionRecord, list[str]]:
+def test_registry_refuses_scenarios() -> None:
     registry = SessionRegistry(pool=None, idle_timeout_s=600, limiter=anyio.CapacityLimiter(1))  # type: ignore[arg-type]
-    order: list[str] = []
-
-    class Agent:
-        available = True
-
-        async def decide(self, payload: dict[str, Any]) -> bool:
-            order.append("decide")
-            return True
-
-    registry.agent = Agent()
-    registry.results = InMemoryResultsStore()
-    now = time.time()
-    record = SessionRecord("s1", {"seed": 7, "rule": 4, "modeling_type": "Stochastic", "horizon_ticks": 1000}, 0,
-                           now, now, time.monotonic(), SessionHub("s1", 32), strategy="b1", agent=registry.agent,
-                           scenario={"id": "S3", "params": {"interval_ticks": 500}})
-    record.hub.publish = lambda message, raw=None: order.append(message["type"])  # type: ignore[method-assign]
-    registry._records["s1"] = record
-    return registry, record, order
-
-
-def test_scenario_event_is_published_before_the_decide_request() -> None:
-    registry, record, order = _registry()
-    request = {"who": 300, "seq": 1, "operation": "O2", "origin": "M2", "tick": 499, "candidates": ["M3", "M4"]}
-
-    async def main() -> None:
-        registry.on_push("s1", "progress", {"tick": 500, "advanced": 500, "finished_products": 0, "events": [],
-                                            "scenario_events": [_event(500)], "decision_requests": [request]})
-        await asyncio.sleep(0.05)
-
-    asyncio.run(main())
-    assert order.index("scenario_event") < order.index("decide")
-    assert record.events[-1]["type"] == "scenario" and record.scenario_events == [_event(500)]
-
-
-def test_skipped_events_go_to_the_run_summary() -> None:
-    registry, record, _ = _registry()
-    record.run_started_at = time.time()
-    registry.on_push("s1", "tick", {"tick": 500, "advanced": 3, "events": [], "scenario_events": [_event(500)]})
-    registry.after_step(record, {"ticks": 1000, "advanced": 500, "finished": False,
-                                 "scenario_events": [_event(1000, applied=False)]})
-    assert record.info()["scenario_summary"] == {"applied": 1, "skipped": 1}
-    registry.save_run(record, "finished", "horizon")  # no running loop: written at once
-    rows, _ = registry.results.list_runs({"scenario_id": "S3"}, 10, None)
-    assert len(rows) == 1 and registry.results.list_runs({"scenario_id": "S2"}, 10, None)[0] == []
-    run = rows[0]
-    assert run["scenario"] == {"id": "S3", "params": {"interval_ticks": 500}}
-    assert run["scenario_summary"] == {"applied": 1, "skipped": 1}
-    assert [(e["tick"], e["applied"], e["skip_reason"]) for e in run["scenario_events"]] == [
-        (500, True, None), (1000, False, "machine-idle")]
+    with pytest.raises(ValueError, match="only S0"):
+        asyncio.run(registry.create(1, 3, "Stochastic", 1000, scenario={"id": "S2", "params": {"start_tick": 0}}))
 
 
 # ----- strategy (not a user option: rule 4 is the agent) -----
