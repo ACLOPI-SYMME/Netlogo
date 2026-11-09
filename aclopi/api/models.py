@@ -81,9 +81,10 @@ class SessionCreate(BaseModel):
     modeling_type: Literal["Stochastic", "Deterministic"] = "Stochastic"
     horizon_ticks: int = Field(10000, ge=1, le=1_000_000, description="The run ends (ExportData) at this tick")
     strategy: Strategy | None = Field(
-        None, description="Rule 4 only: who decides. b1 / b1b / agent call the agent service (docs/agent-api.md); "
-                          "none = rule 4 without a decider (same as rule 3). Default none with rule 4; not "
-                          "accepted with rules 1-3")
+        None, description="Rule 4 only, optional: who decides. Default agent (the AI agent: code, LLM, what-if; "
+                          "docs/agent-api.md). b1 / b1b (baselines of the experiments) and none (rule 4 without a "
+                          "decider, same as rule 3; tests) are accepted but are not user options. Not accepted "
+                          "with rules 1-3")
     scenario: ScenarioChoice | None = Field(
         None, description="Scenario that changes the plant during the run (docs/scenarios.md). Default S0 (Base). "
                           "Invalid id or params: 422 invalid_scenario with the reason")
@@ -93,7 +94,7 @@ class SessionCreate(BaseModel):
         if self.rule != 4 and self.strategy is not None:
             raise ValueError("strategy is only accepted with rule 4")
         if self.rule == 4 and self.strategy is None:
-            self.strategy = "none"
+            self.strategy = "agent"
         if self.product_set_id is not None and self.products is not None:
             raise ValueError("give product_set_id or products, not both")
         return self

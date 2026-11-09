@@ -1869,7 +1869,7 @@
                 "type": "null"
               }
             ],
-            "description": "Rule 4 only: who decides. b1 / b1b / agent call the agent service (docs/agent-api.md); none = rule 4 without a decider (same as rule 3). Default none with rule 4; not accepted with rules 1-3",
+            "description": "Rule 4 only, optional: who decides. Default agent (the AI agent: code, LLM, what-if; docs/agent-api.md). b1 / b1b (baselines of the experiments) and none (rule 4 without a decider, same as rule 3; tests) are accepted but are not user options. Not accepted with rules 1-3",
             "title": "Strategy"
           }
         },

@@ -158,3 +158,12 @@ def test_skipped_events_go_to_the_run_summary() -> None:
     assert run["scenario_summary"] == {"applied": 1, "skipped": 1}
     assert [(e["tick"], e["applied"], e["skip_reason"]) for e in run["scenario_events"]] == [
         (500, True, None), (1000, False, "machine-idle")]
+
+
+# ----- strategy (not a user option: rule 4 is the agent) -----
+
+def test_rule_4_without_strategy_is_agent() -> None:
+    from aclopi.api.models import SessionCreate
+    assert SessionCreate(rule=4).strategy == "agent"
+    assert [SessionCreate(rule=4, strategy=s).strategy for s in ("b1", "b1b", "none", "agent")] == ["b1", "b1b", "none", "agent"]
+    assert SessionCreate(rule=3).strategy is None

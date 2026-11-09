@@ -1,8 +1,8 @@
-"""Set de productos tab and scenario form (live.html) in a headless browser, without NetLogo.
+"""Set de productos tab, scenario form and rule / strategy (live.html) in a headless browser, without NetLogo.
 
 A small FastAPI app serves the real page and the endpoints the tab uses: parse-csv with the real
 parser (aclopi.api.product_sets.parse_csv), product-sets, health, GET /scenarios (the real
-list_scenarios) and POST /sessions (records the body). Needs Playwright with Chromium or Edge (`pip install playwright`); skipped otherwise.
+list_scenarios), GET /runs (the runs in RUNS) and POST /sessions (records the body). Needs Playwright with Chromium or Edge (`pip install playwright`); skipped otherwise.
 """
 
 from __future__ import annotations
@@ -30,6 +30,17 @@ CSV_OK = "type,priority\nA,70\nI,80\nP,90\nB,60\nE,100\n"
 CSV_WITH_ERRORS = "type,priority\nA,70\nX,80\n\nB,60\nE,100\n"
 
 
+def _run(run_id: str, rule: int, strategy: str | None) -> dict[str, Any]:
+    return {"run_id": run_id, "created_at": 1_700_000_000, "status": "finished", "reason": "horizon", "rule": rule,
+            "strategy": strategy, "seed": 42, "seed_source": "given", "horizon_ticks": 3000, "mode": "fast",
+            "ticks": 3000, "scenario_id": "S0", "scenario": {"id": "S0", "params": {}}, "kpis": {"finished": 1}}
+
+
+# Rule 4 runs as the API stores them: agent (the page), b1 / b1b (experiments), none (tests).
+RUNS = [_run("run-agent-0001", 4, "agent"), _run("run-b1-000001", 4, "b1"), _run("run-b1b-00001", 4, "b1b"),
+        _run("run-none-0001", 4, "none"), _run("run-rule3-001", 3, None)]
+
+
 def fake_platform(sessions: list[dict[str, Any]]) -> FastAPI:
     app = FastAPI()
 
@@ -53,8 +64,8 @@ def fake_platform(sessions: list[dict[str, Any]]) -> FastAPI:
         return {"status": "ready"}
 
     @app.get("/runs")
-    def runs() -> list[Any]:
-        return []
+    def runs() -> dict[str, Any]:
+        return {"runs": RUNS, "next_cursor": None}
 
     @app.get("/scenarios")
     def scenarios() -> list[Any]:
@@ -203,4 +214,49 @@ def test_scenario_form_and_live_notices(server: tuple[str, list], browser: Any) 
     assert "Falla saltada: M4 libre" in page.inner_text("#toast")
     assert page.eval_on_selector("#toast", "e => e.className") == "skipped"
     assert page.eval_on_selector_all("#events div.skipped", "els => els.length") == 1
+    page.close()
+
+
+def test_rule_4_is_the_agent_and_runs_show_the_strategy(server: tuple[str, list], browser: Any) -> None:
+    url, sessions = server
+    page = browser.new_page()
+    page.goto(f"{url}/ui")
+    page.wait_for_function("document.querySelectorAll('#scenario option').length === 4")
+    # No strategy selector; rule 4 is "Regla 4 — Agente IA" and always creates the session with agent.
+    assert page.query_selector("#strategy") is None and page.query_selector("#strategy-box") is None
+    assert page.eval_on_selector("#rule option[value='4']", "e => e.textContent") == "Regla 4 — Agente IA"
+    page.select_option("#rule", "4")
+    before = len(sessions)
+    page.click("#create")
+    sent = _sent(sessions, before)
+    assert (sent["rule"], sent["strategy"]) == (4, "agent")
+    page.select_option("#rule", "3")
+    before = len(sessions)
+    page.click("#create")
+    assert "strategy" not in _sent(sessions, before)
+    # Runs: "Regla 4 (agente)", "(B1)", "(B1b)"; a none run (tests) is just "Regla 4".
+    page.click("#tab-runs")
+    page.wait_for_function("document.querySelectorAll('#runs-rows tr').length === 5")
+    rules = page.eval_on_selector_all("#runs-rows tr td:nth-child(4)", "els => els.map(e => e.textContent)")
+    assert rules == ["Regla 4 (agente)", "Regla 4 (B1)", "Regla 4 (B1b)", "Regla 4", "Regla 3"]
+    # The comparison uses the same names.
+    for run_id in ("run-agent-0001", "run-b1-000001", "run-b1b-00001"):
+        page.check(f'#runs-rows input[data-id="{run_id}"]')
+    page.click("#runs-compare")
+    heads = page.eval_on_selector_all("#runs-compare-box th", "els => els.map(e => e.textContent)")
+    assert heads[1:] == ["Regla 4 (agente) run-ag", "Regla 4 (B1) run-b1", "Regla 4 (B1b) run-b1"]
+    # "none" appears nowhere in the interface (visible text, options, values of the controls).
+    texts = page.evaluate("""() => [document.body.innerText,
+        ...[...document.querySelectorAll('option, input, select')].map(e => e.value + ' ' + e.textContent)].join(' ')""")
+    assert "none" not in texts.lower()
+    # Repetir keeps the original strategy (b1 run -> b1; agent run -> agent).
+    before = len(sessions)
+    page.click('#runs-rows tr:nth-child(2) [data-a="repeat"]')
+    sent = _sent(sessions, before)
+    assert (sent["rule"], sent["strategy"]) == (4, "b1")
+    page.click("#tab-runs")
+    page.wait_for_function("document.querySelectorAll('#runs-rows tr').length === 5")
+    before = len(sessions)
+    page.click('#runs-rows tr:nth-child(1) [data-a="repeat"]')
+    assert _sent(sessions, before)["strategy"] == "agent"
     page.close()
