@@ -29,7 +29,7 @@ from typing import Any, Awaitable, Callable, Protocol
 
 from aclopi.agent.llm import LLMClient, LLMError
 from aclopi.agent.prompts import answer_schema, build_messages, parse_answer
-from aclopi.agent.strategies import Decision
+from aclopi.agent.strategies import Decision, fallback_reason, obvious_reason, short_reason
 from aclopi.agent.triage import Triage, TriageParams, classify, ranked
 
 logger = logging.getLogger(__name__)
@@ -208,8 +208,7 @@ class Agent:
 
     async def _code(self, f: Flow) -> None:
         t = f.triage
-        why = "single candidate" if len(t.finalists) == 1 else f"gaps {t.gap_finish}/{t.gap_finish_plus_next} u.t."
-        f.decision = Decision(t.best_by_finish, f.request["seq"], "code-obvious", f"obvious: {why}", triage=t)
+        f.decision = Decision(t.best_by_finish, f.request["seq"], "code-obvious", obvious_reason(t), triage=t)
 
     def _offer_what_if(self, f: Flow) -> bool:
         if f.triage.level != "very_close" or f.triage.what_if_options is None:
@@ -246,7 +245,7 @@ class Agent:
         elif answer.action == "what_if":
             f.what_if_requested = True
         else:
-            f.decision = Decision(answer.machine, f.request["seq"], "llm", answer.reason or "", triage=f.triage)
+            f.decision = Decision(answer.machine, f.request["seq"], "llm", short_reason(answer.reason), triage=f.triage)
 
     async def _what_if(self, f: Flow) -> None:
         if f.request.get("mode") == "live":
@@ -273,7 +272,7 @@ class Agent:
         else:
             used = bool(f.what_if and f.what_if.get("status") in ("ok", "timeout") and f.what_if.get("options"))
             f.decision = Decision(answer.machine, f.request["seq"], "llm-what-if" if used else "llm",
-                                  answer.reason or "", triage=f.triage)
+                                  short_reason(answer.reason), triage=f.triage)
 
     async def _fallback(self, f: Flow) -> None:
         if not f.candidates or not f.candidates.get("candidates"):
@@ -282,7 +281,8 @@ class Agent:
             f.error = (f.error or "") + " | no time left: rule 3 decides"
             return
         best = ranked(f.candidates["candidates"], "finish")[0]
-        f.decision = Decision(best["machine"], f.request["seq"], "code-fallback", f"fallback ({f.error})", triage=f.triage)
+        f.decision = Decision(best["machine"], f.request["seq"], "code-fallback",
+                              fallback_reason(f.error, best, f.candidates.get("time")), triage=f.triage)
 
     async def _validate(self, f: Flow) -> None:
         machines = [c["machine"] for c in f.candidates["candidates"]]
