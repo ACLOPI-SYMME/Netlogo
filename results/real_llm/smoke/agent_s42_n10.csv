@@ -1,0 +1,2 @@
+strategy,scenario,seed,n,session_id,makespan_ticks,makespan_time,all_done,mean_flow_time,work_completed,finished,ticks,run_state,reason,wall_s,scenario_applied,scenario_skipped,decisions,pct_code-obvious,pct_code-fallback,pct_llm,pct_llm-what-if,pct_heuristic
+agent,S0,42,10,f64f7804ef794a6cbbbf9191118bccc8,13755,4264.05,True,2047.0849999999998,14000.0,10,14126,finished,all_products_done,43.5,0,0,60,76.7,0.0,23.3,0.0,0.0
