@@ -6,7 +6,9 @@ import asyncio
 from typing import Any
 
 from aclopi.agent.core import Agent, AgentConfig, context_from_state
+from aclopi.agent.llm.base import LLMClient
 from aclopi.agent.llm.fake import FakeLLM
+from aclopi.agent.strategies import REASON_MAX, DecisionContext, decide_b1, decide_b1b, short_reason
 
 
 def cands(finishes: dict[str, tuple[float, float]], current: str = "M2", own: float = 150.0) -> dict[str, Any]:
@@ -156,3 +158,38 @@ def test_at_most_two_llm_calls_and_invalid_candidates() -> None:
     bad = {"valid": False, "reason": "seq-mismatch", "candidates": [], "time": 1000.0}
     d, rec = decide(FakePlatform(bad), FakeLLM(), request())
     assert d is None and rec["error"].startswith("candidates-invalid")
+
+
+# ----- reasons for the decision panel (Spanish, <= 120 characters) -----
+
+class FixedLLM(LLMClient):
+    def __init__(self, answer: dict[str, Any]) -> None:
+        self.answer = answer
+
+    async def _complete(self, messages: Any, schema: dict[str, Any], timeout_s: float) -> dict[str, Any]:
+        return self.answer
+
+
+def test_code_levels_give_the_number_that_decided() -> None:
+    d, _ = decide(FakePlatform(cands(OBVIOUS)), FakeLLM(), request())
+    assert d.reason == "Obvia: M3 termina 300 u.t. antes"
+    d, _ = decide(FakePlatform(cands({"M3": (300, 400)})), FakeLLM(), request())
+    assert d.reason == "Obvia: M3 es la única candidata"
+    d, _ = decide(FakePlatform(cands(UNCERTAIN)), FakeLLM(invalid_rate=1.0), request())
+    assert d.reason == "Respaldo (respuesta del LLM no válida): M3 termina antes (+300 u.t.)"
+    d, _ = decide(FakePlatform(cands(UNCERTAIN)), FakeLLM(latency_s=0.3), request(), AgentConfig(fast_deadline_s=0.1))
+    assert d.reason.startswith("Respaldo (el LLM no respondió a tiempo): M3")
+    ctx = DecisionContext("s1", 200, 2, "b1", "fast", cands(UNCERTAIN))
+    assert decide_b1(ctx).reason == "B1: M3 termina antes (+300 u.t.)"
+    assert decide_b1b(ctx).reason == "B1b: M3, menor fin con el siguiente paso (+500 u.t.)"
+
+
+def test_llm_reason_is_cut_to_120_characters() -> None:
+    long = "M3 termina antes " * 20
+    d, rec = decide(FakePlatform(cands(UNCERTAIN)), FixedLLM({"action": "decide", "machine": "M2", "reason": long}), request())
+    assert d.decision_level == "llm" and d.machine == "M2"
+    assert REASON_MAX - 2 <= len(d.reason) <= REASON_MAX and d.reason.endswith("…") and rec["reason"] == d.reason
+    assert short_reason("  corta\n razón ") == "corta razón" and short_reason(None) == ""
+    every = [decide(FakePlatform(cands(c)), FakeLLM(invalid_rate=r), request())[0].reason
+             for c in (OBVIOUS, UNCERTAIN) for r in (0.0, 1.0)]
+    assert all(len(r) <= REASON_MAX for r in every)

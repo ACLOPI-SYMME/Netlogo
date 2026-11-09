@@ -1,0 +1,6 @@
+strategy,scenario,seed,n,session_id,makespan_ticks,makespan_time,all_done,mean_flow_time,work_completed,finished,ticks,run_state,reason,wall_s,scenario_applied,scenario_skipped,decisions,pct_code-obvious,pct_code-fallback,pct_llm,pct_llm-what-if,pct_heuristic
+agent,S0,1,30,46679052c38840ab9bac3997c7e80d49,35774,11089.94,True,1914.2190000000003,39200.0,30,36205,finished,all_products_done,143.9,0,0,166,62.0,0.0,38.0,0.0,0.0
+agent,S0,2,30,a52dfcdd527f46e1aefd2f110def5107,37139,11513.09,True,1939.0190000000005,38800.0,30,37786,finished,all_products_done,255.3,0,0,164,56.7,0.0,43.3,0.0,0.0
+agent,S0,3,30,ef1189b0e12f4986977be2e7d51a7d6e,37570,11646.7,True,1941.2406666666668,39000.0,30,38124,finished,all_products_done,248.6,0,0,165,61.8,0.0,38.2,0.0,0.0
+agent,S0,4,30,f41b7bf0bec14f0ca7adf44768db01ee,40045,12413.95,True,2114.551333333333,41600.0,30,40695,finished,all_products_done,221.6,0,0,178,64.0,0.0,36.0,0.0,0.0
+agent,S0,5,30,30b18413fec543e1b4d444250fe43f12,38567,11955.77,True,2035.8836666666668,40400.0,30,39232,finished,all_products_done,235.6,0,0,172,55.8,0.0,44.2,0.0,0.0

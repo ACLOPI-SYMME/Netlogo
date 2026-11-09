@@ -1,6 +1,7 @@
 # Virtual environment and local config
 .venv/
 .env
+.env.agent
 
 # Simulation outputs
 results/

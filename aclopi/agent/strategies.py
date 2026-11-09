@@ -6,6 +6,10 @@
            "code-obvious"; otherwise None (the LLM flow in aclopi.agent.core decides)
 Ties: lowest machine number. Context candidates are dicts as the API returns them
 (aclopi/contracts/candidates.py).
+
+Reasons (the text the platform's decision panel shows): in Spanish, at most REASON_MAX characters
+(short_reason cuts longer ones). Code levels write a fixed text with the number that justifies the
+decision, e.g. "Obvia: M3 termina 230 u.t. antes" or "Respaldo (el LLM no respondió): M3 termina antes (+310 u.t.)".
 """
 
 from __future__ import annotations
@@ -13,7 +17,36 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any, Callable
 
-from aclopi.agent.triage import Triage, TriageParams, classify, ranked
+from aclopi.agent.triage import Triage, TriageParams, classify, fpn, ranked
+
+REASON_MAX = 120
+# why the agent fell back to the best by finish, by the start of its error (aclopi.agent.core)
+FALLBACK_CAUSES = (("llm-timeout", "el LLM no respondió a tiempo"), ("deadline", "el LLM no respondió a tiempo"),
+                   ("llm-call-limit", "límite de llamadas al LLM"), ("llm-invalid-json", "respuesta del LLM no válida"),
+                   ("invalid-answer", "respuesta del LLM no válida"), ("what-if-not-offered", "respuesta del LLM no válida"),
+                   ("machine-not-candidate", "el LLM eligió una máquina no candidata"), ("invalid-machine", "el LLM eligió una máquina no candidata"),
+                   ("llm-", "el LLM no respondió"), ("platform", "error al leer la planta"))
+
+
+def short_reason(text: str | None) -> str:
+    """One line of at most REASON_MAX characters (cut with an ellipsis)."""
+    text = " ".join((text or "").split())
+    return text if len(text) <= REASON_MAX else text[:REASON_MAX - 1].rstrip() + "…"
+
+
+def _rel(value: float, ctx_time: Any) -> str:
+    return f"+{float(value) - float(ctx_time or 0.0):.0f} u.t."
+
+
+def obvious_reason(t: Triage) -> str:
+    if len(t.finalists) == 1:
+        return f"Obvia: {t.best_by_finish} es la única candidata"
+    return f"Obvia: {t.best_by_finish} termina {t.gap_finish:.0f} u.t. antes"
+
+
+def fallback_reason(error: str | None, best: dict[str, Any], now: Any) -> str:
+    cause = next((text for prefix, text in FALLBACK_CAUSES if (error or "").startswith(prefix)), "sin respuesta del LLM")
+    return short_reason(f"Respaldo ({cause}): {best['machine']} termina antes ({_rel(best['finish'], now)})")
 
 
 @dataclass(frozen=True)
@@ -51,27 +84,28 @@ def _candidates(ctx: DecisionContext) -> list[dict[str, Any]]:
 
 def decide_b1(ctx: DecisionContext) -> Decision:
     best = ranked(_candidates(ctx), "finish")[0]
-    return Decision(best["machine"], ctx.seq, "heuristic", f"b1: lowest finish ({best['finish']:.1f})")
+    return Decision(best["machine"], ctx.seq, "heuristic",
+                    f"B1: {best['machine']} termina antes ({_rel(best['finish'], ctx.candidates.get('time'))})")
 
 
 def decide_b1b(ctx: DecisionContext) -> Decision:
     best = ranked(_candidates(ctx), "finish_plus_next")[0]
-    return Decision(best["machine"], ctx.seq, "heuristic", "b1b: lowest finish_plus_next")
+    return Decision(best["machine"], ctx.seq, "heuristic",
+                    f"B1b: {best['machine']}, menor fin con el siguiente paso ({_rel(fpn(best), ctx.candidates.get('time'))})")
 
 
 def decide_agent_code(ctx: DecisionContext, params: TriageParams = TriageParams()) -> tuple[Decision | None, Triage]:
     """The code level of the agent: a Decision when obvious, else None plus the triage for the LLM."""
     t = classify(_candidates(ctx), params)
     if t.level == "obvious":
-        why = "single candidate" if len(t.finalists) == 1 else f"gaps {t.gap_finish} / {t.gap_finish_plus_next} u.t."
-        return Decision(t.best_by_finish, ctx.seq, "code-obvious", f"obvious: {why}", triage=t), t
+        return Decision(t.best_by_finish, ctx.seq, "code-obvious", obvious_reason(t), triage=t), t
     return None, t
 
 
 def best_by_finish(ctx: DecisionContext, level: str, reason: str) -> Decision:
     """Fallback used by the agent when the LLM cannot decide in time (code-fallback)."""
     best = ranked(_candidates(ctx), "finish")[0]
-    return Decision(best["machine"], ctx.seq, level, reason)
+    return Decision(best["machine"], ctx.seq, level, short_reason(reason))
 
 
 HEURISTICS: dict[str, Callable[[DecisionContext], Decision]] = {"b1": decide_b1, "b1b": decide_b1b}

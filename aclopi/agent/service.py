@@ -29,7 +29,7 @@ from fastapi import FastAPI, Header, Response
 
 from aclopi.agent.core import Agent, AgentConfig, candidates_summary
 from aclopi.agent.llm import LLMClient, client_from_env
-from aclopi.agent.strategies import DecisionContext, decide as decide_heuristic
+from aclopi.agent.strategies import DecisionContext, decide as decide_heuristic, short_reason
 from aclopi.agent.triage import TriageParams
 from aclopi.contracts.agent import DecideRequest, bearer_matches
 
@@ -169,7 +169,7 @@ def create_app(settings: AgentSettings | None = None, llm: LLMClient | None = No
                 latencies = {"total_ms": total_ms, "llm_ms": decision.latencies.get("llm_ms") or None}
                 r = await platform.next_machine(req["session_id"], {
                     "product": req["product"], "seq": req["seq"], "machine": decision.machine,
-                    "decision_level": decision.decision_level, "reason": (decision.reason or "")[:500], "latencies": latencies})
+                    "decision_level": decision.decision_level, "reason": short_reason(decision.reason), "latencies": latencies})
                 record["response"] = r.status_code
                 if r.status_code in (409, 422):
                     record["rejected"] = r.json().get("code") if r.headers.get("content-type", "").startswith("application/json") else r.status_code

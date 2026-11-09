@@ -13,6 +13,7 @@ from aclopi.agent.llm import LLMError, client_from_env
 from aclopi.agent.llm.anthropic import AnthropicLLM
 from aclopi.agent.llm.fake import FakeLLM
 from aclopi.agent.llm.ollama import OllamaLLM
+from aclopi.agent.llm.openai_compat import OpenAICompatLLM, extract_json
 from aclopi.agent.prompts import Answer, answer_schema, build_messages, estimated_tokens, parse_answer
 from aclopi.agent.service import AgentSettings, create_app
 
@@ -89,7 +90,7 @@ def test_anthropic_request_shape_and_errors() -> None:
 def test_removed_provider_fails_at_startup(monkeypatch: pytest.MonkeyPatch) -> None:
     # A provider that is no longer supported (bedrock was removed) stops the service when it starts.
     monkeypatch.setenv("ACLOPI_LLM_PROVIDER", "bedrock")
-    with pytest.raises(ValueError, match=r"must be one of \('fake', 'ollama', 'anthropic'\), got 'bedrock'"):
+    with pytest.raises(ValueError, match=r"must be one of \('fake', 'ollama', 'anthropic', 'openai_compat'\), got 'bedrock'"):
         create_app(AgentSettings(provider="bedrock"))
 
 
@@ -149,3 +150,110 @@ def test_prompt_content_and_size() -> None:
     tokens = estimated_tokens(msgs)
     print("largest prompt, estimated tokens:", tokens)
     assert tokens <= 3000
+
+
+# ----- openai_compat (HTTP simulated) -----
+
+ANSWER = {"action": "decide", "machine": "M2", "reason": "M2 termina 30 u.t. antes"}
+
+
+def compat_server(accepts: set[str], content: str = json.dumps(ANSWER),
+                  status: int = 200) -> tuple[httpx.MockTransport, list[dict[str, Any]]]:
+    """Fake OpenAI-compatible server: answers 400 to the response_format types it does not accept."""
+    seen: list[dict[str, Any]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        seen.append({"url": str(request.url), "auth": request.headers.get("authorization"), "body": body})
+        mode = (body.get("response_format") or {}).get("type", "prompt")
+        if mode not in accepts:
+            return httpx.Response(400, json={"error": {"message": f"{mode} not supported"}})
+        if status != 200:
+            return httpx.Response(status, json={"error": {"message": "nope"}})
+        return httpx.Response(200, json={"choices": [{"message": {"role": "assistant", "content": content}}]})
+
+    return httpx.MockTransport(handler), seen
+
+
+def compat(transport: httpx.MockTransport, **kw: Any) -> OpenAICompatLLM:
+    return OpenAICompatLLM("http://llm.test/v1/", "sk-secret", "strata", transport=transport, **kw)
+
+
+def test_openai_compat_request_shape() -> None:
+    transport, seen = compat_server({"json_schema", "json_object", "prompt"})
+    llm = compat(transport)
+    data, _ = run(llm.complete_json(MSGS, SCHEMA, 5))
+    assert data == ANSWER and llm.json_mode == "json_schema"
+    req = seen[0]
+    assert req["url"] == "http://llm.test/v1/chat/completions" and req["auth"] == "Bearer sk-secret"
+    body = req["body"]
+    assert body["model"] == "strata" and body["reasoning_effort"] == "none" and body["max_tokens"] == 200
+    assert body["response_format"]["json_schema"]["schema"] == SCHEMA and body["messages"] == MSGS
+    assert "sk-secret" not in repr(llm)
+
+
+def test_openai_compat_json_mode_fallback_order_and_kept() -> None:
+    transport, seen = compat_server({"json_object", "prompt"})
+    llm = compat(transport)
+    assert run(llm.complete_json(MSGS, SCHEMA, 5))[0] == ANSWER
+    assert [r["body"].get("response_format", {}).get("type") for r in seen] == ["json_schema", "json_object"]
+    assert llm.json_mode == "json_object"
+    run(llm.complete_json(MSGS, SCHEMA, 5))  # next call: straight to the mode found
+    assert [r["body"]["response_format"]["type"] for r in seen[2:]] == ["json_object"]
+
+
+def test_openai_compat_prompt_mode_puts_the_schema_in_the_system_message() -> None:
+    transport, seen = compat_server({"prompt"}, content="```json\n" + json.dumps(ANSWER) + "\n```")
+    llm = compat(transport)
+    data, _ = run(llm.complete_json(MSGS, SCHEMA, 5))
+    assert data == ANSWER and llm.json_mode == "prompt" and len(seen) == 3
+    last = seen[-1]["body"]
+    assert "response_format" not in last and last["messages"][0]["role"] == "system"
+    system = last["messages"][0]["content"]
+    assert system.startswith("sys") and json.dumps(SCHEMA, separators=(",", ":")) in system
+    # with no response_format the answer is still validated: a wrong machine is rejected by parse_answer
+    bad, _ = compat_server({"prompt"}, content=json.dumps({**ANSWER, "machine": "M1"}))
+    data, _ = run(compat(bad).complete_json(MSGS, SCHEMA, 5))
+    assert parse_answer(data, MACHINES, True).startswith("machine-not-candidate")
+
+
+def test_openai_compat_errors_do_not_change_the_mode() -> None:
+    transport, seen = compat_server({"json_schema"}, status=401)
+    llm = compat(transport)
+    err, _ = run(llm.complete_json(MSGS, SCHEMA, 5))
+    assert isinstance(err, LLMError) and err.kind == "provider" and llm.json_mode is None and len(seen) == 1
+    assert "sk-secret" not in err.detail
+    invalid, _ = compat_server({"json_schema"}, content="not json")
+    err, _ = run(compat(invalid).complete_json(MSGS, SCHEMA, 5))
+    assert isinstance(err, LLMError) and err.kind == "invalid-json"
+    none, _ = compat_server(set())
+    err, _ = run(compat(none).complete_json(MSGS, SCHEMA, 5))
+    assert isinstance(err, LLMError) and "rejected every JSON output mode" in err.detail
+
+
+def test_openai_compat_options_and_forced_mode() -> None:
+    transport, seen = compat_server({"json_schema", "json_object", "prompt"})
+    llm = compat(transport, max_tokens=80, reasoning_effort="", json_mode="json_object")
+    run(llm.complete_json(MSGS, SCHEMA, 5))
+    body = seen[0]["body"]
+    assert body["max_tokens"] == 80 and "reasoning_effort" not in body and body["response_format"] == {"type": "json_object"}
+    with pytest.raises(ValueError):
+        compat(transport, json_mode="xml")
+    assert extract_json('Sure: {"a": 1} done') == '{"a": 1}'
+
+
+def test_openai_compat_from_env() -> None:
+    env = {"ACLOPI_LLM_PROVIDER": "openai_compat", "ACLOPI_LLM_BASE_URL": "http://x/v1", "ACLOPI_LLM_API_KEY": "k"}
+    llm = client_from_env(env)
+    assert isinstance(llm, OpenAICompatLLM) and llm.model == "strata" and llm.max_tokens == 200
+    assert llm.reasoning_effort == "none" and llm.timeout_s == 30 and llm.json_mode is None
+    llm = client_from_env({**env, "ACLOPI_LLM_MODEL": "m", "ACLOPI_LLM_MAX_TOKENS": "64", "ACLOPI_LLM_TIMEOUT_S": "7",
+                           "ACLOPI_LLM_REASONING_EFFORT": "low", "ACLOPI_LLM_JSON_MODE": "prompt"})
+    assert (llm.model, llm.max_tokens, llm.timeout_s, llm.reasoning_effort, llm.json_mode) == ("m", 64, 7.0, "low", "prompt")
+    assert client_from_env({**env, "ACLOPI_LLM_REASONING_EFFORT": ""}).reasoning_effort == ""
+    with pytest.raises(RuntimeError, match="ACLOPI_LLM_API_KEY"):
+        client_from_env({**env, "ACLOPI_LLM_API_KEY": ""})
+
+
+def test_prompt_asks_for_short_spanish_reasons() -> None:
+    assert "in Spanish, at most 120 characters" in big_prompt()[0]["content"]

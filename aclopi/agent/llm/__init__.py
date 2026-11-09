@@ -8,6 +8,9 @@ answer. Providers, chosen by ACLOPI_LLM_PROVIDER (configuration only by environm
     fake       deterministic, for tests and the smoke test (aclopi.agent.llm.fake)
     ollama     /api/chat with format = JSON schema, think false, keep_alive -1
     anthropic  Messages API, forced tool call with the schema (ANTHROPIC_API_KEY)
+    openai_compat  /chat/completions of an OpenAI-compatible server: ACLOPI_LLM_BASE_URL, ACLOPI_LLM_API_KEY,
+               ACLOPI_LLM_MODEL, ACLOPI_LLM_TIMEOUT_S (30), ACLOPI_LLM_MAX_TOKENS (200),
+               ACLOPI_LLM_REASONING_EFFORT (none; empty: not sent), ACLOPI_LLM_JSON_MODE (auto)
 
 Any other value is an error when the service starts (create_app calls client_from_env).
 """
@@ -19,7 +22,7 @@ from typing import Mapping
 
 from aclopi.agent.llm.base import LLMClient, LLMError
 
-PROVIDERS = ("fake", "ollama", "anthropic")
+PROVIDERS = ("fake", "ollama", "anthropic", "openai_compat")
 
 
 def _get(env: Mapping[str, str], key: str, default: str) -> str:
@@ -53,6 +56,18 @@ def client_from_env(env: Mapping[str, str] | None = None) -> LLMClient:
             raise RuntimeError("ACLOPI_LLM_PROVIDER=anthropic needs ANTHROPIC_API_KEY")
         return AnthropicLLM(api_key=key, model=_get(env, "ACLOPI_LLM_MODEL", "claude-haiku-5-5"),
                             url=_get(env, "ACLOPI_ANTHROPIC_URL", "https://api.anthropic.com"))
+    if provider == "openai_compat":
+        from aclopi.agent.llm.openai_compat import OpenAICompatLLM
+
+        url, key = _get(env, "ACLOPI_LLM_BASE_URL", ""), _get(env, "ACLOPI_LLM_API_KEY", "")
+        if not url or not key:
+            raise RuntimeError("ACLOPI_LLM_PROVIDER=openai_compat needs ACLOPI_LLM_BASE_URL and ACLOPI_LLM_API_KEY")
+        effort = env.get("ACLOPI_LLM_REASONING_EFFORT")
+        return OpenAICompatLLM(base_url=url, api_key=key, model=_get(env, "ACLOPI_LLM_MODEL", "strata"),
+                               timeout_s=float(_get(env, "ACLOPI_LLM_TIMEOUT_S", "30")),
+                               max_tokens=int(_get(env, "ACLOPI_LLM_MAX_TOKENS", "200")),
+                               reasoning_effort="none" if effort is None else effort.strip(),
+                               json_mode=_get(env, "ACLOPI_LLM_JSON_MODE", "auto"))
     raise ValueError(f"ACLOPI_LLM_PROVIDER must be one of {PROVIDERS}, got {provider!r}")
 
 
