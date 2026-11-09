@@ -2,6 +2,8 @@
 
 API HTTP (FastAPI) sobre el `WorkerPool` de L5.1 (`docs/workers.md`). Código en `aclopi/api/`. El contrato para la Línea A está en `contracts/openapi.json`, que se genera con `python scripts/export_openapi.py`; un test comprueba que el archivo versionado coincide con la app.
 
+**Cómo leer los datos que produce la plataforma** (corridas, decisiones, métricas, KPIs, eventos, mensajes del WebSocket, logs…), campo por campo y con ejemplos reales: [`docs/registros/README.md`](registros/README.md).
+
 ## Un solo proceso, un solo worker de uvicorn
 
 Cada proceso de la API arranca su propio pool: 7 procesos con su JVM, unos 3,3 GB. Si se usan varios workers de uvicorn (`--workers N`), o dos APIs sobre la misma carpeta de trabajo, se arrancan varios pools, con el doble de JVM y de memoria. Para evitarlo:
