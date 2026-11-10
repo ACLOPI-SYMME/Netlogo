@@ -1,117 +1,117 @@
-# Set fijo de productos y trabajo completado
+# Fixed product set and completed work
 
-## Qué es y por qué existe
+## What it is and why it exists
 
-Para comparar estrategias de enrutamiento (regla 3, heurística B1, agente LLM) todas deben
-recibir los **mismos productos de entrada**: el mismo tipo, en el mismo orden y con la misma
-prioridad. En el modelo original no pasa: el tipo (`one-of PosibleProducts`) y la prioridad
-(`random`) salen del generador aleatorio global, que se desordena en cuanto una estrategia
-decide distinto (medido en A1 con `scripts/a1/measure_rng.py`: con la semilla 42, el producto
-204 ya nace con otro tipo).
+To compare routing strategies (rule 3, heuristic B1, LLM agent) they must all receive the
+**same input products**: the same type, in the same order and with the same priority. In the
+original model this does not happen: the type (`one-of PosibleProducts`) and the priority
+(`random`) come from the global random generator, which gets out of step as soon as a strategy
+decides differently (measured in A1 with `scripts/a1/measure_rng.py`: with seed 42, product 204
+is already born with another type).
 
-Con el **set fijo**, el producto número `n` (el n-ésimo creado en la corrida) tiene siempre el
-mismo tipo y la misma prioridad para una semilla dada, pase lo que pase en la planta.
+With the **fixed set**, product number `n` (the n-th created in the run) always has the same
+type and the same priority for a given seed, whatever happens in the plant.
 
-La forma de medir no cambia (modo continuo: semilla + ticks, se cuentan los productos
-procesados) y la regla de llegada tampoco.
+The way of measuring does not change (continuous mode: seed + ticks, the processed products are
+counted) and neither does the arrival rule.
 
-## Cómo se genera
+## How it is generated
 
-- `n` = valor de `products-created` al crear el producto; el primero es `n = 1`.
-- **Sub-semilla del producto n:**
+- `n` = value of `products-created` when the product is created; the first one is `n = 1`.
+- **Sub-seed of product n:**
 
-  `sub_semilla(n) = (product-sequence-seed × 1000003 + n) mod 2³¹`  (reporter `Product.Sequence.Seed n`)
+  `sub_seed(n) = (product-sequence-seed × 1000003 + n) mod 2³¹`  (reporter `Product.Sequence.Seed n`)
 
-  Para una misma semilla de secuencia es distinta para cada `n < 2³¹` (no se repite entre
-  productos) y siempre es una semilla válida de NetLogo (0 … 2³¹−1), también con semillas
-  negativas. Dos semillas distintas solo podrían compartir una sub-semilla con `n ≥ 1000003`,
-  muy por encima del máximo de productos de una corrida.
-- Dentro de `with-local-randomness`: `random-seed sub_semilla(n)`, luego `one-of PosibleProducts`
-  (tipo) y `random (100 - 60 + 1) + 60` (prioridad): los mismos sorteos, en el mismo orden, que
-  el código original (reporter `Product.Sequence.Item n` → `[tipo prioridad]`).
-- El generador del modelo no se usa ni se altera para tipo y prioridad.
-- Se calcula cuando hace falta (al crear el producto): no hay arreglo ni estimación previa, y
-  nunca se agota.
+  For the same sequence seed it is different for each `n < 2³¹` (it does not repeat between
+  products) and it is always a valid NetLogo seed (0 … 2³¹−1), also with negative seeds. Two
+  different seeds could only share a sub-seed with `n ≥ 1000003`, far above the maximum number
+  of products of a run.
+- Inside `with-local-randomness`: `random-seed sub_seed(n)`, then `one-of PosibleProducts`
+  (type) and `random (100 - 60 + 1) + 60` (priority): the same draws, in the same order, as the
+  original code (reporter `Product.Sequence.Item n` → `[type priority]`).
+- The model's generator is neither used nor altered for type and priority.
+- It is computed when needed (when the product is created): there is no array nor previous
+  estimate, and it never runs out.
 
-## El interruptor
+## The switch
 
-| Dónde | Valor |
+| Where | Value |
 |---|---|
-| Modelo (`Setup`) | `fixed-product-sequence? = false`, `product-sequence-seed = 0`: el modelo crea productos exactamente como el original |
-| `SimulationSession.setup(...)` | **encendido por defecto** (`fixed_product_sequence=True`) y `product-sequence-seed` = semilla de la corrida. La plataforma, los workers, la API y los experimentos lo usan siempre, sin que el usuario haga nada |
-| `SimulationSession.setup(..., fixed_product_sequence=False)` | apagado: modelo original. Solo para las regresiones contra la línea base: `validate_headless.py` (que alimenta `compare_baseline.py`), `make_long_fixtures.py` / `test_long_regression.py`, `test_session.py::test_horizon_10000_matches_baseline`, `rule4_checks.py` (A1) y `scripts/a2/measure_arrivals.py` |
+| Model (`Setup`) | `fixed-product-sequence? = false`, `product-sequence-seed = 0`: the model creates products exactly like the original |
+| `SimulationSession.setup(...)` | **on by default** (`fixed_product_sequence=True`) and `product-sequence-seed` = seed of the run. The platform, the workers, the API and the experiments always use it, without the user doing anything |
+| `SimulationSession.setup(..., fixed_product_sequence=False)` | off: original model. Only for the regressions against the baseline: `validate_headless.py` (which feeds `compare_baseline.py`), `make_long_fixtures.py` / `test_long_regression.py`, `test_session.py::test_horizon_10000_matches_baseline`, `rule4_checks.py` (A1) and `scripts/a2/measure_arrivals.py` |
 
-`SimulationSession.reset()` conserva el valor; `import_world` lo lee del mundo importado
-(`RunParameters.fixed_product_sequence`). NetLogo no puede leer la semilla de la corrida, por
-eso Python fija `product-sequence-seed` después de `setup` (también cuando el interruptor está
-apagado, para que `platform-product-sequence` muestre la secuencia de esa semilla).
+`SimulationSession.reset()` keeps the value; `import_world` reads it from the imported world
+(`RunParameters.fixed_product_sequence`). NetLogo cannot read the seed of the run, which is why
+Python sets `product-sequence-seed` after `setup` (also when the switch is off, so that
+`platform-product-sequence` shows the sequence of that seed).
 
-**Una corrida con el set fijo no es igual a la línea base con la misma semilla.** El tipo y la
-prioridad salen de otro generador y el generador del modelo deja de consumir esos dos sorteos
-por producto, así que desde el primer producto todo lo demás cambia. Las regresiones contra la
-línea base deben apagar el interruptor.
+**A run with the fixed set is not equal to the baseline with the same seed.** The type and the
+priority come from another generator and the model's generator stops consuming those two draws
+per product, so from the first product everything else changes. Regressions against the baseline
+must turn the switch off.
 
-## Máximo de productos por corrida
+## Maximum number of products per run
 
-La regla de llegada crea a lo sumo un producto por cada 100 unidades de tiempo simulado:
+The arrival rule creates at most one product per 100 units of simulated time:
 
-`máximo = horizonte × 0,31 / 100 + 1`  (≈ 311 con 100.000 ticks)
+`maximum = horizon × 0.31 / 100 + 1`  (≈ 311 with 100,000 ticks)
 
-## Lecturas desde Python
+## Reads from Python
 
-- `platform-state` incluye `fixed_product_sequence`, `product_sequence_seed` y
+- `platform-state` includes `fixed_product_sequence`, `product_sequence_seed` and
   `products_created`.
-- `platform-product-sequence [desde hasta]` devuelve los productos `n = desde..hasta` de la
-  secuencia de `product-sequence-seed`, calculados con la misma función que la creación:
+- `platform-product-sequence [from to]` returns products `n = from..to` of the sequence of
+  `product-sequence-seed`, computed with the same function as the creation:
 
   ```json
   [{"n": 1, "type": "I", "priority": 84}, {"n": 2, "type": "E", "priority": 64}]
   ```
 
-  No consume azar y se puede llamar en cualquier momento (también a mitad de corrida).
+  It consumes no randomness and can be called at any time (also half-way through a run).
 
-## Trabajo completado (KPI `work_completed`)
+## Completed work (KPI `work_completed`)
 
-En `aclopi/sim/kpis.py`, junto a los KPIs existentes (que no cambian). Se mide en **unidades de
-tiempo de proceso nominal**, no en número de operaciones:
+In `aclopi/sim/kpis.py`, next to the existing KPIs (which do not change). It is measured in
+**units of nominal processing time**, not in number of operations:
 
-- cada operación terminada suma su tiempo nominal (`OperationDuration`: 200 para O1–O7, 100
-  para O8 y O9 en M1);
-- cada operación en curso al final suma la fracción ya procesada de su nominal:
-  `(Simulated.Time − inicio) / (Next.Completion − inicio) × nominal`, acotada a [0, 1];
-- cuenta todos los productos creados (terminados y en curso).
+- each finished operation adds its nominal time (`OperationDuration`: 200 for O1–O7, 100 for O8
+  and O9 on M1);
+- each operation still in progress at the end adds the fraction of its nominal already processed:
+  `(Simulated.Time − start) / (Next.Completion − start) × nominal`, bounded to [0, 1];
+- it counts every product created (finished and in progress).
 
-Se usa el tiempo **nominal** y no el sorteado para que la parte aleatoria de los tiempos de
-proceso no premie ni castigue a una estrategia: hacer una operación vale lo mismo aunque le haya
-tocado un tiempo largo.
+The **nominal** time is used instead of the drawn one so that the random part of the processing
+times neither rewards nor penalises a strategy: doing an operation is worth the same even if it
+got a long time.
 
-También se agrega `created` (productos creados = terminados + en curso).
+`created` is also added (products created = finished + in progress).
 
-**Tiempo medio de flujo (`mean_flow_time`), decisión tomada:** se mide desde el inicio de la
-primera operación (`first ProductRealStart`, cuando el producto entra a M1 para O8) hasta la
-última finalización (`last ProductRealCompletion`, fin de O9), y solo sobre productos
-terminados. **No** se mide desde `ProductCreationTime` y se mantiene así a propósito: es la
-definición acordada en la validación headless y la que usan la línea base y las regresiones.
-La diferencia con medirlo desde la creación es pequeña y casi constante (~13,6 u.t., el viaje
-desde el punto de creación hasta M1 en las corridas medidas; ver
-`scripts/a2/measure_fixed_sequence.py`).
+**Mean flow time (`mean_flow_time`), decision taken:** it is measured from the start of the
+first operation (`first ProductRealStart`, when the product enters M1 for O8) to the last
+completion (`last ProductRealCompletion`, end of O9), and only over finished products. It is
+**not** measured from `ProductCreationTime` and it is kept that way on purpose: it is the
+definition agreed in the headless validation and the one the baseline and the regressions use.
+The difference with measuring it from creation is small and almost constant (~13.6 u.t., the trip
+from the creation point to M1 in the measured runs; see `scripts/a2/measure_fixed_sequence.py`).
 
-## Lo que el set fijo NO iguala (riesgo asumido P9)
+## What the fixed set does NOT equalise (accepted risk P9)
 
-Solo se igualan tipo, orden y prioridad de los productos. **No** se igualan entre estrategias:
-- los tiempos de proceso sorteados al entrar a máquina (`random-exponential`, generador del modelo);
-- el orden de movimiento de los productos (los `ask` recorren agentes en orden aleatorio);
-- el tick en que se crea cada producto (depende del estado de la planta: menos de 10 productos
-  activos y la zona de entrada libre).
+Only the type, order and priority of the products are equalised. These are **not** equalised
+between strategies:
+- the processing times drawn when entering a machine (`random-exponential`, the model's generator);
+- the order in which products move (`ask` goes through agents in random order);
+- the tick at which each product is created (it depends on the state of the plant: fewer than 10
+  active products and a free entry zone).
 
-Es un riesgo asumido (problema conocido P9): dos estrategias con la misma semilla ven los mismos
-productos, pero no los mismos tiempos de proceso.
+It is an accepted risk (known problem P9): two strategies with the same seed see the same
+products, but not the same processing times.
 
-## Verificación
+## Verification
 
-- `tests/test_product_sequence.py`: interruptor, fórmula, mismos productos con reglas 1, 3 y 4
-  (decisor al azar), misma semilla = misma corrida, otra semilla = otro set,
-  `platform-product-sequence` coincide con lo creado y no altera la simulación, distribución de
-  tipos en 1.000 productos, trabajo completado con un estado conocido. Versiones de 10.000 ticks
-  en la suite normal y de 100.000 con `-m slow`.
+- `tests/test_product_sequence.py`: switch, formula, same products with rules 1, 3 and 4 (random
+  decider), same seed = same run, another seed = another set, `platform-product-sequence` matches
+  what was created and does not alter the simulation, distribution of types over 1,000 products,
+  completed work with a known state. 10,000-tick versions in the normal suite and 100,000-tick
+  ones with `-m slow`.
 - `python scripts/a1/measure_rng.py --products-only --sequence on --rules 1 3 4 --horizon 100000`.

@@ -1,76 +1,76 @@
-# Sets de productos (L5.6)
+# Product sets (L5.6)
 
-El orden y el tipo de los productos que entran a la planta pueden venir de una **lista definida por el usuario**, en lugar de la semilla.
+The order and type of the products that enter the plant can come from a **user-defined list**, instead of the seed.
 
-- **Cada producto** tiene `type` ∈ {A, I, P, B, E, L, T} (los `PosibleProducts` del modelo) y `priority`, un entero de 60 a 100 (80 por defecto).
-- **La priority no se usa hoy:** el modelo la guarda en el producto, pero ninguna regla (1–4) ni el agente la usan para decidir. Lo que sí cuenta es el **orden** de la lista, que es el orden de entrada a la planta. Por eso la página (`/ui`) solo muestra y envía el tipo y el orden; la API sigue aceptando `priority` (80 si no viene) por compatibilidad.
-- **Orden de entrada:** es el de la lista.
-- **Momento de cada entrada:** lo sigue decidiendo el modelo como siempre: cada 100 u.t., si hay menos de 10 productos activos y la zona de entrada a M1 está libre (procedimiento `Go`).
-- **La semilla** sigue controlando todo el resto del azar.
+- **Each product** has `type` ∈ {A, I, P, B, E, L, T} (the model's `PosibleProducts`) and `priority`, an integer from 60 to 100 (80 by default).
+- **The priority is not used today:** the model stores it on the product, but no rule (1–4) and not the agent use it to decide. What does matter is the **order** of the list, which is the order of entry into the plant. That is why the page (`/ui`) only shows and sends the type and the order; the API still accepts `priority` (80 if missing) for compatibility.
+- **Entry order:** the order of the list.
+- **When each product enters:** the model still decides it as always: every 100 u.t., if there are fewer than 10 active products and the entry zone of M1 is free (procedure `Go`).
+- **The seed** still controls all the rest of the randomness.
 
-## Cambio en el modelo (rama `model/product-list`)
+## Change in the model (branch `model/product-list`)
 
-Es el único cambio. Reutiliza la vía de creación del set fijo de la Línea A (`fixed-product-sequence?`, `docs/product-sequence.md`).
+It is the only change. It reuses the creation path of Línea A's fixed set (`fixed-product-sequence?`, `docs/product-sequence.md`).
 
-| Qué | Dónde (`model/Paper.nlogo`) |
+| What | Where (`model/Paper.nlogo`) |
 |---|---|
-| Globales `product-list?` (interruptor) y `product-list` (lista de `[tipo priority]` que asigna Python) | líneas 56–58 |
-| `Setup`: `product-list? false` y `product-list []` | líneas 140–141 |
-| `Go`: con el interruptor, el producto n toma el tipo de `item (n − 1) product-list`; si la lista se acabó, no se crea nada. Sin el interruptor, el código es el de antes (set fijo u `one-of PosibleProducts`) | líneas 158–164 |
-| `Create.product`: con el interruptor, `priority` = `last item (n − 1) product-list` | línea 542 |
-| `platform-state`: `product_list_active`, `product_list_length` y `product_list_next` (= `products-created`, el índice desde 0 del siguiente producto de la lista) | líneas 3115–3117 |
+| Globals `product-list?` (switch) and `product-list` (list of `[type priority]` set by Python) | lines 56–58 |
+| `Setup`: `product-list? false` and `product-list []` | lines 140–141 |
+| `Go`: with the switch on, product n takes the type of `item (n − 1) product-list`; if the list ran out, nothing is created. With the switch off, the code is the one from before (fixed set or `one-of PosibleProducts`) | lines 158–164 |
+| `Create.product`: with the switch on, `priority` = `last item (n − 1) product-list` | line 542 |
+| `platform-state`: `product_list_active`, `product_list_length` and `product_list_next` (= `products-created`, the 0-based index of the next product of the list) | lines 3115–3117 |
 
-- **Sin consumo de azar.** La lista no usa el generador principal para el tipo ni para la priority, igual que el set fijo.
-- **"Generar desde semilla"** usa el reporter que ya existía, `platform-product-sequence [desde hasta]` (Línea A). `SimulationSession.product_sequence(seed, count)` cambia `product-sequence-seed` solo durante la lectura y después lo restaura; no hizo falta un reporter nuevo.
+- **No random numbers consumed.** The list does not use the main generator for the type or the priority, like the fixed set.
+- **"Generate from seed"** uses the reporter that already existed, `platform-product-sequence [from to]` (Línea A). `SimulationSession.product_sequence(seed, count)` changes `product-sequence-seed` only while reading and restores it afterwards; no new reporter was needed.
 
 ## Python
 
-`SimulationSession.setup(..., product_list=[(tipo, priority), ...])`:
-- valida la lista con `validate_product_list`: de 1 a 1000 productos, tipo válido y priority entera de 60 a 100 (la API limita a 30; la sesión en proceso acepta hasta 1000 para los experimentos);
-- la asigna después de `setup` y enciende el interruptor. La lista tiene prioridad sobre el set fijo.
+`SimulationSession.setup(..., product_list=[(type, priority), ...])`:
+- validates the list with `validate_product_list`: 1 to 1000 products, valid type and integer priority from 60 to 100 (the API limits it to 30; the in-process session accepts up to 1000 for the experiments);
+- sets it after `setup` and turns the switch on. The list takes precedence over the fixed set.
 
-## Garantías (probadas)
+## Guarantees (tested)
 
-| Garantía | Cómo se prueba | Resultado |
+| Guarantee | How it is tested | Result |
 |---|---|---|
-| Con el interruptor apagado, el modelo es idéntico al de antes | `compare_baseline.py` y `tests/test_product_sequence.py` | OK |
-| La secuencia de la semilla 42 cargada como lista da exactamente los mismos productos (who, tipo, priority) y los mismos KPIs en 10.000 ticks que el set fijo de la semilla 42 | `tests/test_product_list.py::test_list_from_the_seed_equals_the_fixed_sequence` | OK |
-| Una lista de 5 crea exactamente esos 5, en ese orden, y ninguno más | `tests/test_product_list.py` | OK |
+| With the switch off, the model is identical to the one from before | `compare_baseline.py` and `tests/test_product_sequence.py` | OK |
+| The sequence of seed 42 loaded as a list gives exactly the same products (who, type, priority) and the same KPIs over 10,000 ticks as the fixed set of seed 42 | `tests/test_product_list.py::test_list_from_the_seed_equals_the_fixed_sequence` | OK |
+| A list of 5 creates exactly those 5, in that order, and no others | `tests/test_product_list.py` | OK |
 
-## Fin de corrida y KPIs
+## End of the run and KPIs
 
-- **Fin de corrida con lista** (vivo y rápido): la corrida termina cuando **todos** los productos de la lista terminaron, con `run_reason: "all_products_done"` y `finished.reason` en el WebSocket, o al llegar al horizonte (`"horizon"`), lo que pase primero.
-- **Detención exacta:** las sesiones con lista avanzan con `SimulationSession.step_product_list`, que se detiene en el `go` exacto en que termina el último producto y nunca avanza después.
-- **Por qué hace falta:** `PrintData` (en `Go`, línea 173) calcula medias sobre los productos vivos y falla cuando no queda ninguno. **Riesgo residual** (solo se arregla tocando el modelo): si el `go` en que termina el último producto coincide con un tick de `PrintData` (1 de cada ~322 ticks), el error ocurre en ese mismo `go` y la corrida se detiene con `run_error`.
+- **End of a run with a list** (live and fast): the run ends when **every** product of the list has finished, with `run_reason: "all_products_done"` and `finished.reason` in the WebSocket, or when it reaches the horizon (`"horizon"`), whichever comes first.
+- **Exact stop:** sessions with a list advance with `SimulationSession.step_product_list`, which stops at the exact `go` in which the last product finishes and never advances past it.
+- **Why it is needed:** `PrintData` (in `Go`, line 173) computes means over the live products and failed when none was left (fixed since then: item 7 of `docs/known-issues.md`). The exact stop is kept so that the run ends at the right tick.
 
-KPIs nuevos (`aclopi/sim/kpis.py`, `GET /kpis`):
+New KPIs (`aclopi/sim/kpis.py`, `GET /kpis`):
 
-| KPI | Significado |
+| KPI | Meaning |
 |---|---|
-| `products_total` | Largo de la lista (`null` sin lista) |
-| `all_done` | Todos los productos de la lista se crearon y terminaron |
-| `makespan_time` | Última `ProductRealCompletion` de los productos terminados, desde el inicio de la corrida (`null` si no terminaron todos) |
-| `makespan_ticks` | `makespan_time / 0,31`, redondeado |
+| `products_total` | Length of the list (`null` without a list) |
+| `all_done` | Every product of the list was created and finished |
+| `makespan_time` | Last `ProductRealCompletion` of the finished products, from the start of the run (`null` unless all finished) |
+| `makespan_ticks` | `makespan_time / 0.31`, rounded |
 
 ## API
 
-| Ruta | Qué hace |
+| Route | What it does |
 |---|---|
-| `POST /product-sets`, `GET /product-sets`, `GET`/`PUT`/`DELETE /product-sets/{id}` | Sets con `name` y `products` `[{type, priority}]` en orden, de **1 a 30 productos** (el tamaño de los experimentos de la Línea A). `type` acepta minúsculas |
-| `POST /product-sets/parse-csv` (multipart, campo `file`) | Convierte un CSV en una lista validada, sin guardarla. Columnas `type` y `priority` (opcional, 80); separador `,` o `;`; UTF-8 con o sin BOM. Con errores responde 422 con `errors: [{line, error}]`, donde `line` es la línea del archivo (la cabecera es la 1) |
-| `GET /product-sets/{id}/csv` | Exporta el set (`type,priority`) |
-| `POST /product-sets/generate` `{seed?, count}` | La lista que el modelo genera con esa semilla (set fijo; operación corta en un worker de what-if prestado). Sin `seed` se sortea una y se devuelve |
-| `POST /sessions` | Acepta `product_set_id` **o** `products` (en línea). Sin ninguno, se comporta como antes (set generado con la semilla). La sesión guarda una **copia**: editar el set después no la cambia. `SessionInfo` incluye `product_set_id`, `products_total` y `products_hash` (sha256 de la lista) |
+| `POST /product-sets`, `GET /product-sets`, `GET`/`PUT`/`DELETE /product-sets/{id}` | Sets with `name` and `products` `[{type, priority}]` in order, **1 to 30 products** (the size of Línea A's experiments). `type` accepts lower case |
+| `POST /product-sets/parse-csv` (multipart, field `file`) | Turns a CSV into a validated list, without saving it. Columns `type` and `priority` (optional, 80); separator `,` or `;`; UTF-8 with or without BOM. With errors it answers 422 with `errors: [{line, error}]`, where `line` is the line of the file (the header is line 1) |
+| `GET /product-sets/{id}/csv` | Exports the set (`type,priority`) |
+| `POST /product-sets/generate` `{seed?, count}` | The list the model generates with that seed (fixed set; a short operation on a borrowed what-if worker). Without `seed` one is drawn and returned |
+| `POST /sessions` | Accepts `product_set_id` **or** `products` (inline). With neither, it behaves as before (set generated from the seed, "Random" on the page). The session keeps a **copy**: editing the set afterwards does not change it. `SessionInfo` includes `product_set_id`, `products_total` and `products_hash` (sha256 of the list) |
 
-Almacenamiento: en memoria (`InMemoryProductSetStore`); en L5.7 pasa a DynamoDB.
+Storage: DynamoDB with `ACLOPI_DYNAMODB_ENDPOINT` (table `aclopi_product_sets`, L5.7), in memory otherwise (`InMemoryProductSetStore`).
 
-## Semilla opcional
+## Optional seed
 
-- **Semilla dada:** en `POST /sessions`, `seed` es opcional. Si viene, debe ser un entero entre −2147483648 y 2147483647; si no, 422.
-- **Semilla ausente:** la plataforma la sortea con `secrets`, no con el azar del modelo.
-- **Registro:** la semilla usada se guarda **siempre** en `parameters.seed`, junto con `seed_source` (`user` o `random`), así cualquier corrida se puede repetir.
-- **Página `/ui`:**
-  - checkbox "Agregar semilla", desmarcado por defecto, con un tooltip;
-  - el campo es obligatorio y se valida si el checkbox está marcado;
-  - al crear la sesión muestra "Semilla usada: N" con un botón para copiarla;
-  - "Generar desde semilla" sigue el mismo patrón.
+- **Seed given:** in `POST /sessions`, `seed` is optional. If present, it must be an integer between −2147483648 and 2147483647; otherwise 422.
+- **Seed missing:** the platform draws it with `secrets`, not with the model's randomness.
+- **Record:** the seed used is **always** saved in `parameters.seed`, together with `seed_source` (`user` or `random`), so any run can be repeated.
+- **Page `/ui`:**
+  - "Set a seed" checkbox, unchecked by default, with a tooltip;
+  - the field is required and validated when the checkbox is checked;
+  - when the session is created it shows "Seed used: N" with a button to copy it;
+  - "Generate from seed" (Order entry tab) follows the same pattern.

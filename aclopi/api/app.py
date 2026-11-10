@@ -304,7 +304,7 @@ def create_app(
     async def create_session(body: SessionCreate, request: Request) -> dict[str, Any]:
         # Scenarios are not available on the platform (docs/scenarios.md): only S0, the original plant.
         if body.scenario is not None and (body.scenario.id != "S0" or body.scenario.params):
-            raise ScenariosUnavailable("los escenarios no están disponibles")
+            raise ScenariosUnavailable("scenarios are not available")
         scenario = {"id": "S0", "params": {}}
         registry = runtime.require_ready()
         seed, seed_source = (body.seed, "user") if body.seed is not None else (random_seed(), "random")
