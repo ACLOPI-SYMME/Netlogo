@@ -28,10 +28,10 @@ FALLBACK_CAUSES = (("llm-timeout", "el LLM no respondió a tiempo"), ("deadline"
                    ("llm-", "el LLM no respondió"), ("platform", "error al leer la planta"))
 
 
-def short_reason(text: str | None) -> str:
-    """One line of at most REASON_MAX characters (cut with an ellipsis)."""
+def short_reason(text: str | None, limit: int = REASON_MAX) -> str:
+    """One line of at most `limit` characters (cut with an ellipsis)."""
     text = " ".join((text or "").split())
-    return text if len(text) <= REASON_MAX else text[:REASON_MAX - 1].rstrip() + "…"
+    return text if len(text) <= limit else text[:limit - 1].rstrip() + "…"
 
 
 def _rel(value: float, ctx_time: Any) -> str:

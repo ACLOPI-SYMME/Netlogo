@@ -17,8 +17,8 @@ sys.path.insert(0, str(REPO_ROOT / "scripts"))
 # (or runs live), so it never goes with -n. Commands: -m "api and not slow"; -m "slow and not api" -n 4; -m "slow and api".
 UNIT_FILES = {"test_agent_core", "test_agent_llm", "test_agent_service", "test_agent_token", "test_agent_triage",
               "test_candidates_unit", "test_decide_context", "test_hub", "test_scenarios_unit", "test_ui_product_set",
-              "test_whatif_estimate"}
-API_FILES = {"test_whatif", "test_live", "test_agent_decisions", "test_workers", "test_api"}
+              "test_whatif_estimate", "test_sequencing_unit"}
+API_FILES = {"test_whatif", "test_live", "test_agent_decisions", "test_workers", "test_api", "test_sequencing_platform"}
 
 
 @pytest.hookimpl(tryfirst=True)
