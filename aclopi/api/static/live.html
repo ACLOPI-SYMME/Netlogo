@@ -109,28 +109,38 @@
   /* tooltip: hover, keyboard focus and tap */
   .tip { position: relative; display: inline-flex; }
   .tip > button { min-height: 22px; width: 22px; padding: 0; border-radius: 50%; font: 600 12px var(--font-serif); font-style: italic; }
-  .tip > [role=tooltip] { position: absolute; z-index: 20; left: 50%; top: calc(100% + 6px); transform: translateX(-50%);
-         width: max-content; max-width: 18rem; padding: var(--s2) var(--s3); background: var(--ink); color: var(--paper);
+  .tip > [role=tooltip] { position: absolute; z-index: 20; left: 0; top: calc(100% + 6px);
+         width: max-content; max-width: min(18rem, 70vw); padding: var(--s2) var(--s3); background: var(--ink); color: var(--paper);
          border-radius: var(--radius); font: 400 var(--step--1)/1.35 var(--font-sans); text-transform: none; letter-spacing: 0;
          opacity: 0; visibility: hidden; transition: opacity .12s ease-out; pointer-events: none; }
+  .tip.end > [role=tooltip] { left: auto; right: 0; }  /* opens towards the left (button near the right edge) */
+  .tip:not(:focus-within):not(.open):not(:hover) > [role=tooltip] { display: none; }  /* hidden: takes no room */
   .tip:focus-within > [role=tooltip], .tip.open > [role=tooltip] { opacity: 1; visibility: visible; }
   @media (hover: hover) { .tip:hover > [role=tooltip] { opacity: 1; visibility: visible; } }
 
   /* ----- session workbench ----- */
-  #page-session { grid-template-columns: minmax(0, 1fr); grid-template-areas: "figure" "setup" "readouts" "decisions" "events"; }
+  /* the controls are a menu bar across the top; below, the figure with the readouts beside it */
+  #page-session { grid-template-columns: minmax(0, 1fr); grid-template-areas: "setup" "figure" "readouts" "decisions" "events"; }
   #setup { grid-area: setup; } .figure { grid-area: figure; } #readouts { grid-area: readouts; }
   #decisions-panel { grid-area: decisions; } #events-panel { grid-area: events; }
-  @media (min-width: 700px) {
-    #page-session { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-                    grid-template-areas: "figure figure" "setup readouts" "decisions decisions" "events events"; }
-  }
   @media (min-width: 1100px) {
-    #page-session { grid-template-columns: minmax(17rem, 21rem) minmax(0, 1fr) minmax(17rem, 22rem);
-                    grid-template-areas: "setup figure readouts" "decisions decisions events"; align-items: start; }
+    #page-session { grid-template-columns: minmax(0, 1fr) minmax(17rem, 22rem);
+                    grid-template-areas: "setup setup" "figure readouts" "decisions events"; align-items: start; }
   }
   @media (min-width: 1100px) and (max-width: 1400px) {
-    #page-session { grid-template-areas: "setup figure readouts" "decisions decisions decisions" "events events events"; }
+    #page-session { grid-template-areas: "setup setup" "figure readouts" "decisions decisions" "events events"; }
   }
+  @media (min-width: 1100px) and (min-height: 700px) {
+    #setup { position: sticky; top: 0; z-index: 5; }  /* the menu stays in reach while scrolling */
+  }
+
+  /* menu bar: one band per group (Setup, Run), label on the left, controls in a row */
+  .toolbar { display: flex; flex-direction: column; gap: var(--s3); padding: var(--s3) var(--s4); }
+  .toolbar .group { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--s2) var(--s4); min-width: 0; }
+  .toolbar .group > .label { flex: 0 0 5rem; align-self: center; }
+  .toolbar .group .row { margin: 0; }
+  .toolbar .group + .group { border-top: var(--rule-w) solid var(--rule); padding-top: var(--s3); }
+  @media (max-width: 600px) { .toolbar .group > .label { flex-basis: 100%; } }
 
   .figure { margin: 0; background: var(--panel); border: var(--rule-w) solid var(--rule); border-radius: var(--radius); padding: var(--s3); min-width: 0; }
   .canvas-wrap { position: relative; width: 100%; aspect-ratio: 760 / 520; max-height: 72dvh;
@@ -148,8 +158,8 @@
               margin-right: 4px; font: 600 10px/1 var(--font-mono); font-style: normal; color: #fff; vertical-align: middle; }
   .legend .mach { width: 14px; height: 14px; border-radius: 1px; }
 
-  .transport { display: grid; grid-template-columns: repeat(auto-fit, minmax(6.5rem, 1fr)); gap: var(--s2); }
-  .transport button { width: 100%; white-space: nowrap; }
+  .transport { display: flex; flex-wrap: wrap; gap: var(--s2); align-items: end; }
+  .transport button { white-space: nowrap; }
 
   .readout { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s2) var(--s3); margin: 0; }
   .readout div { border-top: var(--rule-w) solid var(--rule); padding-top: 4px; min-width: 0; }
@@ -235,46 +245,41 @@
 <main>
 <!-- ===================== Visualization (session) ===================== -->
 <section id="page-session" class="page" role="tabpanel">
-  <div id="setup" class="panel">
-    <h2><span class="sec">§1</span>Setup</h2>
-    <div class="row">
-      <label class="field"><span>Rule</span>
-        <select id="rule"><option value="1">Rule 1 — Random machine</option><option value="2">Rule 2 — Nearest machine</option>
-          <option value="3" selected>Rule 3 — Potential fields</option><option value="4">Rule 4 — AI agent</option></select></label>
+  <div id="setup" class="panel toolbar" role="toolbar" aria-label="Session controls">
+    <div class="group">
+      <span class="label"><span class="sec">§1</span> Setup</span>
+      <div class="row">
+        <label class="field"><span>Rule</span>
+          <select id="rule"><option value="1">Rule 1 — Random machine</option><option value="2">Rule 2 — Nearest machine</option>
+            <option value="3" selected>Rule 3 — Potential fields</option><option value="4">Rule 4 — AI agent</option></select></label>
+        <label class="field"><span>Product set</span>
+          <select id="session-set"><option value="">Random (generated from the seed)</option><option value="__current__">Current list (Order entry tab)</option></select></label>
+        <label class="field"><span>Horizon (ticks)</span><input id="horizon" type="number" min="1" max="1000000" value="10000"></label>
+        <span class="field"><span>&nbsp;</span><span class="check"><label class="check"><input id="seed-on" type="checkbox"> Set a seed</label>
+          <span class="tip end"><button type="button" aria-label="About the seed" aria-describedby="seed-tip">i</button>
+            <span id="seed-tip" role="tooltip">The seed fixes every random draw of the simulation (product arrivals, processing times). The same seed, rule and product set give the same run. Leave it unchecked and the platform draws a random seed and shows it here.</span></span></span></span>
+        <label class="field" id="seed-box" hidden><span>Seed</span><input id="seed" type="number" step="1"></label>
+        <button id="create" class="primary">Create session</button>
+      </div>
+      <div class="row">
+        <span id="seed-error" class="err"></span>
+        <span id="seed-used" hidden><span class="label">Seed used</span> <b id="seed-value" class="mono"></b>
+          <button id="seed-copy" class="ghost" title="Copy the seed">Copy</button></span>
+      </div>
     </div>
-    <div class="row">
-      <label class="field"><span>Product set</span>
-        <select id="session-set"><option value="">Random (generated from the seed)</option><option value="__current__">Current list (Order entry tab)</option></select></label>
-    </div>
-    <div class="row">
-      <label class="field"><span>Horizon (ticks)</span><input id="horizon" type="number" min="1" max="1000000" value="10000"></label>
-    </div>
-    <div class="row">
-      <label class="check"><input id="seed-on" type="checkbox"> Set a seed</label>
-      <span class="tip"><button type="button" aria-label="About the seed" aria-describedby="seed-tip">i</button>
-        <span id="seed-tip" role="tooltip">The seed fixes every random draw of the simulation (product arrivals, processing times). The same seed, rule and product set give the same run. Leave it unchecked and the platform draws a random seed and shows it here.</span></span>
-    </div>
-    <div class="row" id="seed-box" hidden>
-      <label class="field"><span>Seed</span><input id="seed" type="number" step="1"></label>
-      <span id="seed-error" class="err"></span>
-    </div>
-    <div class="row"><button id="create" class="primary">Create session</button></div>
-    <div class="row" id="seed-used" hidden><span class="label">Seed used</span> <b id="seed-value" class="mono"></b>
-      <button id="seed-copy" class="ghost" title="Copy the seed">Copy</button></div>
-    <hr class="rule">
-    <h2><span class="sec">§2</span>Run</h2>
-    <div class="row">
-      <label class="field"><span>Live speed</span>
-        <select id="speed"><option value="0.5">0.5× (16 ticks/s)</option><option value="1" selected>1× (32 ticks/s)</option>
-          <option value="2">2× (64 ticks/s)</option><option value="4">4× (128 ticks/s)</option></select></label>
-    </div>
-    <div class="row transport" style="margin-top: var(--s3)">
-      <button id="live" title="Run at the chosen speed (the speed can be changed while it runs)">▶ Live</button>
-      <button id="fast" title="Run as fast as possible">⏩ Fast</button>
-      <button id="pause" title="Pause (space)">❚❚ Pause</button>
-      <button id="resume" title="Resume (space)">▶ Resume</button>
-      <button id="reset" title="Back to tick 0 with the same parameters">↺ Reset</button>
-      <button id="close" title="Close the session">✕ Close</button>
+    <div class="group">
+      <span class="label"><span class="sec">§2</span> Run</span>
+      <div class="row transport">
+        <label class="field"><span>Live speed</span>
+          <select id="speed"><option value="0.5">0.5× (16 ticks/s)</option><option value="1" selected>1× (32 ticks/s)</option>
+            <option value="2">2× (64 ticks/s)</option><option value="4">4× (128 ticks/s)</option></select></label>
+        <button id="live" title="Run at the chosen speed (the speed can be changed while it runs)">▶ Live</button>
+        <button id="fast" title="Run as fast as possible">⏩ Fast</button>
+        <button id="pause" title="Pause (space)">❚❚ Pause</button>
+        <button id="resume" title="Resume (space)">▶ Resume</button>
+        <button id="reset" title="Back to tick 0 with the same parameters">↺ Reset</button>
+        <button id="close" title="Close the session">✕ Close</button>
+      </div>
     </div>
   </div>
 
