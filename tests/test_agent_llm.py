@@ -154,7 +154,7 @@ def test_prompt_content_and_size() -> None:
 
 # ----- openai_compat (HTTP simulated) -----
 
-ANSWER = {"action": "decide", "machine": "M2", "reason": "M2 termina 30 u.t. antes"}
+ANSWER = {"action": "decide", "machine": "M2", "reason": "M2 finishes 30 u.t. earlier"}
 
 
 def compat_server(accepts: set[str], content: str = json.dumps(ANSWER),
@@ -255,5 +255,5 @@ def test_openai_compat_from_env() -> None:
         client_from_env({**env, "ACLOPI_LLM_API_KEY": ""})
 
 
-def test_prompt_asks_for_short_spanish_reasons() -> None:
-    assert "in Spanish, at most 120 characters" in big_prompt()[0]["content"]
+def test_prompt_asks_for_short_english_reasons() -> None:
+    assert "in English, at most 120 characters" in big_prompt()[0]["content"]

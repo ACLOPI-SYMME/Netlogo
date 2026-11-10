@@ -4,7 +4,7 @@
     build_messages(..., what_if=)  call 2, with the what-if results per option (decide only)
     answer_schema(machines, allow_what_if) and parse_answer(...) validate the answer with pydantic.
 Times in the variable part are relative to now, in u.t. (1 tick = 0.31 u.t.). The reason is asked in
-Spanish, at most 120 characters (the code cuts it anyway: aclopi.agent.strategies.short_reason).
+English, at most 120 characters (the code cuts it anyway: aclopi.agent.strategies.short_reason).
 """
 
 from __future__ import annotations
@@ -31,19 +31,19 @@ FACTS
 
 RULES
 - Answer only with the JSON object requested. "machine" must be one of the candidates.
-- "reason": in Spanish, at most 120 characters, with the number that decided (it is shown to the
-  plant operator), e.g. "M3 termina 220 u.t. antes".
+- "reason": in English, at most 120 characters, with the number that decided (it is shown to the
+  plant operator), e.g. "M3 finishes 220 u.t. earlier".
 - "what_if" (only when offered) simulates the two options given and returns, per option, when this
   operation ends and how the other products progress in the meantime. Ask for it only when the
   numbers are too close to choose.
 
 EXAMPLES (synthetic)
 1. Candidates: M3 finish +260 finish_plus_next +330 | M5 finish +480 finish_plus_next +540.
-   -> {"action": "decide", "machine": "M3", "reason": "M3 termina 220 u.t. antes y también es mejor con el siguiente paso"}
+   -> {"action": "decide", "machine": "M3", "reason": "M3 finishes 220 u.t. earlier and is also better with the next step"}
 2. Candidates: M2 finish +300 finish_plus_next +590 | M7 finish +330 finish_plus_next +420.
-   -> {"action": "decide", "machine": "M7", "reason": "Solo 30 u.t. más tarde ahora, pero 170 u.t. antes con el siguiente paso"}
+   -> {"action": "decide", "machine": "M7", "reason": "Only 30 u.t. later now, but 170 u.t. earlier with the next step"}
 3. What-if: option M2 op_end_time +310, others work 420 wait 90 | option M4 op_end_time +330, others work 560 wait 40.
-   -> {"action": "decide", "machine": "M4", "reason": "20 u.t. más para este producto; los demás avanzan 140 u.t. más y esperan menos"}
+   -> {"action": "decide", "machine": "M4", "reason": "20 u.t. more for this product; the others progress 140 u.t. more and wait less"}
 """
 
 
