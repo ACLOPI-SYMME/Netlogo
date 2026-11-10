@@ -345,11 +345,8 @@ def test_layout_tooltip_errors_speed_and_set_limits(server: tuple[str, list], br
     # Order entry tab: download disabled while empty, at most 30 products, errors shown.
     page.click("#tab-set")
     assert page.is_disabled("#csv-download")
-    page.fill("#add-count", "31")
-    page.click("#add")
-    assert "At most 30" in page.inner_text("#set-errors")
-    page.fill("#add-count", "30")
-    page.click("#add")
+    for _ in range(30):  # one product per click
+        page.click("#add")
     assert page.eval_on_selector_all("#set-rows tr", "els => els.length") == 30
     assert not page.is_disabled("#csv-download") and page.is_disabled("#add")
     page.click("#set-rows tr:nth-child(1) button[data-a=dup]")
@@ -380,8 +377,8 @@ def test_order_csv_ids_priority_due_date(server: tuple[str, list], browser: Any,
     assert cells[0] == ["po=PO-17", "item_id=IT-3", "number=1", "priority=70", "due_date=1500", "type=A", "id=PO-17-IT-3-1"]
     assert cells[1] == ["po=PO-17", "item_id=IT-3", "number=2", "priority=80", "due_date=", "type=E", "id=PO-17-IT-3-2"]
     # Add numbers # on from the last one of that PO and item; a repeated id is marked.
-    page.fill("#add-po", "PO-17"); page.fill("#add-item", "IT-3"); page.fill("#add-count", "2"); page.fill("#add-due", "900")
-    page.click("#add")
+    page.fill("#add-po", "PO-17"); page.fill("#add-item", "IT-3"); page.fill("#add-due", "900")
+    page.click("#add"); page.click("#add")
     assert page.eval_on_selector_all("#set-rows td.pid", "els => els.map(e => e.textContent)")[3:] == ["PO-17-IT-3-3", "PO-17-IT-3-4"]
     page.fill("#set-rows tr:nth-child(4) input[data-f=number]", "1")
     page.press("#set-rows tr:nth-child(4) input[data-f=number]", "Enter")

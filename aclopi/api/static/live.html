@@ -343,7 +343,6 @@
       <label class="field"><span>Type</span><select id="add-type"><option>A</option><option>I</option><option>P</option><option>B</option><option>E</option><option>L</option><option>T</option></select></label>
       <label class="field"><span>Priority</span><input id="add-priority" type="number" min="60" max="100" value="80" style="width: 5.5rem"></label>
       <label class="field"><span>DueDate (u.t.)</span><input id="add-due" type="number" min="0" step="any" style="width: 7rem" placeholder="optional"></label>
-      <label class="field"><span>Quantity</span><input id="add-count" type="number" min="1" max="30" value="1" style="width: 5.5rem"></label>
       <button id="add">Add</button>
     </div>
     <p class="muted" style="margin: var(--s2) 0 0; font-size: var(--step--1)">With PO and Item ID, # is numbered on from the last one of that PO and item.</p>
@@ -822,13 +821,12 @@ function nextNumber(po, item) {
 }
 function setList(items, dirtyAfter) { setItems = items.map(asItem); markDirty(dirtyAfter); renderSet(); }
 $("add").onclick = () => {
-  const n = Number($("add-count").value), pr = Number($("add-priority").value), due = $("add-due").value.trim();
+  const pr = Number($("add-priority").value), due = $("add-due").value.trim();
   const po = $("add-po").value.trim(), item = $("add-item").value.trim();
-  if (!Number.isInteger(n) || n < 1) { setError("Quantity: a whole number from 1"); return; }
-  if (setItems.length + n > MAX_PRODUCTS) { setError(`At most ${MAX_PRODUCTS} products (the list has ${setItems.length})`); return; }
+  if (setItems.length >= MAX_PRODUCTS) { setError(`At most ${MAX_PRODUCTS} products`); return; }
   if (!Number.isInteger(pr) || pr < 60 || pr > 100) { setError("Priority: a whole number from 60 to 100"); return; }
   if (due !== "" && !(Number(due) >= 0)) { setError("DueDate: a number of u.t., 0 or more (or empty)"); return; }
-  for (let k = 0; k < n; k++) setItems.push({po, item_id: item, number: nextNumber(po, item), type: $("add-type").value, priority: pr, due_date: due});
+  setItems.push({po, item_id: item, number: nextNumber(po, item), type: $("add-type").value, priority: pr, due_date: due});  // one product per click
   setError(""); markDirty(true); renderSet();
 };
 $("clear").onclick = () => { if (confirmDiscard()) { setList([], false); setId = null; setError(""); } };
