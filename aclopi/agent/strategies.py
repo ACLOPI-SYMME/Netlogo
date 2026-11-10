@@ -7,9 +7,9 @@
 Ties: lowest machine number. Context candidates are dicts as the API returns them
 (aclopi/contracts/candidates.py).
 
-Reasons (the text the platform's decision panel shows): in Spanish, at most REASON_MAX characters
+Reasons (the text the platform's decision panel shows): in English, at most REASON_MAX characters
 (short_reason cuts longer ones). Code levels write a fixed text with the number that justifies the
-decision, e.g. "Obvia: M3 termina 230 u.t. antes" or "Respaldo (el LLM no respondió): M3 termina antes (+310 u.t.)".
+decision, e.g. "Obvious: M3 finishes 230 u.t. earlier" or "Fallback (LLM did not answer): M3 finishes first (+310 u.t.)".
 """
 
 from __future__ import annotations
@@ -21,11 +21,11 @@ from aclopi.agent.triage import Triage, TriageParams, classify, fpn, ranked
 
 REASON_MAX = 120
 # why the agent fell back to the best by finish, by the start of its error (aclopi.agent.core)
-FALLBACK_CAUSES = (("llm-timeout", "el LLM no respondió a tiempo"), ("deadline", "el LLM no respondió a tiempo"),
-                   ("llm-call-limit", "límite de llamadas al LLM"), ("llm-invalid-json", "respuesta del LLM no válida"),
-                   ("invalid-answer", "respuesta del LLM no válida"), ("what-if-not-offered", "respuesta del LLM no válida"),
-                   ("machine-not-candidate", "el LLM eligió una máquina no candidata"), ("invalid-machine", "el LLM eligió una máquina no candidata"),
-                   ("llm-", "el LLM no respondió"), ("platform", "error al leer la planta"))
+FALLBACK_CAUSES = (("llm-timeout", "LLM timed out"), ("deadline", "LLM timed out"),
+                   ("llm-call-limit", "LLM call limit"), ("llm-invalid-json", "invalid LLM answer"),
+                   ("invalid-answer", "invalid LLM answer"), ("what-if-not-offered", "invalid LLM answer"),
+                   ("machine-not-candidate", "LLM chose a non-candidate machine"), ("invalid-machine", "LLM chose a non-candidate machine"),
+                   ("llm-", "LLM did not answer"), ("platform", "error reading the plant"))
 
 
 def short_reason(text: str | None) -> str:
@@ -42,17 +42,17 @@ def obvious_reason(t: Triage, candidates: list[dict[str, Any]], current_machine:
     """candidates: all the capable machines (before the discard); current_machine: where the product is."""
     m = t.best_by_finish
     if len(candidates) == 1:
-        return f"Única máquina capaz: {m}"
+        return f"Only capable machine: {m}"
     if len(t.finalists) == 1:  # the discard left one: real gap to the second best by finish
         gap = sorted(float(c["finish"]) for c in candidates)[1] - float(t.finalists[0]["finish"])
-        stay = "se queda en la misma máquina; " if m == current_machine else ""
-        return short_reason(f"Obvia: {m} ({stay}las demás ≥{gap:.0f} u.t. peor)")
-    return f"Obvia: {m} termina {t.gap_finish:.0f} u.t. antes"
+        stay = "stays on the same machine; " if m == current_machine else ""
+        return short_reason(f"Obvious: {m} ({stay}the others ≥{gap:.0f} u.t. worse)")
+    return f"Obvious: {m} finishes {t.gap_finish:.0f} u.t. earlier"
 
 
 def fallback_reason(error: str | None, best: dict[str, Any], now: Any) -> str:
-    cause = next((text for prefix, text in FALLBACK_CAUSES if (error or "").startswith(prefix)), "sin respuesta del LLM")
-    return short_reason(f"Respaldo ({cause}): {best['machine']} termina antes ({_rel(best['finish'], now)})")
+    cause = next((text for prefix, text in FALLBACK_CAUSES if (error or "").startswith(prefix)), "no LLM answer")
+    return short_reason(f"Fallback ({cause}): {best['machine']} finishes first ({_rel(best['finish'], now)})")
 
 
 @dataclass(frozen=True)
@@ -91,13 +91,13 @@ def _candidates(ctx: DecisionContext) -> list[dict[str, Any]]:
 def decide_b1(ctx: DecisionContext) -> Decision:
     best = ranked(_candidates(ctx), "finish")[0]
     return Decision(best["machine"], ctx.seq, "heuristic",
-                    f"B1: {best['machine']} termina antes ({_rel(best['finish'], ctx.candidates.get('time'))})")
+                    f"B1: {best['machine']} finishes first ({_rel(best['finish'], ctx.candidates.get('time'))})")
 
 
 def decide_b1b(ctx: DecisionContext) -> Decision:
     best = ranked(_candidates(ctx), "finish_plus_next")[0]
     return Decision(best["machine"], ctx.seq, "heuristic",
-                    f"B1b: {best['machine']}, menor fin con el siguiente paso ({_rel(fpn(best), ctx.candidates.get('time'))})")
+                    f"B1b: {best['machine']}, earliest finish with the next step ({_rel(fpn(best), ctx.candidates.get('time'))})")
 
 
 def decide_agent_code(ctx: DecisionContext, params: TriageParams = TriageParams()) -> tuple[Decision | None, Triage]:
