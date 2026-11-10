@@ -20,7 +20,7 @@ from typing import Any
 
 import httpx
 
-from aclopi.agent.llm.base import LLMClient, Messages, token_limit
+from aclopi.agent.llm.base import LLMClient, Messages, http_timeout, reasoning_effort, token_limit
 
 logger = logging.getLogger(__name__)
 
@@ -68,8 +68,9 @@ class OpenAICompatLLM(LLMClient):
                 {**m, "content": m["content"] + "\n\n" + hint} if m["role"] == "system" else m for m in messages]
         body: dict[str, Any] = {"model": self.model, "max_tokens": token_limit(self.max_tokens), "temperature": 0,
                                 "messages": list(messages)}
-        if self.reasoning_effort:
-            body["reasoning_effort"] = self.reasoning_effort
+        effort = reasoning_effort(self.reasoning_effort)
+        if effort:
+            body["reasoning_effort"] = effort
         if mode == "json_schema":
             body["response_format"] = {"type": "json_schema",
                                        "json_schema": {"name": "decision", "schema": schema, "strict": False}}
@@ -86,7 +87,7 @@ class OpenAICompatLLM(LLMClient):
         return extract_json(r.json()["choices"][0]["message"]["content"] or "")
 
     async def _complete(self, messages: Messages, schema: dict[str, Any], timeout_s: float) -> str:
-        async with httpx.AsyncClient(timeout=min(timeout_s, self.timeout_s), transport=self._transport) as http:
+        async with httpx.AsyncClient(timeout=http_timeout(timeout_s, self.timeout_s), transport=self._transport) as http:
             if self.json_mode is not None:
                 return await self._post(http, messages, schema, self.json_mode)
             for mode in JSON_MODES:
