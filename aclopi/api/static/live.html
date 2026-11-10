@@ -120,18 +120,15 @@
 
   /* ----- session workbench ----- */
   /* the controls are a menu bar across the top; below, the figure with the readouts beside it */
-  #page-session { grid-template-columns: minmax(0, 1fr); grid-template-areas: "setup" "figure" "readouts" "decisions" "events"; }
-  #setup { grid-area: setup; } .figure { grid-area: figure; } #readouts { grid-area: readouts; }
+  #page-session { grid-template-columns: minmax(0, 1fr); grid-template-areas: "setup" "run" "figure" "readouts" "decisions" "events"; }
+  #setup { grid-area: setup; } #run-panel { grid-area: run; } .figure { grid-area: figure; } #readouts { grid-area: readouts; }
   #decisions-panel { grid-area: decisions; } #events-panel { grid-area: events; }
   @media (min-width: 1100px) {
-    #page-session { grid-template-columns: minmax(0, 1fr) minmax(17rem, 22rem);
-                    grid-template-areas: "setup setup" "figure readouts" "decisions events"; align-items: start; }
+    #page-session { grid-template-columns: minmax(9.5rem, 11rem) minmax(0, 1fr) minmax(17rem, 22rem);
+                    grid-template-areas: "setup setup setup" "run figure readouts" "decisions decisions events"; align-items: start; }
   }
   @media (min-width: 1100px) and (max-width: 1400px) {
-    #page-session { grid-template-areas: "setup setup" "figure readouts" "decisions decisions" "events events"; }
-  }
-  @media (min-width: 1100px) and (min-height: 700px) {
-    #setup { position: sticky; top: 0; z-index: 5; }  /* the menu stays in reach while scrolling */
+    #page-session { grid-template-areas: "setup setup setup" "run figure readouts" "decisions decisions decisions" "events events events"; }
   }
 
   /* menu bar: one band per group (Setup, Run), label on the left, controls in a row */
@@ -158,8 +155,17 @@
               margin-right: 4px; font: 600 10px/1 var(--font-mono); font-style: normal; color: #fff; vertical-align: middle; }
   .legend .mach { width: 14px; height: 14px; border-radius: 1px; }
 
-  .transport { display: flex; flex-wrap: wrap; gap: var(--s2); align-items: end; }
+  /* run controls: a column left of the plant (a row of buttons on narrow screens) */
+  #run-panel { display: flex; flex-direction: column; gap: var(--s3); }
+  #run-panel > h2 { margin-bottom: 0; }
+  .transport { display: flex; flex-wrap: wrap; gap: var(--s2); }
   .transport button { white-space: nowrap; }
+  @media (min-width: 1100px) {
+    #run-panel { position: sticky; top: var(--s4); }
+    #run-panel select { width: 100%; }
+    .transport { flex-direction: column; }
+    .transport button { width: 100%; text-align: left; }
+  }
 
   .readout { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s2) var(--s3); margin: 0; }
   .readout div { border-top: var(--rule-w) solid var(--rule); padding-top: 4px; min-width: 0; }
@@ -217,7 +223,7 @@
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
   @media print {
     :root { --paper: #fff; --panel: #fff; }
-    nav.tabs, #setup, .transport, button, #agent-banner { display: none !important; }
+    nav.tabs, #setup, #run-panel, button, #agent-banner { display: none !important; }
     #page-session { grid-template-columns: 1fr; grid-template-areas: "figure" "readouts" "decisions"; }
   }
 </style>
@@ -267,19 +273,20 @@
           <button id="seed-copy" class="ghost" title="Copy the seed">Copy</button></span>
       </div>
     </div>
-    <div class="group">
-      <span class="label"><span class="sec">§2</span> Run</span>
-      <div class="row transport">
-        <label class="field"><span>Live speed</span>
-          <select id="speed"><option value="0.5">0.5× (16 ticks/s)</option><option value="1" selected>1× (32 ticks/s)</option>
-            <option value="2">2× (64 ticks/s)</option><option value="4">4× (128 ticks/s)</option></select></label>
-        <button id="live" title="Run at the chosen speed (the speed can be changed while it runs)">▶ Live</button>
-        <button id="fast" title="Run as fast as possible">⏩ Fast</button>
-        <button id="pause" title="Pause (space)">❚❚ Pause</button>
-        <button id="resume" title="Resume (space)">▶ Resume</button>
-        <button id="reset" title="Back to tick 0 with the same parameters">↺ Reset</button>
-        <button id="close" title="Close the session">✕ Close</button>
-      </div>
+  </div>
+
+  <div id="run-panel" class="panel" role="toolbar" aria-label="Run controls">
+    <h2><span class="sec">§2</span>Run</h2>
+    <label class="field"><span>Live speed</span>
+      <select id="speed"><option value="0.5">0.5× (16 ticks/s)</option><option value="1" selected>1× (32 ticks/s)</option>
+        <option value="2">2× (64 ticks/s)</option><option value="4">4× (128 ticks/s)</option></select></label>
+    <div class="transport">
+      <button id="live" title="Run at the chosen speed (the speed can be changed while it runs)">▶ Live</button>
+      <button id="fast" title="Run as fast as possible">⏩ Fast</button>
+      <button id="pause" title="Pause (space)">❚❚ Pause</button>
+      <button id="resume" title="Resume (space)">▶ Resume</button>
+      <button id="reset" title="Back to tick 0 with the same parameters">↺ Reset</button>
+      <button id="close" title="Close the session">✕ Close</button>
     </div>
   </div>
 
