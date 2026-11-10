@@ -1,7 +1,8 @@
 """Deterministic fake LLM: configurable latency, rate of invalid JSON and rate of asking a what-if.
 
 It picks the first machine allowed by the schema (the prompt lists candidates sorted by finish), or
-the option with the lowest op_end_time when the prompt carries what-if results.
+the option with the lowest op_end_time when the prompt carries what-if results. For an order
+schema (aclopi.agent.sequencing) it answers the list reversed and rotated by one.
 """
 
 from __future__ import annotations
@@ -31,6 +32,10 @@ class FakeLLM(LLMClient):
         if draw_invalid < self.invalid_rate:
             return '{"action": "decide", "machine": '  # truncated JSON
         props = schema.get("properties", {})
+        if "orders" in props:  # aclopi.agent.sequencing: the list reversed and rotated by one
+            n = len(re.findall(r"^\d+: [A-Z]$", messages[-1]["content"], re.M))
+            return json.dumps({"orders": [{"order": list(range(n))[::-1], "reasoning": "fake: reversed"},
+                                          {"order": list(range(1, n)) + [0], "reasoning": "fake: rotated"}]})
         machines = props.get("machine", {}).get("enum", [])
         actions = props.get("action", {}).get("enum", ["decide"])
         if "what_if" in actions and draw_what_if < self.what_if_rate:

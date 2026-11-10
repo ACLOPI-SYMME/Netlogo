@@ -20,7 +20,7 @@ from typing import Any
 
 import httpx
 
-from aclopi.agent.llm.base import LLMClient, Messages
+from aclopi.agent.llm.base import LLMClient, Messages, token_limit
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +66,7 @@ class OpenAICompatLLM(LLMClient):
             messages = [{"role": "system", "content": hint}] + list(messages) if not any(
                 m["role"] == "system" for m in messages) else [
                 {**m, "content": m["content"] + "\n\n" + hint} if m["role"] == "system" else m for m in messages]
-        body: dict[str, Any] = {"model": self.model, "max_tokens": self.max_tokens, "temperature": 0,
+        body: dict[str, Any] = {"model": self.model, "max_tokens": token_limit(self.max_tokens), "temperature": 0,
                                 "messages": list(messages)}
         if self.reasoning_effort:
             body["reasoning_effort"] = self.reasoning_effort

@@ -7,6 +7,8 @@
     GET /health    -> service status, LLM provider and whether it answers (checked every 30 s in the
                       background; the fake is always ok). b1 / b1b work with the LLM down.
     GET /decisions -> the last decision records (also appended to ACLOPI_AGENT_LOG as JSON lines).
+    POST /sequence/propose -> up to 2 entry orders of a product list from the LLM plus the heuristic
+                      (aclopi.agent.sequencing; docs/sequencing.md). 200 also when the LLM fails.
 Configuration only by environment variables (AgentSettings.from_env). Several decisions run at the
 same time; LLM calls share a semaphore (LLM_MAX_PARALLEL, default 2).
 """
@@ -29,6 +31,7 @@ from fastapi import FastAPI, Header, Response
 
 from aclopi.agent.core import Agent, AgentConfig, candidates_summary
 from aclopi.agent.llm import LLMClient, client_from_env
+from aclopi.agent.sequencing import SequenceRequest, propose
 from aclopi.agent.strategies import DecisionContext, decide as decide_heuristic, short_reason
 from aclopi.agent.triage import TriageParams
 from aclopi.contracts.agent import DecideRequest, bearer_matches
@@ -43,6 +46,7 @@ class AgentSettings:
     provider: str = "fake"
     llm_max_parallel: int = 2
     health_interval_s: float = 30.0
+    sequence_timeout_s: float = 30.0
     log_path: str = "results/agent/decisions.jsonl"
     config: AgentConfig = AgentConfig()
 
@@ -56,6 +60,7 @@ class AgentSettings:
             provider=env.get("ACLOPI_LLM_PROVIDER", "fake"),
             llm_max_parallel=int(env.get("LLM_MAX_PARALLEL", "2")),
             health_interval_s=f("ACLOPI_AGENT_HEALTH_INTERVAL_S", "30"),
+            sequence_timeout_s=f("ACLOPI_SEQUENCE_TIMEOUT_S", "30"),
             log_path=env.get("ACLOPI_AGENT_LOG", "results/agent/decisions.jsonl"),
             config=AgentConfig(
                 triage=TriageParams(u_wide=f("ACLOPI_U_WIDE", "100"), u_narrow=f("ACLOPI_U_NARROW", "50")),
@@ -143,6 +148,12 @@ def create_app(settings: AgentSettings | None = None, llm: LLMClient | None = No
         app.state.tasks.add(task)
         task.add_done_callback(app.state.tasks.discard)
         return Response(status_code=202)
+
+    @app.post("/sequence/propose", response_model=None)
+    async def post_sequence(body: SequenceRequest, authorization: str | None = Header(None)) -> Any:
+        if settings.token and not bearer_matches(authorization, settings.token):
+            return Response(status_code=401)
+        return await propose(llm, [p.model_dump() for p in body.products], settings.sequence_timeout_s)
 
     async def run_decision(req: dict[str, Any]) -> None:
         start = time.monotonic()

@@ -4,7 +4,7 @@ from typing import Any
 
 import httpx
 
-from aclopi.agent.llm.base import LLMClient, Messages, split_system
+from aclopi.agent.llm.base import LLMClient, Messages, split_system, token_limit
 
 TOOL = "decision"
 
@@ -23,7 +23,7 @@ class AnthropicLLM(LLMClient):
 
     async def _complete(self, messages: Messages, schema: dict[str, Any], timeout_s: float) -> dict[str, Any]:
         system, rest = split_system(messages)
-        body = {"model": self.model, "max_tokens": self.max_tokens, "temperature": 0,
+        body = {"model": self.model, "max_tokens": token_limit(self.max_tokens), "temperature": 0,
                 "system": [{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
                 "messages": rest,
                 "tools": [{"name": TOOL, "description": "Return the decision.", "input_schema": schema}],

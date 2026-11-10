@@ -3,10 +3,29 @@ from __future__ import annotations
 import asyncio
 import json
 import time
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Iterator
 
 Messages = list[dict[str, str]]
+
+# Calls made inside `with min_tokens(n)` get max_tokens >= n (providers with a limit: openai_compat,
+# anthropic). For answers longer than a decision, e.g. the orders of aclopi.agent.sequencing.
+_MIN_TOKENS: ContextVar[int] = ContextVar("aclopi_llm_min_tokens", default=0)
+
+
+@contextmanager
+def min_tokens(n: int) -> Iterator[None]:
+    token = _MIN_TOKENS.set(int(n))
+    try:
+        yield
+    finally:
+        _MIN_TOKENS.reset(token)
+
+
+def token_limit(default: int) -> int:
+    return max(int(default), _MIN_TOKENS.get())
 
 
 @dataclass(frozen=True)
