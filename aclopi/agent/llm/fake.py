@@ -33,8 +33,8 @@ class FakeLLM(LLMClient):
             return '{"action": "decide", "machine": '  # truncated JSON
         props = schema.get("properties", {})
         if "orders" in props:  # aclopi.agent.sequencing: the list reversed and rotated by one
-            n = len(re.findall(r"^\d+: [A-Z]$", messages[-1]["content"], re.M))
-            return json.dumps({"orders": [{"order": list(range(n))[::-1], "reasoning": "fake: reversed"},
+            n = int(props["orders"]["items"]["properties"]["order"]["maxItems"])
+            return json.dumps({"analysis": "fake analysis", "orders": [{"order": list(range(n))[::-1], "reasoning": "fake: reversed"},
                                           {"order": list(range(1, n)) + [0], "reasoning": "fake: rotated"}]})
         machines = props.get("machine", {}).get("enum", [])
         actions = props.get("action", {}).get("enum", ["decide"])

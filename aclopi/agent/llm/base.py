@@ -10,22 +10,39 @@ from typing import Any, Iterator
 
 Messages = list[dict[str, str]]
 
-# Calls made inside `with min_tokens(n)` get max_tokens >= n (providers with a limit: openai_compat,
-# anthropic). For answers longer than a decision, e.g. the orders of aclopi.agent.sequencing.
-_MIN_TOKENS: ContextVar[int] = ContextVar("aclopi_llm_min_tokens", default=0)
+# Options of the calls made inside `with call_options(...)`, for answers that are not a machine decision
+# (aclopi.agent.sequencing): min_tokens (max_tokens >= n; openai_compat, anthropic), reasoning_effort
+# (instead of the client's; openai_compat) and timeout_s (HTTP timeout instead of the client's cap;
+# openai_compat). Machine decisions run without them.
+_CALL: ContextVar[dict[str, Any]] = ContextVar("aclopi_llm_call_options", default={})
+
+
+@contextmanager
+def call_options(**options: Any) -> Iterator[None]:
+    token = _CALL.set({**_CALL.get(), **{k: v for k, v in options.items() if v is not None}})
+    try:
+        yield
+    finally:
+        _CALL.reset(token)
 
 
 @contextmanager
 def min_tokens(n: int) -> Iterator[None]:
-    token = _MIN_TOKENS.set(int(n))
-    try:
+    with call_options(min_tokens=int(n)):
         yield
-    finally:
-        _MIN_TOKENS.reset(token)
 
 
 def token_limit(default: int) -> int:
-    return max(int(default), _MIN_TOKENS.get())
+    return max(int(default), int(_CALL.get().get("min_tokens", 0)))
+
+
+def reasoning_effort(default: str) -> str:
+    return str(_CALL.get().get("reasoning_effort", default))
+
+
+def http_timeout(timeout_s: float, cap: float) -> float:
+    """The call's timeout, capped by the client's (unless call_options gives timeout_s)."""
+    return min(timeout_s, float(_CALL.get().get("timeout_s", cap)))
 
 
 @dataclass(frozen=True)
