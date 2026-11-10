@@ -160,7 +160,7 @@ def test_at_most_two_llm_calls_and_invalid_candidates() -> None:
     assert d is None and rec["error"].startswith("candidates-invalid")
 
 
-# ----- reasons for the decision panel (Spanish, <= 120 characters) -----
+# ----- reasons for the decision panel (English, <= 120 characters) -----
 
 class FixedLLM(LLMClient):
     def __init__(self, answer: dict[str, Any]) -> None:
@@ -172,33 +172,33 @@ class FixedLLM(LLMClient):
 
 def test_code_levels_give_the_number_that_decided() -> None:
     d, _ = decide(FakePlatform(cands(OBVIOUS)), FakeLLM(), request())
-    assert d.reason == "Obvia: M3 termina 300 u.t. antes"
+    assert d.reason == "Obvious: M3 finishes 300 u.t. earlier"
     d, _ = decide(FakePlatform(cands({"M3": (300, 400)})), FakeLLM(), request())
-    assert d.reason == "Única máquina capaz: M3"
+    assert d.reason == "Only capable machine: M3"
     # the discard leaves one (M2 and M3 > 100 u.t. worse in both criteria): real gap to the second
     discard = {"M5": (300, 400), "M2": (530, 640), "M3": (600, 700)}
     d, _ = decide(FakePlatform(cands(discard, current="M2")), FakeLLM(), request())
-    assert (d.machine, d.reason) == ("M5", "Obvia: M5 (las demás ≥230 u.t. peor)")
+    assert (d.machine, d.reason) == ("M5", "Obvious: M5 (the others ≥230 u.t. worse)")
     d, _ = decide(FakePlatform(cands(discard, current="M5")), FakeLLM(), request())
-    assert d.reason == "Obvia: M5 (se queda en la misma máquina; las demás ≥230 u.t. peor)"
+    assert d.reason == "Obvious: M5 (stays on the same machine; the others ≥230 u.t. worse)"
     assert len(d.reason) <= REASON_MAX
     ctx = DecisionContext("s1", 200, 2, "agent", "fast", cands(discard, current="M5"))
     assert decide_agent_code(ctx)[0].reason == d.reason
     d, _ = decide(FakePlatform(cands(UNCERTAIN)), FakeLLM(invalid_rate=1.0), request())
-    assert d.reason == "Respaldo (respuesta del LLM no válida): M3 termina antes (+300 u.t.)"
+    assert d.reason == "Fallback (invalid LLM answer): M3 finishes first (+300 u.t.)"
     d, _ = decide(FakePlatform(cands(UNCERTAIN)), FakeLLM(latency_s=0.3), request(), AgentConfig(fast_deadline_s=0.1))
-    assert d.reason.startswith("Respaldo (el LLM no respondió a tiempo): M3")
+    assert d.reason.startswith("Fallback (LLM timed out): M3")
     ctx = DecisionContext("s1", 200, 2, "b1", "fast", cands(UNCERTAIN))
-    assert decide_b1(ctx).reason == "B1: M3 termina antes (+300 u.t.)"
-    assert decide_b1b(ctx).reason == "B1b: M3, menor fin con el siguiente paso (+500 u.t.)"
+    assert decide_b1(ctx).reason == "B1: M3 finishes first (+300 u.t.)"
+    assert decide_b1b(ctx).reason == "B1b: M3, earliest finish with the next step (+500 u.t.)"
 
 
 def test_llm_reason_is_cut_to_120_characters() -> None:
-    long = "M3 termina antes " * 20
+    long = "M3 finishes first " * 20
     d, rec = decide(FakePlatform(cands(UNCERTAIN)), FixedLLM({"action": "decide", "machine": "M2", "reason": long}), request())
     assert d.decision_level == "llm" and d.machine == "M2"
     assert REASON_MAX - 2 <= len(d.reason) <= REASON_MAX and d.reason.endswith("…") and rec["reason"] == d.reason
-    assert short_reason("  corta\n razón ") == "corta razón" and short_reason(None) == ""
+    assert short_reason("  short\n reason ") == "short reason" and short_reason(None) == ""
     every = [decide(FakePlatform(cands(c)), FakeLLM(invalid_rate=r), request())[0].reason
              for c in (OBVIOUS, UNCERTAIN) for r in (0.0, 1.0)]
     assert all(len(r) <= REASON_MAX for r in every)
