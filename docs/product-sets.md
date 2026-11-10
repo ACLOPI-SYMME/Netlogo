@@ -2,8 +2,20 @@
 
 The order and type of the products that enter the plant can come from a **user-defined list**, instead of the seed.
 
-- **Each product** has `type` ∈ {A, I, P, B, E, L, T} (the model's `PosibleProducts`) and `priority`, an integer from 60 to 100 (80 by default).
-- **The priority is not used today:** the model stores it on the product, but no rule (1–4) and not the agent use it to decide. What does matter is the **order** of the list, which is the order of entry into the plant. That is why the page (`/ui`) only shows and sends the type and the order; the API still accepts `priority` (80 if missing) for compatibility.
+- **Each product** has the fields below. **Only `type` and `priority` reach the NetLogo model**; PO, Item ID, # and the due date are platform data: they are validated, stored with the set, the session and the run, and shown on the page.
+
+| Field | CSV column | Meaning | Values |
+|---|---|---|---|
+| `po` | `PO` (also "Product Order (PO)") | Product Order | text, optional |
+| `item_id` | `Item ID` | Item of the order | text, optional |
+| `number` | `#` | Number of the product within that PO and item | text, optional |
+| `id` | — (derived) | `PO-Item ID-#`, only when the three are given. Identifies the product; two products of a list cannot share it (422) | text, or missing |
+| `type` | `Type` | Product type | A, I, P, B, E, L, T (required) |
+| `priority` | `Priority` | Priority of the product | integer 60–100, 80 by default |
+| `due_date` | `DueDate` | Due date, in simulated time units (u.t.) | number ≥ 0, optional |
+
+- **The priority is not used today:** the model stores it on the product, but no rule (1–4) and not the agent use it to decide. What does matter is the **order** of the list, which is the order of entry into the plant.
+- **The due date is not used today either:** it is stored and shown; it does not change the simulation nor the decisions.
 - **Entry order:** the order of the list.
 - **When each product enters:** the model still decides it as always: every 100 u.t., if there are fewer than 10 active products and the entry zone of M1 is free (procedure `Go`).
 - **The seed** still controls all the rest of the randomness.
@@ -56,13 +68,15 @@ New KPIs (`aclopi/sim/kpis.py`, `GET /kpis`):
 
 | Route | What it does |
 |---|---|
-| `POST /product-sets`, `GET /product-sets`, `GET`/`PUT`/`DELETE /product-sets/{id}` | Sets with `name` and `products` `[{type, priority}]` in order, **1 to 30 products** (the size of Línea A's experiments). `type` accepts lower case |
-| `POST /product-sets/parse-csv` (multipart, field `file`) | Turns a CSV into a validated list, without saving it. Columns `type` and `priority` (optional, 80); separator `,` or `;`; UTF-8 with or without BOM. With errors it answers 422 with `errors: [{line, error}]`, where `line` is the line of the file (the header is line 1) |
-| `GET /product-sets/{id}/csv` | Exports the set (`type,priority`) |
+| `POST /product-sets`, `GET /product-sets`, `GET`/`PUT`/`DELETE /product-sets/{id}` | Sets with `name` and `products` `[{po, item_id, number, type, priority, due_date}]` in order, **1 to 30 products** (the size of Línea A's experiments). `type` accepts lower case; empty optional fields are left out of the stored product, and `id` is added when PO, Item ID and # are given |
+| `POST /product-sets/parse-csv` (multipart, field `file`) | Turns a CSV into a validated list, without saving it. Columns `PO`, `Item ID`, `#`, `Type` (required), `Priority` (optional, 80) and `DueDate` (optional, u.t.); header names in any case; separator `,` or `;` (with `;`, the due date may use a decimal comma); UTF-8 with or without BOM. The old format `type,priority` is still accepted. With errors it answers 422 with `errors: [{line, error}]`, where `line` is the line of the file (the header is line 1); a repeated id is an error |
+| `GET /product-sets/{id}/csv` | Exports the set (`PO,Item ID,#,Type,Priority,DueDate`) |
 | `POST /product-sets/generate` `{seed?, count}` | The list the model generates with that seed (fixed set; a short operation on a borrowed what-if worker). Without `seed` one is drawn and returned |
 | `POST /sessions` | Accepts `product_set_id` **or** `products` (inline). With neither, it behaves as before (set generated from the seed, "Random" on the page). The session keeps a **copy**: editing the set afterwards does not change it. `SessionInfo` includes `product_set_id`, `products_total` and `products_hash` (sha256 of the list) |
 
-Storage: DynamoDB with `ACLOPI_DYNAMODB_ENDPOINT` (table `aclopi_product_sets`, L5.7), in memory otherwise (`InMemoryProductSetStore`).
+Storage: DynamoDB with `ACLOPI_DYNAMODB_ENDPOINT` (table `aclopi_product_sets`, L5.7), in memory otherwise (`InMemoryProductSetStore`). Each product is stored with its fields and its `id`.
+
+**`products_hash`** is computed only from the type and the priority of each product, in order: it is the identity of the list **for the simulation**. Two lists with the same types and priorities but other PO, Item ID, # or due dates have the same hash, because the model runs them identically.
 
 ## Optional seed
 

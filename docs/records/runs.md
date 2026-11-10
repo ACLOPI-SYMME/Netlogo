@@ -49,7 +49,7 @@ Every run that finishes, fails or is stopped leaves **one record** with its para
 | `mode` | Run mode | — | `live`, `fast` |
 | `product_set_id` | Saved set used, if one was chosen | — | id of a set, or `null` |
 | `products_hash` | Fingerprint (SHA-256) of the product list. Two runs with the same value used exactly the same list | — | 64 hexadecimal characters, or `null` without a list ("Random" on the page) |
-| `products` | Copy of the product list used, in entry order (`type`, `priority`) | — | list, or `null` without a list |
+| `products` | Copy of the product list used, in entry order (`po`, `item_id`, `number`, `id`, `type`, `priority`, `due_date`; see [product-sets.md](product-sets.md)) | — | list, or `null` without a list |
 | `kpis` | Final indicators: `ticks`, `finished`, `created`, `wip`, `work_completed`, `mean_flow_time`, `throughput`, `products_total`, `all_done`, `makespan_ticks`, `makespan_time` | see [kpis.md](kpis.md) | — |
 | `utilization` | Fraction of the time each machine was processing | 0 to 1 | `{"M1": …, …, "M7": …}` |
 | `decisions_summary` | Summary of the agent's decisions. Same fields as `decisions` in [metrics.md](metrics.md), without the `log` list | — | — |

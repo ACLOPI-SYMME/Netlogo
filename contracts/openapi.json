@@ -574,7 +574,7 @@
           },
           "products": {
             "items": {
-              "$ref": "#/components/schemas/ProductItem"
+              "$ref": "#/components/schemas/ProductItem-Output"
             },
             "title": "Products",
             "type": "array"
@@ -991,7 +991,7 @@
           },
           "products": {
             "items": {
-              "$ref": "#/components/schemas/ProductItem"
+              "$ref": "#/components/schemas/ProductItem-Output"
             },
             "title": "Products",
             "type": "array"
@@ -1154,9 +1154,62 @@
         "title": "Probe",
         "type": "object"
       },
-      "ProductItem": {
+      "ProductItem-Input": {
         "additionalProperties": false,
+        "description": "One product of an order list. PO, Item ID and # together identify the product (`id`); they and\nthe due date are platform data: the NetLogo model only receives the type and the priority.",
         "properties": {
+          "due_date": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Due date in simulated time units (u.t.); stored and shown, not used by the simulation",
+            "title": "Due Date"
+          },
+          "item_id": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Item ID",
+            "title": "Item Id"
+          },
+          "number": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "\"#\" column of the order",
+            "title": "Number"
+          },
+          "po": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Product Order (PO)",
+            "title": "Po"
+          },
           "priority": {
             "default": 80,
             "description": "Stored on the product; no rule nor the agent uses it today",
@@ -1186,6 +1239,10 @@
         "title": "ProductItem",
         "type": "object"
       },
+      "ProductItem-Output": {
+        "additionalProperties": true,
+        "type": "object"
+      },
       "ProductSet": {
         "properties": {
           "counts": {
@@ -1213,7 +1270,7 @@
           },
           "products": {
             "items": {
-              "$ref": "#/components/schemas/ProductItem"
+              "$ref": "#/components/schemas/ProductItem-Output"
             },
             "title": "Products",
             "type": "array"
@@ -1251,7 +1308,7 @@
           },
           "products": {
             "items": {
-              "$ref": "#/components/schemas/ProductItem"
+              "$ref": "#/components/schemas/ProductItem-Input"
             },
             "maxItems": 30,
             "minItems": 1,
@@ -1427,7 +1484,7 @@
             "anyOf": [
               {
                 "items": {
-                  "$ref": "#/components/schemas/ProductItem"
+                  "$ref": "#/components/schemas/ProductItem-Output"
                 },
                 "type": "array"
               },
@@ -1719,7 +1776,7 @@
             "anyOf": [
               {
                 "items": {
-                  "$ref": "#/components/schemas/ProductItem"
+                  "$ref": "#/components/schemas/ProductItem-Input"
                 },
                 "maxItems": 30,
                 "minItems": 1,
@@ -2836,7 +2893,7 @@
             "description": "Errors by line: {code: csv_invalid, errors: [{line, error}]}"
           }
         },
-        "summary": "Turn a CSV (type, priority; , or ;; UTF-8, BOM allowed) into a validated list (not saved)",
+        "summary": "Turn a CSV (PO, Item ID, #, Type, Priority, DueDate; , or ;; UTF-8, BOM allowed) into a validated list (not saved)",
         "tags": [
           "product-sets"
         ]
@@ -3043,7 +3100,7 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Export a set as CSV (type,priority)",
+        "summary": "Export a set as CSV (PO, Item ID, #, Type, Priority, DueDate)",
         "tags": [
           "product-sets"
         ]

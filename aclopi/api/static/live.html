@@ -192,6 +192,14 @@
   table.set tr.over td { border-top: 2px solid var(--accent); }
   table.set td button { min-height: 28px; padding: 2px 8px; margin-right: 3px; }
   .handle { cursor: grab; user-select: none; color: var(--ink-3); }
+  table.order td input { min-height: 28px; padding: 2px 6px; }
+  table.order td input[data-f=po], table.order td input[data-f=item_id] { width: 7rem; font-family: var(--font-mono); }
+  table.order td input[data-f=number] { width: 3.5rem; font-family: var(--font-mono); }
+  table.order td input[data-f=priority] { width: 4.5rem; }
+  table.order td input[data-f=due_date] { width: 6.5rem; }
+  table.order td select { min-height: 28px; padding: 2px 4px; }
+  table.order tr.dup td { background: var(--err-soft); }
+  table.order td.pid { font-family: var(--font-mono); font-size: var(--step--1); color: var(--ink-2); white-space: nowrap; }
   table.dec td { white-space: nowrap; }
   table.dec td.reason { max-width: 22rem; overflow: hidden; text-overflow: ellipsis; cursor: help; white-space: nowrap; }
   table.dec tr.late td { background: color-mix(in oklab, var(--warn) 14%, transparent); }
@@ -325,12 +333,20 @@
 <section id="page-set" class="page" role="tabpanel" hidden>
   <div class="panel">
     <h2><span class="sec">§1</span>Build the list</h2>
-    <p class="muted" style="margin: 0 0 var(--s3)">Products enter the plant in the order of the list. At most <span class="mono">30</span> products.</p>
+    <p class="muted" style="margin: 0 0 var(--s3)">Products enter the plant in the order of the list. PO, Item ID and # together
+      identify each product. At most <span class="mono">30</span> products.</p>
+    <div class="row">
+      <label class="field"><span>PO</span><input id="add-po" type="text" style="width: 8rem" placeholder="optional"></label>
+      <label class="field"><span>Item ID</span><input id="add-item" type="text" style="width: 8rem" placeholder="optional"></label>
+    </div>
     <div class="row">
       <label class="field"><span>Type</span><select id="add-type"><option>A</option><option>I</option><option>P</option><option>B</option><option>E</option><option>L</option><option>T</option></select></label>
-      <label class="field"><span>Quantity</span><input id="add-count" type="number" min="1" max="30" value="1"></label>
+      <label class="field"><span>Priority</span><input id="add-priority" type="number" min="60" max="100" value="80" style="width: 5.5rem"></label>
+      <label class="field"><span>DueDate (u.t.)</span><input id="add-due" type="number" min="0" step="any" style="width: 7rem" placeholder="optional"></label>
+      <label class="field"><span>Quantity</span><input id="add-count" type="number" min="1" max="30" value="1" style="width: 5.5rem"></label>
       <button id="add">Add</button>
     </div>
+    <p class="muted" style="margin: var(--s2) 0 0; font-size: var(--step--1)">With PO and Item ID, # is numbered on from the last one of that PO and item.</p>
     <hr class="rule">
     <div class="row">
       <label class="check"><input id="gen-seed-on" type="checkbox"> Set a seed</label>
@@ -369,7 +385,8 @@
     </div>
     <div id="set-counts" class="counts"></div>
     <div id="set-errors" class="err" role="alert" style="margin: var(--s2) 0"></div>
-    <div class="table-wrap" style="margin-top: var(--s2)"><table class="set"><thead><tr><th></th><th>#</th><th>Type</th><th>Actions</th></tr></thead>
+    <div class="table-wrap" style="margin-top: var(--s2)"><table class="set order"><thead><tr><th></th><th>Order</th><th>PO</th><th>Item ID</th><th>#</th>
+      <th>Type</th><th>Priority</th><th>DueDate (u.t.)</th><th>Id</th><th>Actions</th></tr></thead>
       <tbody id="set-rows"></tbody></table></div>
   </div>
 </section>
@@ -521,7 +538,7 @@ $("create").onclick = () => act(async () => {
   // "Current list": exactly the list shown in the Order entry tab, in that order.
   if ($("session-set").value === CURRENT_LIST) {
     if (!setItems.length) throw new Error("The current list is empty (Order entry tab)");
-    body.products = setItems.map(p => ({type: p.type}));
+    body.products = setItems.map(asPayload);
   } else if ($("session-set").value) body.product_set_id = $("session-set").value;
   const info = await createSession(body);
   if (info.warnings && info.warnings.includes("agent_unavailable")) msg("Warning: the agent is not available (live runs will use rule 3)", true);
@@ -722,6 +739,22 @@ function markDirty(v) {
 }
 window.addEventListener("beforeunload", e => { if (dirty) { e.preventDefault(); e.returnValue = ""; } });
 function confirmDiscard() { return !dirty || confirm("The set has unsaved changes. Discard them?"); }
+// A product of the list as the page keeps it; empty PO / Item ID / # / DueDate are "".
+const asItem = p => ({po: p.po ?? "", item_id: p.item_id ?? "", number: p.number ?? "", type: p.type,
+                      priority: p.priority ?? 80, due_date: p.due_date ?? ""});
+const itemId = p => (p.po && p.item_id && p.number !== "") ? `${p.po}-${p.item_id}-${p.number}` : "";
+// What is sent to the API: empty optional fields left out (the API also computes the id).
+function asPayload(p) {
+  const out = {type: p.type, priority: Number(p.priority)};
+  for (const f of ["po", "item_id", "number"]) if (String(p[f]).trim() !== "") out[f] = String(p[f]).trim();
+  if (String(p.due_date).trim() !== "") out.due_date = Number(p.due_date);
+  return out;
+}
+function duplicatedIds() {
+  const seen = new Map(), dups = new Set();
+  setItems.forEach(p => { const id = itemId(p); if (!id) return; if (seen.has(id)) dups.add(id); seen.set(id, true); });
+  return dups;
+}
 function renderSet() {
   const counts = Object.fromEntries(TYPES.map(t => [t, 0]));
   setItems.forEach(p => counts[p.type]++);
@@ -731,24 +764,43 @@ function renderSet() {
   $("set-save").disabled = !setItems.length;
   $("add").disabled = setItems.length >= MAX_PRODUCTS;
   const body = $("set-rows"); body.textContent = "";
-  if (!setItems.length) { body.innerHTML = `<tr><td colspan="4" class="empty">The list is empty: add products, generate them from a seed or upload a CSV.</td></tr>`; return; }
+  if (!setItems.length) { body.innerHTML = `<tr><td colspan="10" class="empty">The list is empty: add products, generate them from a seed or upload a CSV.</td></tr>`; return; }
+  const dups = duplicatedIds();
   setItems.forEach((p, i) => {
     const tr = document.createElement("tr"); tr.draggable = true; tr.dataset.i = i;
+    const id = itemId(p);
+    if (id && dups.has(id)) { tr.classList.add("dup"); tr.title = `The id ${id} is repeated`; }
+    const input = (f, type, extra = "") => `<input data-f="${f}" type="${type}" value="${esc(p[f])}" ${extra} aria-label="${f} of product ${i + 1}">`;
     tr.innerHTML = `<td class="handle" title="Drag to reorder">⋮⋮</td><td class="num">${i + 1}</td>
-      <td>${typeDot(p.type)}<select aria-label="Type of product ${i + 1}">${TYPES.map(t => `<option${t === p.type ? " selected" : ""}>${t}</option>`).join("")}</select></td>
-      <td><button data-a="up" title="Move up" aria-label="Move up">↑</button><button data-a="down" title="Move down" aria-label="Move down">↓</button>
+      <td>${input("po", "text")}</td><td>${input("item_id", "text")}</td><td>${input("number", "text")}</td>
+      <td style="white-space:nowrap">${typeDot(p.type)}<select data-f="type" aria-label="Type of product ${i + 1}">${TYPES.map(t => `<option${t === p.type ? " selected" : ""}>${t}</option>`).join("")}</select></td>
+      <td>${input("priority", "number", 'min="60" max="100" step="1"')}</td><td>${input("due_date", "number", 'min="0" step="any"')}</td>
+      <td class="pid">${esc(id || "–")}</td>
+      <td style="white-space:nowrap"><button data-a="up" title="Move up" aria-label="Move up">↑</button><button data-a="down" title="Move down" aria-label="Move down">↓</button>
           <button data-a="dup">Duplicate</button><button data-a="del">Delete</button></td>`;
     tr.querySelector("select").onchange = e => { p.type = e.target.value; markDirty(true); renderSet(); };
+    tr.querySelectorAll("input[data-f]").forEach(el => el.onchange = () => {
+      const f = el.dataset.f, v = el.value.trim();
+      if (f === "priority") {
+        const n = Number(v);
+        if (!Number.isInteger(n) || n < 60 || n > 100) { el.value = p.priority; setError("Priority: a whole number from 60 to 100"); return; }
+        p.priority = n;
+      } else if (f === "due_date") {
+        if (v !== "" && !(Number(v) >= 0)) { el.value = p.due_date; setError("DueDate: a number of u.t., 0 or more (or empty)"); return; }
+        p.due_date = v;
+      } else p[f] = v;
+      setError(""); markDirty(true); renderSet();
+    });
     tr.querySelectorAll("button").forEach(b => b.onclick = () => {
       const a = b.dataset.a;
       if (a === "dup" && setItems.length >= MAX_PRODUCTS) { setError(`At most ${MAX_PRODUCTS} products`); return; }
       if (a === "up" && i > 0) [setItems[i - 1], setItems[i]] = [setItems[i], setItems[i - 1]];
       if (a === "down" && i < setItems.length - 1) [setItems[i + 1], setItems[i]] = [setItems[i], setItems[i + 1]];
-      if (a === "dup") setItems.splice(i + 1, 0, {...p});
+      if (a === "dup") setItems.splice(i + 1, 0, {...p, number: nextNumber(p.po, p.item_id)});  // a copy needs its own #
       if (a === "del") setItems.splice(i, 1);
       setError(""); markDirty(true); renderSet();
     });
-    tr.ondragstart = () => { dragFrom = i; tr.classList.add("dragging"); };
+    tr.ondragstart = e => { if (e.target.closest("input, select")) { e.preventDefault(); return; } dragFrom = i; tr.classList.add("dragging"); };
     tr.ondragend = () => { tr.classList.remove("dragging"); };
     tr.ondragover = e => { e.preventDefault(); tr.classList.add("over"); };
     tr.ondragleave = () => tr.classList.remove("over");
@@ -760,14 +812,23 @@ function renderSet() {
     };
     body.appendChild(tr);
   });
+  if (dups.size) setError(`Repeated ids (PO-Item ID-#): ${[...dups].join(", ")}. Each product needs its own #.`);
 }
-// The priority of a product is not used by any rule nor by the agent: the page keeps only the type and the order.
-function setList(items, dirtyAfter) { setItems = items.map(p => ({type: p.type})); markDirty(dirtyAfter); renderSet(); }
+// Next "#" for a PO and item: one more than the largest numeric # of that PO and item in the list ("" without both).
+function nextNumber(po, item) {
+  if (!po || !item) return "";
+  const nums = setItems.filter(p => p.po === po && p.item_id === item).map(p => Number(p.number)).filter(Number.isFinite);
+  return String(nums.length ? Math.max(...nums) + 1 : 1);
+}
+function setList(items, dirtyAfter) { setItems = items.map(asItem); markDirty(dirtyAfter); renderSet(); }
 $("add").onclick = () => {
-  const n = Number($("add-count").value);
+  const n = Number($("add-count").value), pr = Number($("add-priority").value), due = $("add-due").value.trim();
+  const po = $("add-po").value.trim(), item = $("add-item").value.trim();
   if (!Number.isInteger(n) || n < 1) { setError("Quantity: a whole number from 1"); return; }
   if (setItems.length + n > MAX_PRODUCTS) { setError(`At most ${MAX_PRODUCTS} products (the list has ${setItems.length})`); return; }
-  for (let k = 0; k < n; k++) setItems.push({type: $("add-type").value});
+  if (!Number.isInteger(pr) || pr < 60 || pr > 100) { setError("Priority: a whole number from 60 to 100"); return; }
+  if (due !== "" && !(Number(due) >= 0)) { setError("DueDate: a number of u.t., 0 or more (or empty)"); return; }
+  for (let k = 0; k < n; k++) setItems.push({po, item_id: item, number: nextNumber(po, item), type: $("add-type").value, priority: pr, due_date: due});
   setError(""); markDirty(true); renderSet();
 };
 $("clear").onclick = () => { if (confirmDiscard()) { setList([], false); setId = null; setError(""); } };
@@ -801,7 +862,8 @@ $("csv-file").onchange = e => setAct(async () => {
 });
 $("csv-download").onclick = () => {
   if (!setItems.length) return;
-  download(`${$("set-name").value || "set"}.csv`, "type\n" + setItems.map(p => p.type).join("\n") + "\n");
+  const rows = setItems.map(p => [p.po, p.item_id, p.number, p.type, p.priority, p.due_date].map(csvCell).join(","));
+  download(`${$("set-name").value || "set"}.csv`, ["PO,Item ID,#,Type,Priority,DueDate", ...rows].join("\n") + "\n");
 };
 $("generate").onclick = () => setAct(async () => {
   const s = generateSeed(); if (!s.ok) return;
@@ -826,7 +888,7 @@ async function refreshSaved() {
 }
 $("set-save").onclick = () => setAct(async () => {
   if (!$("set-name").value.trim()) throw new Error("Give the set a name");
-  const body = {name: $("set-name").value.trim(), products: setItems.map(p => ({type: p.type}))};
+  const body = {name: $("set-name").value.trim(), products: setItems.map(asPayload)};
   const saved = setId ? await api("PUT", `/product-sets/${setId}`, body) : await api("POST", "/product-sets", body);
   setId = saved.id; markDirty(false); setError(""); await refreshSaved();
 });

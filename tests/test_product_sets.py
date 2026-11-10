@@ -65,7 +65,7 @@ def test_csv_parsing(client: httpx.Client) -> None:
 def test_csv_round_trip(client: httpx.Client) -> None:
     created = client.post("/product-sets", json={"name": "five", "products": FIVE}).json()
     exported = client.get(f"/product-sets/{created['id']}/csv")
-    assert exported.status_code == 200 and exported.text.startswith("type,priority\n")
+    assert exported.status_code == 200 and exported.text.startswith("PO,Item ID,#,Type,Priority,DueDate\n")
     parsed = _csv(client, exported.text).json()
     assert parsed["products"] == FIVE and parsed["hash"] == created["hash"]
     client.delete(f"/product-sets/{created['id']}")

@@ -4,7 +4,7 @@
 
 ## What it is
 
-A fixed list of products (type, in entry order) saved under a name. A session created with a set makes exactly those products enter, in that order, and the run ends when they have all finished. It is used to compare rules with the same workload. The design is in `docs/product-sets.md`.
+A fixed list of products (an order list: PO, Item ID, #, type, priority and due date, in entry order) saved under a name. A session created with a set makes exactly those products enter, in that order, and the run ends when they have all finished. It is used to compare rules with the same workload. The design is in `docs/product-sets.md`.
 
 ## How it is produced and when it is available
 
@@ -18,7 +18,7 @@ A fixed list of products (type, in entry order) saved under a name. A session cr
 |---|---|
 | `GET /product-sets` | List of sets, **without** the products |
 | `GET /product-sets/{id}` | One set with its products |
-| `GET /product-sets/{id}/csv` | The set as CSV (`type,priority`) |
+| `GET /product-sets/{id}/csv` | The set as CSV (`PO,Item ID,#,Type,Priority,DueDate`) |
 | `POST /product-sets`, `PUT /product-sets/{id}`, `DELETE /product-sets/{id}` | Create, replace, delete |
 | `POST /product-sets/parse-csv` | Validates an uploaded CSV and returns the list (does not save it) |
 | `POST /product-sets/generate` | The products the model would generate with a seed (does not save them) |
@@ -30,11 +30,23 @@ A fixed list of products (type, in entry order) saved under a name. A session cr
 |---|---|---|
 | `id` | Identifier | 32 hexadecimal characters |
 | `name` | Name | 1–200 characters |
-| `products` | The list, in entry order; each one with `type` and `priority` | 1 to 30 products; `type` A, I, P, B, E, L, T; `priority` 60–100 (80 if not given). No rule and not the agent use the priority; the page does not show it and sends only the type |
+| `products` | The list, in entry order; each product with the fields of the table below | 1 to 30 products |
 | `total` | Number of products | count |
 | `counts` | Number per type | `{"A": …, "I": …, "P": …, "B": …, "E": …, "L": …, "T": …}` |
 | `hash` | Fingerprint (SHA-256) of the list. Equal to the `products_hash` of the sessions and runs that used it | 64 hexadecimal characters |
 | `created_at`, `updated_at` | Creation and last change | Unix time (s) |
+
+Fields of each product (only `type` and `priority` reach the NetLogo model; empty optional fields are left out):
+
+| Field | CSV column | Meaning | Values |
+|---|---|---|---|
+| `po` | `PO` (also "Product Order (PO)") | Product Order | text, optional |
+| `item_id` | `Item ID` | Item of the order | text, optional |
+| `number` | `#` | Number of the product within that PO and item | text, optional |
+| `id` | — (derived) | `PO-Item ID-#`, only when the three are given. Identifies the product; two products of a list cannot share it (422) | text, or missing |
+| `type` | `Type` | Product type | A, I, P, B, E, L, T (required) |
+| `priority` | `Priority` | Priority of the product | integer 60–100, 80 by default |
+| `due_date` | `DueDate` | Due date, in simulated time units (u.t.) | number ≥ 0, optional |
 
 `POST /product-sets/generate` also answers `seed` and `seed_source` (`user` or `random`). `parse-csv` with errors answers 422 with `errors: [{"line": n, "error": "…"}]`.
 
@@ -53,19 +65,21 @@ A fixed list of products (type, in entry order) saved under a name. A session cr
 
 ## CSV of a set
 
-The page's "Download CSV" writes only the `type` column, one row per product, in entry order:
+Six columns, one row per product, in entry order (the page's "Download CSV" and `GET /product-sets/{id}/csv` write the same):
 
 ```
-type
-A
-E
+PO,Item ID,#,Type,Priority,DueDate
+PO-17,IT-3,1,A,70,1500
+PO-17,IT-3,2,E,80,
 ```
 
-`GET /product-sets/{id}/csv` writes `type,priority`. When uploading a CSV, `,` or `;` are accepted as separators, UTF-8 with or without BOM, and the type in upper or lower case. `priority` is optional (80 by default) and the page ignores it. At most 30 products.
+When uploading a CSV: `,` or `;` as separator (with `;` the due date may use a decimal comma), UTF-8 with or without BOM, header names and type in any case ("Product Order (PO)" is also accepted for `PO`). Only `Type` is required; `Priority` is 80 by default; `DueDate` is in u.t. A repeated id (PO-Item ID-#) is an error. The old format `type,priority` is still accepted. At most 30 products.
+
+On the page (Order entry tab) every field can be edited in the list; the Id column shows `PO-Item ID-#`, and rows with a repeated id are marked. "Add" with a PO and an Item ID numbers `#` on from the last one of that PO and item.
 
 ## Useful calculations and pitfalls
 
-- **Same set** = same `hash`, even with another name or `id`.
+- **Same set for the simulation** = same `hash`, even with another name, `id`, PO, Item ID, # or due dates: the hash only uses type and priority.
 - **The list of `GET /product-sets` does not carry the products**; each set has to be requested.
 - **A run without a set** ("Random" on the page) has neither `product_set_id` nor `products_hash`: its products came from the seed.
 - **An inline set** (`products` when creating the session, or "Current list" on the page) has no `product_set_id`, but it does have `products_hash`.

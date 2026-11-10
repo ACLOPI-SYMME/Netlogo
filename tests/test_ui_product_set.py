@@ -162,7 +162,8 @@ def test_csv_drag_delete_and_session_body(server: tuple[str, list], browser: Any
             break
         time.sleep(0.1)
     sent = sessions[-1]
-    assert sent["products"] == [{"type": "T"}, {"type": "B"}, {"type": "A"}, {"type": "E"}]  # type and order only
+    assert sent["products"] == [{"type": "T", "priority": 80}, {"type": "B", "priority": 60},
+                                {"type": "A", "priority": 70}, {"type": "E", "priority": 100}]
     assert "product_set_id" not in sent
     print("JSON sent:", json.dumps(sent))
     page.close()
@@ -341,10 +342,9 @@ def test_layout_tooltip_errors_speed_and_set_limits(server: tuple[str, list], br
     page.click("#resume")
     page.wait_for_function("document.querySelector('#runstate').dataset.state === 'running_live'")
     assert RUN_CALLS[-1] == {"mode": "live", "speed": 0.5}
-    # Product set tab: no priority, download disabled while empty, at most 30 products, errors shown.
+    # Order entry tab: download disabled while empty, at most 30 products, errors shown.
     page.click("#tab-set")
     assert page.is_disabled("#csv-download")
-    assert page.query_selector("#add-priority") is None and "priority" not in page.inner_text("#page-set").lower()
     page.fill("#add-count", "31")
     page.click("#add")
     assert "At most 30" in page.inner_text("#set-errors")
@@ -361,4 +361,43 @@ def test_layout_tooltip_errors_speed_and_set_limits(server: tuple[str, list], br
     assert page.is_disabled("#csv-download")
     # Products are told apart by type: one colour and letter per type, with a legend.
     assert page.eval_on_selector_all("#legend span", "els => els.length") == 9
+    page.close()
+
+
+CSV_ORDERS = ("Product Order (PO),Item ID,#,Type,Priority,DueDate\n"
+              "PO-17,IT-3,1,A,70,1500\nPO-17,IT-3,2,e,,\nPO-18,IT-9,1,B,90,2200.5\n")
+
+
+def test_order_csv_ids_priority_due_date(server: tuple[str, list], browser: Any, tmp_path: Path) -> None:
+    url, sessions = server
+    page = browser.new_page(accept_downloads=True)
+    page.on("dialog", lambda d: d.accept())
+    page.goto(f"{url}/ui")
+    load_csv(page, tmp_path, CSV_ORDERS)
+    cells = page.eval_on_selector_all("#set-rows tr", """els => els.map(tr => [
+        ...[...tr.querySelectorAll('input[data-f]')].map(i => i.dataset.f + '=' + i.value),
+        'type=' + tr.querySelector('select').value, 'id=' + tr.querySelector('td.pid').textContent])""")
+    assert cells[0] == ["po=PO-17", "item_id=IT-3", "number=1", "priority=70", "due_date=1500", "type=A", "id=PO-17-IT-3-1"]
+    assert cells[1] == ["po=PO-17", "item_id=IT-3", "number=2", "priority=80", "due_date=", "type=E", "id=PO-17-IT-3-2"]
+    # Add numbers # on from the last one of that PO and item; a repeated id is marked.
+    page.fill("#add-po", "PO-17"); page.fill("#add-item", "IT-3"); page.fill("#add-count", "2"); page.fill("#add-due", "900")
+    page.click("#add")
+    assert page.eval_on_selector_all("#set-rows td.pid", "els => els.map(e => e.textContent)")[3:] == ["PO-17-IT-3-3", "PO-17-IT-3-4"]
+    page.fill("#set-rows tr:nth-child(4) input[data-f=number]", "1")
+    page.press("#set-rows tr:nth-child(4) input[data-f=number]", "Enter")
+    assert page.eval_on_selector_all("#set-rows tr.dup", "els => els.length") == 2 and "PO-17-IT-3-1" in page.inner_text("#set-errors")
+    page.fill("#set-rows tr:nth-child(4) input[data-f=number]", "3")
+    page.press("#set-rows tr:nth-child(4) input[data-f=number]", "Enter")
+    assert page.eval_on_selector_all("#set-rows tr.dup", "els => els.length") == 0
+    # The CSV download has the six columns; the session gets PO, Item ID, #, priority and due date.
+    with page.expect_download() as info:
+        page.click("#csv-download")
+    lines = Path(info.value.path()).read_text(encoding="utf-8").splitlines()
+    assert lines[0] == "PO,Item ID,#,Type,Priority,DueDate" and lines[1] == "PO-17,IT-3,1,A,70,1500" and lines[2] == "PO-17,IT-3,2,E,80,"
+    page.click("#tab-session")
+    before = len(sessions)
+    page.click("#create")
+    sent = _sent(sessions, before)
+    assert sent["products"][0] == {"type": "A", "priority": 70, "po": "PO-17", "item_id": "IT-3", "number": "1", "due_date": 1500}
+    assert sent["products"][1] == {"type": "E", "priority": 80, "po": "PO-17", "item_id": "IT-3", "number": "2"}
     page.close()
