@@ -55,6 +55,7 @@ Every run that finishes, fails or is stopped leaves **one record** with its para
 | `decisions_summary` | Summary of the agent's decisions. Same fields as `decisions` in [metrics.md](metrics.md), without the `log` list | — | — |
 | `whatif_summary` | Summary of the what-ifs. Same fields as `whatif` in [metrics.md](metrics.md) | — | — |
 | `scenario_id`, `scenario`, `scenario_events`, `scenario_summary` | Scenario of the run. Today always `S0`, `{}` and empty | — | see [scenarios.md](scenarios.md) |
+| `optimization` | "Optimize order" applied before the run: `optimized`, `mode` (`quick`/`full`), `order`, `origin` and `label` of the chosen order, `estimated_makespan_ticks` / `estimated_makespan_time`, `estimated_saving_time` / `estimated_saving_pct` (against the user's order), `estimate_strategy`, `estimate_mode`, `optimization_id` | ticks, u.t., % | `null` if no order was applied; see [optimize-order.md](optimize-order.md) |
 
 ## Real example
 
@@ -102,6 +103,7 @@ And the live run, stopped when its session was deleted:
 - **Makespan in time:** `makespan_time` (u.t.) ≈ `makespan_ticks × 0.31`.
 - **Comparing two runs:** only meaningful if they have the same `seed` and the same `products_hash` (or both without a list). The page groups them that way when comparing.
 - **% of decisions by the LLM:** `decisions_summary.by_level_pct.llm + by_level_pct["llm-what-if"]`.
+- **Estimate against reality** (optimized runs): `kpis.makespan_ticks − optimization.estimated_makespan_ticks`. In the example of [optimize-order.md](optimize-order.md): 10,276 real against 10,005 estimated.
 
 ## Pitfalls
 

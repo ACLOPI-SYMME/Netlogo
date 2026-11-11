@@ -25,6 +25,7 @@ from aclopi.workers import procinfo
 from aclopi.workers.protocol import (
     DEBUG_OPS, MAX_STEP_TICKS, OPS, error_response, ok_response, push_message,
 )
+from aclopi.sim.sequencing import simulate_list
 from aclopi.sim.candidates import (candidates_for_session, compute_candidates, current_operation_times, machine_loads,
                                    read_model_static)
 from aclopi.sim.session import netlogo_string
@@ -107,6 +108,11 @@ class WorkerState:
         )
         self.pushes: list[tuple[str, Any]] = []  # sent after the current response
         self.static: Any = None  # ModelStatic, read after each setup (candidates, what-if)
+        # Optimize order: the simulation to run in the loop (optimize_sim), its cancel flag, and a
+        # shutdown that arrived while it ran
+        self.opt_job: dict[str, Any] | None = None
+        self.opt_cancel = False
+        self.exit_after_job = False
 
     def warm_up(self) -> None:
         """Exercise the code paths a client will use (JIT warm-up) before accepting work."""
@@ -342,13 +348,34 @@ class WorkerState:
             self.session.setup(seed=WARM_SEED, rule=WARM_RULE)
         return [[t, p] for t, p in self.session.product_sequence(int(seed), int(count))]
 
+    def op_optimize_sim(self, job_id: str, products: list[list[Any]], strategy: str, mode: str, seed: int,
+                        max_ticks: int) -> dict[str, Any]:
+        """Start one simulation of `products` (in that entry order) with simulate_list; answers at once.
+        The loop runs it in pieces (run_optimize_job) and pushes its progress and result. It sets the
+        session up again: the API restores the session's own setup afterwards (docs/optimize-order.md)."""
+        self._require_configured()
+        self._require_not_running("optimize_sim")
+        if self.opt_job is not None:
+            raise RunStateError("an order simulation is already running on this worker")
+        self.opt_job = {"job_id": str(job_id), "products": [(str(t), int(p)) for t, p in products],
+                        "strategy": str(strategy), "mode": str(mode), "seed": int(seed), "max_ticks": int(max_ticks)}
+        self.opt_cancel = False
+        return {"accepted": True, "job_id": str(job_id)}
+
+    def op_optimize_cancel(self) -> dict[str, Any]:
+        """Cancel the order simulation in progress (it stops at its next piece, <= 1000 ticks)."""
+        running = self.opt_job is not None
+        self.opt_cancel = running
+        return {"cancelled": running}
+
     def op_fail_run(self, reason: str) -> dict[str, Any]:
         """End the current run as failed (the API gave up waiting for the agent)."""
         self.pushes += self.runner.fail(str(reason))
         return self.runner.info()
 
     def op_stop(self) -> dict[str, Any]:
-        """Stop any run (idle); used before the worker is released. Never fails."""
+        """Stop any run (idle) and any order simulation; used before the worker is released. Never fails."""
+        self.opt_cancel = self.opt_job is not None
         self.pushes += self.runner.stop()
         return self.runner.info()
 
@@ -465,6 +492,9 @@ def worker_main(config: WorkerConfig, requests: mp.Queue, outbox: mp.Queue) -> N
                     msg = requests.get_nowait()
                 except queue.Empty:
                     msg = None
+            if running and state.opt_job is not None:
+                run_optimize_job(state, requests, outbox, parent)
+                running = not state.exit_after_job
             if running:
                 _run_block(state, outbox)
             now = time.monotonic()
@@ -486,6 +516,57 @@ def _run_block(state: WorkerState, outbox: mp.Queue) -> None:
         pushes = [("run_error", {"error": f"{type(exc).__name__}: {exc}"[:4000]})] + state.runner.stop()
     for event, data in pushes:
         outbox.put(push_message(event, to_plain(data)))
+
+
+OPT_ALLOWED = ("optimize_cancel", "stop", "ping")
+
+
+def run_optimize_job(state: WorkerState, requests: mp.Queue, outbox: mp.Queue, parent: Any = None) -> None:
+    """Run the pending order simulation with the process priority lowered. Between pieces (on_progress,
+    at least every 1000 ticks, ~1 s) it pushes the progress and serves the requests that arrived:
+    optimize_cancel / stop / ping are served, shutdown ends the job (and then the worker), and any other
+    request is refused, so that no request waits for the whole simulation. After a cancel the remaining
+    requests stay in the queue for the main loop."""
+    job = state.opt_job
+    assert job is not None
+    job_id = job["job_id"]
+
+    def on_progress(ticks: int, done: int, total: int) -> bool:
+        outbox.put(push_message("optimize_sim_progress", {"job_id": job_id, "ticks": int(ticks), "done": int(done),
+                                                          "total": int(total)}))
+        while not state.opt_cancel:
+            try:
+                msg = requests.get_nowait()
+            except queue.Empty:
+                break
+            op = msg.get("op")
+            if op in OPT_ALLOWED:
+                _serve(state, msg, outbox)
+            elif op == "shutdown":
+                outbox.put(ok_response(msg.get("id"), None, 0.0))
+                state.opt_cancel = state.exit_after_job = True
+            else:
+                outbox.put(error_response(msg.get("id"), RunStateError(
+                    f"{op} is not allowed while the worker simulates orders (optimize order); cancel it first"), 0.0))
+        if parent is not None and not parent.is_alive():
+            state.opt_cancel = state.exit_after_job = True
+        return not state.opt_cancel
+
+    procinfo.set_own_priority(low=True)
+    try:
+        result = simulate_list(state.session, job["products"], job["strategy"], job["mode"], job["seed"],
+                               job["max_ticks"], on_progress=on_progress, details=True)
+        outbox.put(push_message("optimize_sim_done", {"job_id": job_id, "result": to_plain(result)}))
+    except Exception as exc:  # noqa: BLE001 - the worker stays alive; the API decides
+        logger.exception("Order simulation failed")
+        outbox.put(push_message("optimize_sim_error", {"job_id": job_id, "error": f"{type(exc).__name__}: {exc}"[:4000]}))
+    finally:
+        procinfo.set_own_priority(low=False)
+        state.opt_job, state.opt_cancel = None, False
+        state.static = None  # the world is the simulated order's until the API sets the session up again
+        pushes, state.pushes = state.pushes, []
+        for event, data in pushes:
+            outbox.put(push_message(event, to_plain(data)))
 
 
 def _serve(state: WorkerState, msg: dict[str, Any], outbox: mp.Queue) -> bool:

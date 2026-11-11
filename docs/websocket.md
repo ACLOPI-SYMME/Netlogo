@@ -13,12 +13,12 @@ The test page `GET /ui` uses everything described here. How to read each field: 
 ## Order of the messages
 
 1. **First, always `snapshot`:** a full picture of the session.
-2. **Then the updates** (`tick`, `progress`, `decision`, `run_state`, `finished`, `run_error`), all after the picture.
+2. **Then the updates** (`tick`, `progress`, `decision`, `run_state`, `finished`, `run_error`, and the `optimize_*` messages of "Optimize order"), all after the picture.
 3. **If the client falls behind** (see "Slow client"): `resync` and then a new `snapshot`.
 4. **If there was nothing to send for 5 s:** `heartbeat`.
 5. **When the session closes:** `closed` with the reason, and the server closes the connection.
 
-Every message is a JSON object with `type`. Those published by the session (`tick`, `progress`, `decision`, `run_state`, `finished`, `run_error`) also carry `seq`, increasing per session and the same for every client. A jump in `seq` means the client lost messages, which only happens before a `resync`. `snapshot.seq` is the last `seq` the picture already includes.
+Every message is a JSON object with `type`. Those published by the session (`tick`, `progress`, `decision`, `run_state`, `finished`, `run_error`, `optimize_*`) also carry `seq`, increasing per session and the same for every client. A jump in `seq` means the client lost messages, which only happens before a `resync`. `snapshot.seq` is the last `seq` the picture already includes.
 
 ## Messages
 
@@ -119,6 +119,23 @@ Scenarios are not available on the platform (`docs/scenarios.md`), so no session
 ```
 
 The run stops (`run_state` goes to `idle`) and the worker stays alive.
+
+### `optimize_progress`, `optimize_best`, `optimize_result`, `optimize_failed`: optimize order
+
+The session's "Optimize order" (`docs/optimize-order.md`). Every one carries `optimization_id`.
+
+```json
+{"type": "optimize_progress", "seq": 38, "optimization_id": "d0b7…", "status": "waiting_ai", "phase": "waiting_ai",
+ "round": 1, "rounds": 1, "simulation": null, "progress_pct": 50.0, "ai_elapsed_s": 4.0, "waited_s": 0.0}
+{"type": "optimize_best", "seq": 17, "optimization_id": "d0b7…", "evaluated": {…}, "best": {…}}
+{"type": "optimize_result", "seq": 75, "optimization_id": "d0b7…", "result": {…}}
+{"type": "optimize_failed", "seq": 75, "optimization_id": "d0b7…", "error": "optimization busy: …", "result": {…}}
+```
+
+- **`optimize_progress`** arrives at the start of each simulation and after each piece of it (≤ 1,000 ticks, about 1 s). While waiting it arrives every second: for the AI it carries `phase: waiting_ai` with `ai_elapsed_s`; for a turn after a 429 it carries `phase: waiting_turn` with `waited_s`.
+- **`optimize_best`** arrives after each simulation: the order just simulated and the best so far.
+- **`optimize_result` / `optimize_failed`** close it. `result` is the same as `GET /sessions/{id}/optimize-order`. `optimize_result` is also sent when an order is applied after the optimization ended.
+- **No resync at the end.** At the end the session is set up again (its order or the applied one), but no `resync` is sent: at tick 0 the plant shows the same. The list in its new order is in `GET /sessions/{id}` (`products`).
 
 ### `resync`: the client lost messages
 

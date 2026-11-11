@@ -143,6 +143,8 @@ HTTP API (FastAPI) over the pool of workers. The contract for Línea A is in `co
 
 What each piece of data produced by the platform means (runs, decisions, metrics, KPIs, events, WebSocket, logs) and how to read it: [`docs/records/README.md`](docs/records/README.md).
 
+"Optimize order" (before running, look for a better entry order of the session's list, with simulations and the AI's proposals): [`docs/optimize-order.md`](docs/optimize-order.md).
+
 **Always a single process with a single uvicorn worker.** Each API process starts its own pool (7 JVMs, ~3.3 GB). That is why `uvicorn --workers N` must not be used: several uvicorn workers or several APIs on the same folder would multiply the JVMs and the memory. A lock file (`results/workers/api.lock`) prevents starting a second instance.
 
 ### On Windows

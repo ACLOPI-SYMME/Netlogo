@@ -31,6 +31,10 @@ An open channel between the platform and whoever is watching a session (the `/ui
 | `resync` | If the client fell behind and messages were dropped, or after a reset | no |
 | `heartbeat` | If 5 s went by without any other message | no |
 | `closed` | When the session is closed (or does not exist); then the connection is cut | no |
+| `optimize_progress` | "Optimize order": every simulation piece (≤ 1,000 ticks), and every second while waiting for the AI or for a turn | yes |
+| `optimize_best` | "Optimize order": after each order simulated | yes |
+| `optimize_result` | "Optimize order" ended (`done` or `cancelled`), or an order was applied after it ended | yes |
+| `optimize_failed` | "Optimize order" ended with `failed` | yes |
 | `scenario_event` | **No longer sent** (scenarios not available, see [scenarios.md](scenarios.md)) | — |
 
 `seq` is a number that increases per session and is the same for every client. A jump in `seq` means messages were lost (it only happens right before a `resync`). Careful: in the `decision` message, `seq` is this number, **not** the operation ([decisions.md](decisions.md#pitfalls)).
@@ -128,6 +132,32 @@ Fast run with decisions:
 - `lag_ms: 15`: the block went out 15 ms after its planned time.
 - `events: []`: nothing happened in those 3 ticks.
 
+**`optimize_progress`, `optimize_best`, `optimize_result`, `optimize_failed`** ("Optimize order", [optimize-order.md](optimize-order.md))
+
+All carry `optimization_id`. Real example (rule 4, 5 products, mode `quick`):
+
+```json
+{"type": "optimize_progress", "seq": 1, "status": "running", "phase": "simulating", "round": 0, "rounds": 1,
+ "simulation": {"label": "Original", "ticks": 0, "done": 0, "total": 5}, "progress_pct": 0.0, "ai_elapsed_s": null, "waited_s": 0.0}
+{"type": "optimize_best", "seq": 17, "evaluated": {"index": 0, "label": "Original", "makespan_ticks": 10005, "…": "…"},
+ "best": {"index": 0, "label": "Original", "makespan_ticks": 10005, "…": "…"}}
+{"type": "optimize_progress", "seq": 38, "status": "waiting_ai", "phase": "waiting_ai", "round": 1, "simulation": null,
+ "progress_pct": 50.0, "ai_elapsed_s": 4.0, "…": "…"}
+{"type": "optimize_result", "seq": 75, "result": {"status": "done", "best": 0, "evaluated": ["…4 orders"], "…": "…"}}
+```
+
+| Field | Meaning |
+|---|---|
+| `status`, `phase` | `running` / `simulating`; `waiting_ai` (the AI is thinking); `waiting_turn` (the AI answered 429) |
+| `round`, `rounds` | Round in progress (0: original and heuristic) and rounds with the AI planned |
+| `simulation` | Order being simulated: `label`, `ticks`, `done` (products finished) and `total` |
+| `progress_pct` | Progress (simulations done, plus the fraction of the current one) |
+| `ai_elapsed_s`, `waited_s` | Seconds the AI has been thinking; seconds waited for a turn, in total |
+| `evaluated`, `best` (`optimize_best`) | The order just simulated, and the best so far (fields of `evaluated[]` in [optimize-order.md](optimize-order.md)) |
+| `result` (`optimize_result`, `optimize_failed`) | The whole record, the same as `GET /sessions/{id}/optimize-order`; `optimize_failed` adds `error` |
+
+In the example: 70 `optimize_progress`, 4 `optimize_best` (one per order) and the `optimize_result` in 61 s.
+
 ## Useful calculations
 
 - **Real speed in live mode** = `rate`; it should be around 32 × `speed`.
@@ -142,4 +172,5 @@ Fast run with decisions:
 - **`kpis` does not come in every `tick`:** only ~once per second. Use the last one received.
 - **The resume `run_state` arrives before the `decision`** of the same decision (in the example, `seq` 4 and 5): the run has already moved on when the decision is published.
 - **After a `resync`, replace everything** (state and event list) with the following `snapshot`.
+- **Optimize order sends no `snapshot` at the end:** the plant at tick 0 looks the same whatever the order. The new order of the list is in `optimize_result` (`result.applied`) and in `GET /sessions/{id}` (`products`).
 - **A client that connects late does not receive earlier decisions**: the `snapshot` does not carry them. They are in the metrics and, at the end, in the saved run.

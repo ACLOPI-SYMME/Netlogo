@@ -28,6 +28,9 @@ The session's parameters and the state of its run. `POST /sessions` returns it w
 | `pending_decisions` | Fast mode: decisions the run is waiting for | count | — |
 | `warnings` | Warnings when the session was created | — | for example `agent_unavailable` (the agent does not answer; live runs will use rule 3) |
 | `product_set_id`, `products_total`, `products_hash` | Product set used, its length and its fingerprint | — | `null` without a set ("Random") |
+| `products` | The session's own copy of the list, in entry order. "Optimize order" → apply changes it (and `products_hash`); the saved set does not change | — | `null` without a set |
+| `optimize_status` | Status of the session's last "Optimize order" | — | `running`, `waiting_ai`, `waiting_turn`, `done`, `cancelled`, `failed`, or `null` |
+| `optimization` | The order applied by "Optimize order", with its estimate ([optimize-order.md](optimize-order.md)) | — | `null` if none was applied |
 | `scenario`, `scenario_summary` | Always S0 and `{applied: 0, skipped: 0}` ([scenarios.md](scenarios.md)) | — | — |
 | `last_run_id` | Last saved run of this session | — | — |
 | `watchers` | Clients connected through the WebSocket | count | — |

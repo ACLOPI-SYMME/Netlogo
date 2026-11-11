@@ -33,6 +33,16 @@ Responses and `push` messages share the output queue, so they arrive in the orde
 
 Operations: `ping`, `setup`, `step`, `state`, `events`, `layout`, `kpis`, `reset`, `export_world`, `import_world`, `shutdown`.
 
+**Optimize order** (`docs/optimize-order.md`):
+
+- **`optimize_sim`** starts one `simulate_list` of a list in a given order and answers at once. The worker runs it in its loop with its priority lowered; the priority is restored at the end.
+- **Between pieces** (≤ 1,000 ticks, about 1 s) the worker:
+  - pushes `optimize_sim_progress` `{job_id, ticks, done, total}`;
+  - answers `optimize_cancel`, `stop` and `ping`;
+  - refuses every other request (`RunStateError`). A `shutdown` ends the job and then the worker.
+- **At the end** it pushes `optimize_sim_done` `{job_id, result}` or `optimize_sim_error`.
+- **Afterwards** the API sets the session up again.
+
 ## Rule: no request lasts more than a few seconds
 
 A worker serves one request at a time. While it runs it cannot answer anything else, so the main process cannot tell "busy" from "hung". Therefore:

@@ -115,11 +115,29 @@ class DecisionNotPending(ApiError):
     status_code, code = 409, "decision_not_pending"
 
 
+class OptimizeNotAllowed(ApiError):
+    """Optimize order is not possible now: the session runs, has no product list, live agent sessions
+    (provisional rule), or there is no optimization to cancel / no candidate to apply (docs/optimize-order.md)."""
+
+    status_code, code = 409, "optimize_not_allowed"
+
+
+class OptimizeTooManyProducts(ApiError):
+    """The session's list is longer than ACLOPI_OPTIMIZE_MAX_PRODUCTS."""
+
+    status_code, code = 422, "optimize_too_many_products"
+
+
+class OptimizationNotFound(ApiError):
+    status_code, code = 404, "optimization_not_found"
+
+
 ERROR_DESCRIPTIONS = {
     401: "Missing or wrong Authorization: Bearer token (unauthorized), when ACLOPI_AGENT_TOKEN is set",
-    404: "Unknown session (session_not_found)",
+    404: "Unknown session (session_not_found); optimize order never started (optimization_not_found)",
     409: "Not allowed in the session's run state (invalid_run_state), e.g. step while running; what-if: "
-         "rule4_required or decision_not_pending",
+         "rule4_required or decision_not_pending; optimize order: optimize_not_allowed",
+    422: "Invalid body; optimize order: optimize_too_many_products",
     410: "Session lost because its worker crashed or hung (session_lost), or closed for inactivity (session_expired)",
     500: "Error inside NetLogo or the worker (simulation_error)",
     503: "Platform starting (platform_starting), no free worker (no_free_worker), worker unavailable "

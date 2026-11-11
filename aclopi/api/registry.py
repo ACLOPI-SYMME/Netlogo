@@ -53,6 +53,7 @@ from aclopi.api.errors import (
 )
 from aclopi.contracts.agent import DECIDE_CONTEXT_FIELDS, DECIDING_STRATEGIES
 from aclopi.api.hub import SessionHub, encode
+from aclopi.api.optimize import OrderOptimization, check_can_optimize, reordered
 from aclopi.api.product_sets import products_hash
 from aclopi.api.results import new_run_id
 from aclopi.api.whatif import WhatIfMetrics
@@ -70,6 +71,8 @@ NOT_PENDING = {"product-finished", "stale-seq", "not-in-machine", "seq-mismatch"
 MAX_DECISION_LOG = 100_000
 RECENT_EVENTS = 500
 MAX_EVENT_LOG = 200_000  # per session; kept for persistence (L5.6)
+# Worker operations allowed while an optimization (optimize order) is active: everything else is a 409.
+OPTIMIZE_OPS = ("optimize_sim", "optimize_cancel", "setup", "stop")
 
 logger = logging.getLogger(__name__)
 
@@ -128,6 +131,13 @@ class SessionRecord:
     # scenario (docs/scenarios.md): {id, params} and the events applied in this run (from tick 0)
     scenario: dict[str, Any] = field(default_factory=lambda: {"id": "S0", "params": {}})
     scenario_events: list[dict[str, Any]] = field(default_factory=list)
+    # optimize order (docs/optimize-order.md): the last optimization, and what was applied (saved with runs)
+    optimizer: Any = None
+    optimization: dict[str, Any] | None = None
+
+    @property
+    def optimizing(self) -> bool:
+        return self.optimizer is not None and self.optimizer.active
 
     @property
     def deciding(self) -> bool:
@@ -156,9 +166,12 @@ class SessionRecord:
             "last_run_id": self.last_run_id,
             "product_set_id": self.product_set_id,
             "products_total": len(self.product_list) if self.product_list is not None else None,
+            "products": self.product_list,
             "products_hash": self.products_hash,
             "scenario": self.scenario,
             "scenario_summary": self.scenario_summary(),
+            "optimize_status": self.optimizer.status if self.optimizer is not None else None,
+            "optimization": self.optimization,
             "lost_reason": self.lost_reason,
             "worker_slot": self.worker_slot,
             "created_at": self.created_at,
@@ -318,10 +331,13 @@ class SessionRegistry:
         logger.info("Session created on worker %s", handle.config.name, extra={"worker": handle.config.name})
         return record
 
-    async def call(self, session_id: str, op: str, touch: bool = True, **args: Any) -> tuple[SessionRecord, Any]:
+    async def call(self, session_id: str, op: str, /, touch: bool = True, **args: Any) -> tuple[SessionRecord, Any]:
         """Run one worker operation for a session, in order with the session's other requests."""
         record = self.get(session_id, touch=touch)
         self._ensure_active(record)
+        if record.optimizing and op not in OPTIMIZE_OPS:
+            raise InvalidRunState("the session is optimizing its entry order; cancel the optimization or wait "
+                                  "until it ends", session_id)
         record.pending += 1
         try:
             async with record.lock:
@@ -358,6 +374,8 @@ class SessionRegistry:
 
     async def delete(self, session_id: str) -> None:
         record = self.get(session_id, touch=False)
+        if record.optimizing:
+            record.optimizer.abort()  # its rounds stop; the worker's simulation stops with "stop" below
         if record.status == "active":
             async with record.lock:
                 if record.status == "active":
@@ -429,10 +447,14 @@ class SessionRegistry:
         record.last_push_mono = time.monotonic()
         return record
 
+    def fast_slots_in_use(self, record: SessionRecord) -> int:
+        """Fast runs and optimizations (optimize order) of other sessions, plus reservations in progress."""
+        return self._fast_reservations + sum(
+            1 for r in self._records.values()
+            if r.status == "active" and r is not record and (r.run_state in FAST_STATES or r.optimizing))
+
     def _check_fast_limit(self, record: SessionRecord) -> None:
-        running = sum(1 for r in self._records.values()
-                      if r.status == "active" and r.run_state in FAST_STATES and r is not record)
-        if running + self._fast_reservations >= self.max_fast_runs:
+        if self.fast_slots_in_use(record) >= self.max_fast_runs:
             raise FastRunLimit(
                 f"{self.max_fast_runs} fast run(s) already in progress (ACLOPI_MAX_FAST_RUNS); "
                 "wait until one finishes or pause it", record.session_id)
@@ -442,6 +464,10 @@ class SessionRegistry:
         if record is None or record.status != "active":
             return
         record.last_push_mono = time.monotonic()
+        if event.startswith("optimize_sim"):
+            if record.optimizer is not None and isinstance(data, dict):
+                record.optimizer.on_push(event, data)
+            return
         hub = record.hub
         # Scenario events first: registered and published before the block's decision requests go out.
         if isinstance(data, dict):
@@ -630,6 +656,7 @@ class SessionRegistry:
             "utilization": kpis.get("utilization"),
             "decisions_summary": metrics,
             "whatif_summary": record.whatif_metrics.as_dict(),
+            "optimization": record.optimization,
         }
         record.run_started_at = None
         record.last_run_id = run["run_id"]
@@ -680,6 +707,11 @@ class SessionRegistry:
     async def refresh_cache(self, session_id: str) -> SessionRecord:
         """Bring the snapshot cache up to date from the worker (without counting as activity)."""
         record = self.get(session_id, touch=False)
+        if record.optimizing:  # the worker simulates other orders: the cache is the session's setup
+            if record.layout is None:
+                raise InvalidRunState("the session is optimizing its entry order; connect again when it ends",
+                                      session_id)
+            return record
         if record.layout is None:
             record, layout = await self.call(session_id, "layout", touch=False)
             record.layout = layout
@@ -733,6 +765,52 @@ class SessionRegistry:
             await self.refresh_cache(record.session_id)
             record.hub.resync_all("reset")
 
+    # ----- optimize order (aclopi.api.optimize, docs/optimize-order.md) -----
+
+    async def start_optimize(self, session_id: str, mode: str, settings: Any) -> OrderOptimization:
+        record = self.get(session_id)
+        self._ensure_active(record)
+        check_can_optimize(self, record, settings)
+        await self.refresh_cache(session_id)  # layout and snapshot of the setup, for clients during the rounds
+        check_can_optimize(self, record, settings)  # again: other requests ran while the cache was read
+        optimizer = OrderOptimization(self, record, settings, mode)
+        record.optimizer = optimizer
+        optimizer.start()
+        logger.info("Optimize order started (%s, %d products, %s)", mode, optimizer.n, optimizer.strategy,
+                    extra={"session_id": session_id})
+        return optimizer
+
+    async def setup_order(self, record: SessionRecord, products: list[dict[str, Any]], order: list[int] | None) -> None:
+        """The session's setup again, with its parameters and `products` in `order` (None: as they are).
+        A new order becomes the session's list (its own copy; the saved set does not change)."""
+        new_list = reordered(products, order)
+        p = record.parameters
+        record, result = await self.call(
+            record.session_id, "setup", seed=int(p["seed"]), rule=int(p["rule"]), modeling_type=p["modeling_type"],
+            horizon_ticks=int(p["horizon_ticks"]), session_id=record.session_id,
+            product_list=[[q["type"], q["priority"]] for q in new_list], scenario=record.scenario)
+        if order is not None:
+            record.product_list = new_list
+            record.products_hash = products_hash(new_list)
+        record.apply_run(result)
+        record.events.clear()
+        record.scenario_events.clear()
+        record.add_scenario_events(result.get("scenario_events"))
+        record.whatif_used.clear()
+        record.state_raw, record.state_tick, record.kpis = None, -1, None
+        record.finished = False
+
+    async def after_optimize_setup(self, record: SessionRecord) -> None:
+        """The snapshot cache again from the session's setup. No resync: at tick 0 the plant shows the
+        same (no products yet) whatever the order, and a resync would drop the optimize_result message."""
+        if record.status != "active" or not len(record.hub):
+            return
+        try:
+            await self.refresh_cache(record.session_id)
+        except Exception as exc:  # noqa: BLE001 - clients resync on their own on the next message
+            logger.warning("Could not refresh the snapshot after optimize order: %s", exc,
+                           extra={"session_id": record.session_id})
+
     # ----- lost and idle sessions -----
 
     def refresh_lost(self) -> None:
@@ -751,8 +829,8 @@ class SessionRegistry:
         for record in list(self._records.values()):
             if record.status != "active":
                 continue
-            if record.running and len(record.hub) > 0:
-                self._touch(record)  # watched while running: counts as activity
+            if (record.running and len(record.hub) > 0) or record.optimizing:
+                self._touch(record)  # watched while running, or optimizing its order: counts as activity
                 continue
             if (record.pending == 0 and not record.lock.locked()
                     and now - record.last_activity_mono > self.idle_timeout_s):

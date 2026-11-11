@@ -120,15 +120,15 @@
 
   /* ----- session workbench ----- */
   /* the controls are a menu bar across the top; below, the figure with the readouts beside it */
-  #page-session { grid-template-columns: minmax(0, 1fr); grid-template-areas: "setup" "run" "figure" "readouts" "decisions" "events"; }
+  #page-session { grid-template-columns: minmax(0, 1fr); grid-template-areas: "setup" "optimize" "run" "figure" "readouts" "decisions" "events"; }
   #setup { grid-area: setup; } #run-panel { grid-area: run; } .figure { grid-area: figure; } #readouts { grid-area: readouts; }
   #decisions-panel { grid-area: decisions; } #events-panel { grid-area: events; }
   @media (min-width: 1100px) {
     #page-session { grid-template-columns: minmax(9.5rem, 11rem) minmax(0, 1fr) minmax(17rem, 22rem);
-                    grid-template-areas: "setup setup setup" "run figure readouts" "decisions decisions events"; align-items: start; }
+                    grid-template-areas: "setup setup setup" "optimize optimize optimize" "run figure readouts" "decisions decisions events"; align-items: start; }
   }
   @media (min-width: 1100px) and (max-width: 1400px) {
-    #page-session { grid-template-areas: "setup setup setup" "run figure readouts" "decisions decisions decisions" "events events events"; }
+    #page-session { grid-template-areas: "setup setup setup" "optimize optimize optimize" "run figure readouts" "decisions decisions decisions" "events events events"; }
   }
 
   /* menu bar: one band per group (Setup, Run), label on the left, controls in a row */
@@ -179,6 +179,28 @@
 
   #events { height: 15rem; overflow-y: auto; font: 400 var(--step--1)/1.5 var(--font-mono); font-variant-numeric: tabular-nums;
             background: var(--paper); border: var(--rule-w) solid var(--rule); padding: var(--s2); white-space: pre; }
+
+  /* ----- optimize order ----- */
+  #optimize-panel { grid-area: optimize; }
+  #optimize-panel .head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2) var(--s4); }
+  #optimize-panel .head h2 { margin: 0; }
+  .seq { display: flex; flex-wrap: wrap; gap: 3px; align-items: center; }
+  .seq .type-dot { margin-right: 0; }
+  .opt-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--s3) var(--s4); margin-top: var(--s3); }
+  @media (min-width: 900px) { .opt-grid { grid-template-columns: minmax(16rem, 22rem) minmax(0, 1fr); align-items: start; } }
+  .meter { height: 8px; background: var(--panel-2); border: var(--rule-w) solid var(--rule); margin: var(--s2) 0; }
+  .meter span { display: block; height: 100%; background: var(--accent); transition: width .15s ease-out; }
+  #opt-best { border: var(--rule-w) solid var(--rule-2); border-radius: var(--radius); padding: var(--s3); background: var(--paper); }
+  #opt-best .big { display: block; }
+  .saving.pos { color: var(--ok, #2f7d32); } .saving.neg { color: var(--err); }
+  table.opt td { white-space: nowrap; }
+  table.opt tr.best td { background: var(--accent-soft); }
+  table.opt tr.applied td:first-child { font-weight: 600; }
+  table.opt details summary { cursor: pointer; color: var(--ink-2); }
+  table.opt details .seq { margin-top: 4px; white-space: normal; max-width: 26rem; }
+  #opt-why { font-size: var(--step--1); line-height: 1.5; }
+  #opt-why:empty { display: none; }
+  #opt-note { font-size: var(--step--1); color: var(--ink-2); font-style: italic; margin-top: var(--s2); }
 
   /* ----- tables ----- */
   .table-wrap { overflow-x: auto; border: var(--rule-w) solid var(--rule); border-radius: var(--radius); background: var(--paper); }
@@ -231,7 +253,7 @@
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
   @media print {
     :root { --paper: #fff; --panel: #fff; }
-    nav.tabs, #setup, #run-panel, button, #agent-banner { display: none !important; }
+    nav.tabs, #setup, #run-panel, button, #agent-banner, #opt-progress { display: none !important; }
     #page-session { grid-template-columns: 1fr; grid-template-areas: "figure" "readouts" "decisions"; }
   }
 </style>
@@ -281,6 +303,33 @@
           <button id="seed-copy" class="ghost" title="Copy the seed">Copy</button></span>
       </div>
     </div>
+  </div>
+
+  <div id="optimize-panel" class="panel" hidden>
+    <div class="head">
+      <h2><span class="sec">§1b</span>Optimize order</h2>
+      <span class="label">Entry order of the session</span><div id="opt-list" class="seq"></div>
+    </div>
+    <div class="row" style="margin-top: var(--s2)">
+      <span class="label">Look for a better order</span>
+      <button id="opt-quick" title="1 round with the AI, quick reasoning">Quick (~1 min)</button>
+      <button id="opt-full" title="2 rounds with the AI, deeper reasoning">Full (~3 min)</button>
+      <button id="opt-cancel" class="ghost" hidden>✕ Cancel</button>
+      <span id="opt-blocked" class="err"></span>
+    </div>
+    <div id="opt-progress" hidden>
+      <div class="meter"><span id="opt-bar" style="width:0%"></span></div>
+      <div id="opt-progress-text" class="mono" aria-live="polite"></div>
+    </div>
+    <div class="opt-grid" id="opt-results" hidden>
+      <div id="opt-best"></div>
+      <div>
+        <div class="table-wrap"><table class="set opt"><thead><tr><th>Origin</th><th>Estimated time</th><th>Saving</th>
+          <th>Order</th><th></th></tr></thead><tbody id="opt-rows"></tbody></table></div>
+        <div id="opt-why"></div>
+      </div>
+    </div>
+    <p id="opt-note" hidden></p>
   </div>
 
   <div id="run-panel" class="panel" role="toolbar" aria-label="Run controls">
@@ -518,11 +567,14 @@ function showRun(info) {
   const reason = info.reason ?? info.run_reason;
   if (info.run_state === "failed" && reason === "agent_unavailable") msg("Agent not available: the run stopped", true);
   if (info.run_state === "finished" && reason === "all_products_done") msg("Every product of the set is finished");
+  if (info.session_id) sessionInfo = info;
+  renderOptimize();
 }
 async function createSession(body) {
   if (sid) { await api("DELETE", `/sessions/${sid}`).catch(() => {}); }
   const info = await api("POST", "/sessions", body);
-  sessionInfo = info; sid = info.session_id;
+  sessionInfo = info; sid = info.session_id; optState = null; clearInterval(optPoll); optPoll = null;
+  $("opt-blocked").textContent = ""; $("opt-blocked").dataset.api = "";
   $("sid").textContent = sid.slice(0, 8); $("sid").title = sid;
   $("seed-value").textContent = info.parameters.seed + (info.seed_source === "random" ? " (random)" : "");
   $("seed-used").hidden = false;
@@ -561,6 +613,7 @@ $("close").onclick = () => act(async () => {
   requireSession();
   await api("DELETE", `/sessions/${sid}`);
   sid = null; $("sid").textContent = "–"; $("list-progress").textContent = "–"; disconnect();
+  optState = null; clearInterval(optPoll); optPoll = null; renderOptimize();
 });
 document.addEventListener("keydown", e => {  // space: pause / resume
   if (e.code !== "Space" || !sid || e.target.closest("input, select, textarea, button")) return;
@@ -640,6 +693,14 @@ function handle(m) {
       layout = m.layout; frames = []; events = []; $("events").innerHTML = "";
       showRun(m.session); $("tick").textContent = m.tick; showKpis(m.kpis);
       addEvents(m.recent_events || []); addFrame(m.tick, m.state); resizeCanvas(); break;
+    case "optimize_progress":
+      if (optState && optState.optimization_id === m.optimization_id) {
+        Object.assign(optState, {status: m.status, round: m.round, current: m.simulation, progress_pct: m.progress_pct,
+                                 ai_elapsed_s: m.ai_elapsed_s, waited_s: m.waited_s});
+        renderOptimize();
+      } else refreshOptimize();
+      break;
+    case "optimize_best": case "optimize_result": case "optimize_failed": refreshOptimize(); break;
     case "tick":
       $("tick").textContent = m.tick; $("rate").textContent = m.rate ? `${Math.round(m.rate)}/s` : "–";
       addFrame(m.tick, m.state); addEvents(m.events); showKpis(m.kpis); break;
@@ -654,6 +715,132 @@ function handle(m) {
     case "closed": msg(`Session closed: ${m.code} – ${m.reason}`, true); break;
   }
 }
+
+// ----- optimize order (docs/optimize-order.md) -----
+let optState = null, optFetching = false, optPoll = null;
+const OPT_ACTIVE = ["running", "waiting_turn", "waiting_ai"];
+const seqDots = (products, order) => `<span class="seq">${(order ?? products.map((_, i) => i)).map(i => {
+  const p = products[i] || {}; const id = itemId(asItem(p));
+  return `<span title="${esc((id ? id + " · " : "") + p.type)}">${typeDot(p.type)}</span>`; }).join("")}</span>`;
+const ut = v => v === null || v === undefined ? "–" : Number(v).toFixed(1);
+function savingText(c) {
+  if (c.saving_time === null || c.saving_time === undefined) return "–";
+  const cls = c.saving_time > 0 ? "pos" : c.saving_time < 0 ? "neg" : "";
+  return `<span class="saving ${cls}">${c.saving_time > 0 ? "−" : c.saving_time < 0 ? "+" : ""}${ut(Math.abs(c.saving_time))} u.t. (${c.saving_pct > 0 ? "−" : c.saving_pct < 0 ? "+" : ""}${Math.abs(c.saving_pct)} %)</span>`;
+}
+const ORIGIN_WHY = {
+  original: "Your order was already the fastest of the orders tested: keep it.",
+  heuristic: "Heuristic (longest first): products with more operations enter first (A, B, L; then E; then I, P, T), alternating types so the same type rarely enters twice in a row.",
+};
+function optNotice() {
+  const rule = sessionInfo ? sessionInfo.parameters.rule : 3;
+  return rule === 4
+    ? "Estimate in deterministic mode, with a single seed and a simple rule (b1b) as an approximation of the agent. The real saving may vary."
+    : `Estimate in deterministic mode, with a single seed and the session's rule (rule ${rule}). The real saving may vary.`;
+}
+function optCanStart() {
+  if (!sessionInfo || !sessionInfo.products_total) return "Optimize order needs a product list (choose one in Product set).";
+  if (optState && OPT_ACTIVE.includes(optState.status)) return "";
+  if (runState !== "idle" || (sessionInfo.ticks ?? 0) > 0) return "Only before running: reset the session first.";
+  return null;  // can start
+}
+function renderOptimize() {
+  const has = !!(sessionInfo && sessionInfo.products_total);
+  $("optimize-panel").hidden = !sid || !has;
+  if (!sid || !has) return;
+  $("opt-list").innerHTML = seqDots(sessionInfo.products || []);
+  const active = !!(optState && OPT_ACTIVE.includes(optState.status));
+  const why = optCanStart();
+  $("opt-quick").disabled = $("opt-full").disabled = active || why !== null;
+  if (!active && why) $("opt-blocked").textContent = why;
+  else if (!active && $("opt-blocked").dataset.api !== "1") $("opt-blocked").textContent = "";
+  $("opt-cancel").hidden = !active;
+  for (const b of ["live", "fast", "reset"]) $(b).disabled = active;
+  $("opt-progress").hidden = !active;
+  const o = optState;
+  if (!o) { $("opt-results").hidden = true; $("opt-note").hidden = true; return; }
+  if (active) {
+    $("opt-bar").style.width = `${o.progress_pct}%`;
+    let text = `Round ${o.round} of ${o.rounds} · `;
+    if (o.status === "waiting_ai") text += `The AI is thinking… ${Math.round(o.ai_elapsed_s ?? 0)} s`;
+    else if (o.status === "waiting_turn") text += `Waiting for a turn at the AI… ${Math.round(o.waited_s)} s`;
+    else if (o.current) text += `simulating ${o.current.label}: ${o.current.done}/${o.current.total} products done (tick ${o.current.ticks})`;
+    else text += "starting…";
+    $("opt-progress-text").textContent = text;
+  }
+  $("opt-results").hidden = !o.evaluated.length;
+  const best = o.best !== null ? o.evaluated[o.best] : null;
+  const canApply = !active ? (runState === "idle" && (sessionInfo.ticks ?? 0) === 0) : true;
+  $("opt-best").innerHTML = best ? `<span class="label">${active ? "Best order found so far" : "Best order found"}</span>
+      <span class="big">${ut(best.makespan_time)}<small> u.t.</small></span>
+      <span class="mono muted">${best.makespan_ticks} ticks · ${esc(best.label)}</span><br>
+      <span>Saving: ${savingText(best)}</span>
+      <div style="margin: var(--s2) 0">${seqDots(o.products, best.order)}</div>
+      ${o.applied === best.index ? `<b>✓ Applied</b>` : `<button id="opt-use-best" class="primary" ${canApply ? "" : "disabled"}>Use this</button>`}`
+    : `<span class="muted">No complete simulation yet${o.evaluated.length ? " (the horizon is too short for the list)" : ""}.</span>`;
+  if ($("opt-use-best")) $("opt-use-best").onclick = () => applyOrder(best.index);
+  const rows = o.evaluated.map(c => `<tr class="${c.index === o.best ? "best" : ""} ${c.index === o.applied ? "applied" : ""}">
+      <td>${esc(c.label)}${c.index === o.applied ? " ✓" : ""}</td>
+      <td class="num">${c.all_done ? `${ut(c.makespan_time)} u.t. <span class="muted">(${c.makespan_ticks})</span>` : `<span class="muted">not done by the horizon</span>`}</td>
+      <td class="num">${savingText(c)}</td>
+      <td><details><summary>view order</summary>${seqDots(o.products, c.order)}</details></td>
+      <td>${c.index === o.applied ? "" : `<button data-apply="${c.index}" ${canApply ? "" : "disabled"}>Use this order</button>`}</td></tr>`);
+  const dropped = o.discarded.map(d => `<tr class="muted"><td>${esc(d.label)}</td><td colspan="4">${d.reason === "invalid"
+      ? "discarded: not a complete order" : `discarded: same as ${esc(d.same_as)}`}</td></tr>`);
+  $("opt-rows").innerHTML = rows.concat(dropped).join("");
+  $("opt-rows").querySelectorAll("button[data-apply]").forEach(b => b.onclick = () => applyOrder(+b.dataset.apply));
+  let whyText = "";
+  if (best && !active) {
+    whyText = best.origin === "ai" ? `<b>Why (AI):</b> ${esc(best.reasoning || "–")}${best.analysis ? `<br><span class="muted">Analysis of round ${best.round}: ${esc(best.analysis)}</span>` : ""}`
+      : `<b>Why:</b> ${esc(ORIGIN_WHY[best.origin])}`;
+  }
+  if (o.warning) whyText += `${whyText ? "<br>" : ""}<span class="err">${esc(o.warning)}</span>`;
+  if (o.status === "failed") whyText += `${whyText ? "<br>" : ""}<span class="err">Optimization failed: ${esc(o.error || "")}</span>`;
+  if (o.status === "cancelled") whyText += `${whyText ? "<br>" : ""}<span class="muted">Cancelled: the session keeps its order.</span>`;
+  $("opt-why").innerHTML = whyText;
+  $("opt-note").hidden = false; $("opt-note").textContent = optNotice();
+}
+async function refreshOptimize() {
+  if (!sid || optFetching) return;
+  optFetching = true;
+  try {
+    const r = await fetch(`/sessions/${sid}/optimize-order`);
+    optState = r.ok ? await r.json() : null;
+  } catch (e) {} finally { optFetching = false; }
+  if (optState && !OPT_ACTIVE.includes(optState.status)) {
+    clearInterval(optPoll); optPoll = null;
+    try { sessionInfo = await api("GET", `/sessions/${sid}`); showRun(sessionInfo); } catch (e) {}
+  }
+  renderOptimize();
+}
+async function startOptimize(mode) {
+  if (!sid) return;
+  $("opt-blocked").textContent = ""; $("opt-blocked").dataset.api = "";
+  try {
+    optState = await api("POST", `/sessions/${sid}/optimize-order`, {mode});
+    clearError();
+    clearInterval(optPoll); optPoll = setInterval(refreshOptimize, 2000);  // backup of the WebSocket messages
+  } catch (e) {  // blocked: provisional rule (live agent runs), fast-run quota, list too long, not idle…
+    $("opt-blocked").textContent = (e.data && e.data.detail) || e.message; $("opt-blocked").dataset.api = "1";
+  }
+  renderOptimize();
+}
+async function applyOrder(index) {
+  try {
+    const out = await api("POST", `/sessions/${sid}/apply-order`, {candidate: index});
+    sessionInfo = out.session; optState = out.optimization; showRun(sessionInfo); clearError();
+    const c = optState.evaluated[index];
+    msg(`Order applied (${c.label}): estimated ${ut(c.makespan_time)} u.t.; the session is ready to run`);
+  } catch (e) { msg(e.message, true); refreshOptimize(); }
+  renderOptimize();
+}
+$("opt-quick").onclick = () => startOptimize("quick");
+$("opt-full").onclick = () => startOptimize("full");
+$("opt-cancel").onclick = () => act(async () => {
+  $("opt-cancel").disabled = true;
+  try { optState = await api("POST", `/sessions/${sid}/optimize-order/cancel`); } finally { $("opt-cancel").disabled = false; }
+  renderOptimize();
+});
 
 // ----- decisions: live panel (WebSocket "decision") and a saved run's decisions (GET /runs/{id}/decisions) -----
 const MAX_LIVE_DECISIONS = 50, RUN_DECISIONS_PAGE = 50, REASON_CHARS = 60;

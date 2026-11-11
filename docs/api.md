@@ -60,6 +60,10 @@ If the startup fails, the JSON log says which worker failed and why. Then the po
 | `POST /sessions/{id}/what-if` | Tests 2 assignments of a decision in copies of the simulation, within `budget_ms` (10 s by default, 2 to 15 s; the agent computes it from its decision deadline: from M2–M7 ~10 s fits, from M1 it does not fit together with the LLM calls). Rule 4 only; `docs/whatif.md` |
 | `GET /sessions/{id}/metrics` | Session metrics: what-if (`whatif`) and decisions (`decisions`, L5.5) |
 | `POST /sessions/{id}/next-machine` | The agent's decision for a pending request (rule 4; `docs/agent-api.md`) |
+| `POST /sessions/{id}/optimize-order` | "Optimize order": `{"mode": "quick" \| "full"}`, 202. Simulates the original order, the heuristic and the AI's proposals, on the session's worker (`docs/optimize-order.md`) |
+| `GET /sessions/{id}/optimize-order` | State, progress and results of the last optimization |
+| `POST /sessions/{id}/optimize-order/cancel` | Stops it; the session stays as it was |
+| `POST /sessions/{id}/apply-order` | `{"candidate": i}`: stops the rounds left and sets the session up again with that order |
 
 **Results (L5.7).**
 - Each run is saved when it finishes, fails or is stopped, in memory or in DynamoDB depending on `ACLOPI_DYNAMODB_ENDPOINT` / `ACLOPI_RESULTS_STORE`.
@@ -149,14 +153,17 @@ The body is `{"code": ..., "detail": ..., "session_id": ...}`. The exception is 
 | HTTP | `code` | When |
 |---|---|---|
 | 404 | `session_not_found` | Unknown id or session already deleted |
-| 409 | `invalid_run_state` | The request is not allowed in the run's state (e.g. `step` while it runs) |
+| 409 | `invalid_run_state` | The request is not allowed in the run's state (e.g. `step` while it runs, or anything but `DELETE` while the session optimizes its order) |
+| 409 | `optimize_not_allowed` | Optimize order: the session is not idle at tick 0, has no list, already optimizes, or live agent sessions run (provisional rule) |
+| 404 | `optimization_not_found` | `GET`, `cancel` or `apply-order` without a previous `POST optimize-order` |
+| 422 | `optimize_too_many_products` | Optimize order: more than `ACLOPI_OPTIMIZE_MAX_PRODUCTS` products |
 | 410 | `session_lost` | The session's worker crashed or hung. `detail` gives the reason |
 | 410 | `session_expired` | The session was closed for inactivity |
 | 422 | – | Invalid parameters (`n` outside 1–2000, rule, modelling type, extra fields, more than 30 products) |
 | 500 | `simulation_error` | NetLogo or worker error, with its message. The worker stays alive |
 | 503 | `platform_starting` | The platform is starting |
 | 503 | `no_free_worker` | Every session worker is busy |
-| 503 | `fast_run_limit` | There are already `ACLOPI_MAX_FAST_RUNS` fast runs in progress |
+| 503 | `fast_run_limit` | There are already `ACLOPI_MAX_FAST_RUNS` fast runs or optimizations in progress (an optimization counts as a fast run) |
 | 503 | `worker_unavailable` | The worker crashed during the creation, or the platform is not ready (`failed` or `stopping`) |
 | 504 | `worker_timeout` | The worker did not answer in time. The pool restarts it and the session is lost, so the next request gives 410 |
 
@@ -199,6 +206,11 @@ A session with a request in progress never closes.
 | `ACLOPI_FAST_BLOCK_TICKS` | `1000` | Ticks per fast-mode block |
 | `ACLOPI_FAST_YIELD` | `0` | Pause between fast blocks, as a fraction of the block's time |
 | `ACLOPI_WS_QUEUE` | `32` | Queued messages per WebSocket client before resynchronising it |
+| `ACLOPI_OPTIMIZE_ROUNDS_FULL` | `2` | Optimize order: rounds with the AI in `full` (`quick`: 1) |
+| `ACLOPI_OPTIMIZE_MAX_PRODUCTS` | `50` | Optimize order: longest list (422 above) |
+| `ACLOPI_OPTIMIZE_BLOCK_WHEN_LIVE_AGENT` | `1` | Optimize order: provisional rule, refused while live agent sessions run (`0` removes it) |
+| `ACLOPI_OPTIMIZE_MAX_WAIT_S` | `300` | Optimize order: total wait for a turn at the AI (429) before failing |
+| `ACLOPI_OPTIMIZE_AI_TIMEOUT_S` | `90` | Optimize order: timeout of each `POST /sequence/propose` |
 
 ## Logs
 

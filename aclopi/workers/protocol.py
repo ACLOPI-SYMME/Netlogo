@@ -33,6 +33,13 @@ Pushes of a continuous run (data are plain dicts; "state" is platform-state as J
     finished  {tick, kpis}                           the run reached the horizon
     run_error {error}                                a block failed; the run stops (idle)
 
+Pushes of an order simulation ("optimize_sim", docs/optimize-order.md). It runs in the worker's loop
+like a run: simulate_list in pieces of at most 1000 ticks; between pieces the worker answers
+"optimize_cancel", "stop" and "ping" and refuses every other request (RunStateError):
+    optimize_sim_progress {job_id, ticks, done, total}   at least every 1000 ticks
+    optimize_sim_done     {job_id, result}               simulate_list's answer (cancelled: True if cancelled)
+    optimize_sim_error    {job_id, error}
+
 Diagnostic operations ("command", "report") run arbitrary NetLogo code. They exist only for tests
 and diagnostics, are refused unless the pool is created with debug=True, and must NEVER be exposed
 by the API.
@@ -56,6 +63,8 @@ OPS = (
     "next_machine", "fail_run",
     # Product sets (L5.6): the fixed sequence of a seed ("Generate from seed")
     "product_sequence",
+    # Optimize order: start one simulation of a list in a given order (answers at once) and cancel it
+    "optimize_sim", "optimize_cancel",
 )
 # Diagnostic operations: only with debug=True; never exposed by the API.
 DEBUG_OPS = ("command", "report")
@@ -87,6 +96,8 @@ OP_TIMEOUTS_S: dict[str, float] = {
     "next_machine": 10.0,
     "fail_run": 10.0,
     "product_sequence": 10.0,
+    "optimize_sim": 10.0,
+    "optimize_cancel": 10.0,
 }
 
 # Continuous runs: the API's watchdog treats a running session that sends no push for this long

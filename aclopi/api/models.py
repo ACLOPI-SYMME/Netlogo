@@ -175,10 +175,14 @@ class SessionInfo(BaseModel):
     products_total: int | None = Field(None, description="Length of the session's product list (None: generated "
                                                          "from the seed, as before)")
     products_hash: str | None = Field(None, description="sha256 of the session's product list")
+    products: list[ProductItem] | None = Field(None, description="The session's own copy of the list, in entry order "
+                                                                 "(apply-order changes it; the saved set does not change)")
     scenario: ScenarioRef = Field(default_factory=lambda: ScenarioRef(id="S0", params={}))
     scenario_summary: ScenarioSummary = Field(default_factory=ScenarioSummary,
                                               description="Scenario events of this run: applied and skipped")
     last_run_id: str | None = Field(None, description="Last run of this session saved to the results store")
+    optimize_status: str | None = Field(None, description="Status of the session's last optimize order, if any")
+    optimization: "AppliedOptimization | None" = Field(None, description="The order applied by optimize order")
     mode: Literal["live", "fast"] | None = Field(description="Mode of the current or paused run")
     speed: float | None = Field(description="Live speed factor of the current or paused run")
     watchers: int = Field(description="WebSocket clients connected to /ws/sessions/{id}")
@@ -421,6 +425,8 @@ class RunRecord(BaseModel):
     kpis: dict[str, Any]
     decisions_summary: dict[str, Any] | None = None
     whatif_summary: dict[str, Any] | None = None
+    optimization: AppliedOptimization | None = Field(None, description="Optimize order applied before the run: "
+                                                                       "estimated makespan and saving")
 
 
 class RunPage(BaseModel):
@@ -472,5 +478,118 @@ class ErrorBody(BaseModel):
     detail: str
     session_id: str | None = None
 
+
+# ----- optimize order (docs/optimize-order.md) -----
+
+OptimizeStatus = Literal["running", "waiting_turn", "waiting_ai", "done", "cancelled", "failed"]
+
+
+class OptimizeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    mode: Literal["quick", "full"] = Field(description='quick: reasoning "none", 1 round with the AI (~1 min); '
+                                                      'full: reasoning "medium", ACLOPI_OPTIMIZE_ROUNDS_FULL rounds (~3 min)')
+
+
+class ApplyOrderRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    candidate: int = Field(ge=0, description="index of an evaluated order (GET .../optimize-order: evaluated[].index)")
+
+
+class OptimizeCandidate(BaseModel):
+    index: int
+    origin: Literal["original", "heuristic", "ai"]
+    round: int = Field(description="0: original and heuristic; 1..N: the AI's rounds")
+    label: str = Field(description='"Original", "Heuristic" or "AI round k · i"')
+    order: list[int] = Field(description="permutation of the positions of the session's list at the start")
+    types: str = Field(description="product types in that order, e.g. ABIE")
+    makespan_ticks: int | None = None
+    makespan_time: float | None = Field(None, description="u.t.")
+    all_done: bool
+    saving_time: float | None = Field(None, description="u.t. saved against the original (negative: worse)")
+    saving_pct: float | None = None
+    reasoning: str | None = None
+    analysis: str | None = Field(None, description="the AI's analysis of its round")
+    wall_s: float | None = None
+
+
+class OptimizeDiscarded(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    origin: str
+    round: int
+    label: str
+    order: list[Any] | None = None
+    reason: Literal["invalid", "same_as"]
+    same_as: str | None = None
+    reasoning: str | None = None
+
+
+class OptimizeRound(BaseModel):
+    round: int
+    analysis: str | None = None
+    latency_ms: float | None = None
+    error: str | None = None
+
+
+class Optimization(BaseModel):
+    optimization_id: str
+    session_id: str
+    status: OptimizeStatus
+    mode: Literal["quick", "full"]
+    reasoning_effort: str
+    round: int = Field(description="round in progress or last one (0: original and heuristic)")
+    rounds: int = Field(description="rounds with the AI planned")
+    progress_pct: float
+    current: dict[str, Any] | None = Field(None, description="simulation in progress: label, ticks, done, total")
+    ai_elapsed_s: float | None = Field(None, description="seconds the AI has been thinking (waiting_ai)")
+    waited_s: float = Field(description="seconds waited for a turn at the AI (429)")
+    strategy: str = Field(description="simulate_list strategy: rule1-rule3, b1 or b1b")
+    simulation_mode: str
+    seed: int
+    max_ticks: int
+    products: list[ProductItem] = Field(description="the session's list at the start (the orders index it)")
+    evaluated: list[OptimizeCandidate]
+    discarded: list[OptimizeDiscarded]
+    rounds_info: list[OptimizeRound]
+    best: int | None = Field(None, description="index of the order with the lowest makespan")
+    warning: str | None = None
+    error: str | None = None
+    applied: int | None = Field(None, description="index of the order applied (apply-order)")
+    stopped_early: bool
+    started_at: float
+    finished_at: float | None = None
+
+
+class AppliedOptimization(BaseModel):
+    """Saved in the session and in its runs when an order is applied: the estimate next to the real run."""
+
+    model_config = ConfigDict(extra="allow")
+
+    optimized: bool
+    mode: str
+    order: list[int]
+    origin: str
+    label: str | None = None
+    round: int | None = None
+    estimated_makespan_ticks: int | None = None
+    estimated_makespan_time: float | None = None
+    estimated_saving_time: float | None = None
+    estimated_saving_pct: float | None = None
+    estimate_strategy: str | None = None
+    estimate_mode: str | None = None
+    optimization_id: str | None = None
+
+
+class ApplyOrderResponse(BaseModel):
+    session: SessionInfo
+    products: list[ProductItem] = Field(description="the session's list in its new entry order")
+    optimization: Optimization
+
+
+SessionInfo.model_rebuild()
+RunRecord.model_rebuild()
+ApplyOrderResponse.model_rebuild()
 
 STEP_N_DESCRIPTION = f"Ticks to advance, 1..{MAX_STEP_TICKS}"

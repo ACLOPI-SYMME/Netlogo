@@ -68,6 +68,179 @@
         "title": "AgentHealth",
         "type": "object"
       },
+      "AppliedOptimization": {
+        "additionalProperties": true,
+        "description": "Saved in the session and in its runs when an order is applied: the estimate next to the real run.",
+        "properties": {
+          "estimate_mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estimate Mode"
+          },
+          "estimate_strategy": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estimate Strategy"
+          },
+          "estimated_makespan_ticks": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estimated Makespan Ticks"
+          },
+          "estimated_makespan_time": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estimated Makespan Time"
+          },
+          "estimated_saving_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estimated Saving Pct"
+          },
+          "estimated_saving_time": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estimated Saving Time"
+          },
+          "label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
+          },
+          "mode": {
+            "title": "Mode",
+            "type": "string"
+          },
+          "optimization_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Optimization Id"
+          },
+          "optimized": {
+            "title": "Optimized",
+            "type": "boolean"
+          },
+          "order": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Order",
+            "type": "array"
+          },
+          "origin": {
+            "title": "Origin",
+            "type": "string"
+          },
+          "round": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Round"
+          }
+        },
+        "required": [
+          "optimized",
+          "mode",
+          "order",
+          "origin"
+        ],
+        "title": "AppliedOptimization",
+        "type": "object"
+      },
+      "ApplyOrderRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "candidate": {
+            "description": "index of an evaluated order (GET .../optimize-order: evaluated[].index)",
+            "minimum": 0.0,
+            "title": "Candidate",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "candidate"
+        ],
+        "title": "ApplyOrderRequest",
+        "type": "object"
+      },
+      "ApplyOrderResponse": {
+        "properties": {
+          "optimization": {
+            "$ref": "#/components/schemas/Optimization"
+          },
+          "products": {
+            "description": "the session's list in its new entry order",
+            "items": {
+              "$ref": "#/components/schemas/ProductItem-Output"
+            },
+            "title": "Products",
+            "type": "array"
+          },
+          "session": {
+            "$ref": "#/components/schemas/SessionInfo"
+          }
+        },
+        "required": [
+          "session",
+          "products",
+          "optimization"
+        ],
+        "title": "ApplyOrderResponse",
+        "type": "object"
+      },
       "Body_parse_product_csv_product_sets_parse_csv_post": {
         "properties": {
           "file": {
@@ -940,6 +1113,487 @@
         "title": "NextMachineResponse",
         "type": "object"
       },
+      "Optimization": {
+        "properties": {
+          "ai_elapsed_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "seconds the AI has been thinking (waiting_ai)",
+            "title": "Ai Elapsed S"
+          },
+          "applied": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "index of the order applied (apply-order)",
+            "title": "Applied"
+          },
+          "best": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "index of the order with the lowest makespan",
+            "title": "Best"
+          },
+          "current": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "simulation in progress: label, ticks, done, total",
+            "title": "Current"
+          },
+          "discarded": {
+            "items": {
+              "$ref": "#/components/schemas/OptimizeDiscarded"
+            },
+            "title": "Discarded",
+            "type": "array"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "evaluated": {
+            "items": {
+              "$ref": "#/components/schemas/OptimizeCandidate"
+            },
+            "title": "Evaluated",
+            "type": "array"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "max_ticks": {
+            "title": "Max Ticks",
+            "type": "integer"
+          },
+          "mode": {
+            "enum": [
+              "quick",
+              "full"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "optimization_id": {
+            "title": "Optimization Id",
+            "type": "string"
+          },
+          "products": {
+            "description": "the session's list at the start (the orders index it)",
+            "items": {
+              "$ref": "#/components/schemas/ProductItem-Output"
+            },
+            "title": "Products",
+            "type": "array"
+          },
+          "progress_pct": {
+            "title": "Progress Pct",
+            "type": "number"
+          },
+          "reasoning_effort": {
+            "title": "Reasoning Effort",
+            "type": "string"
+          },
+          "round": {
+            "description": "round in progress or last one (0: original and heuristic)",
+            "title": "Round",
+            "type": "integer"
+          },
+          "rounds": {
+            "description": "rounds with the AI planned",
+            "title": "Rounds",
+            "type": "integer"
+          },
+          "rounds_info": {
+            "items": {
+              "$ref": "#/components/schemas/OptimizeRound"
+            },
+            "title": "Rounds Info",
+            "type": "array"
+          },
+          "seed": {
+            "title": "Seed",
+            "type": "integer"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "simulation_mode": {
+            "title": "Simulation Mode",
+            "type": "string"
+          },
+          "started_at": {
+            "title": "Started At",
+            "type": "number"
+          },
+          "status": {
+            "enum": [
+              "running",
+              "waiting_turn",
+              "waiting_ai",
+              "done",
+              "cancelled",
+              "failed"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "stopped_early": {
+            "title": "Stopped Early",
+            "type": "boolean"
+          },
+          "strategy": {
+            "description": "simulate_list strategy: rule1-rule3, b1 or b1b",
+            "title": "Strategy",
+            "type": "string"
+          },
+          "waited_s": {
+            "description": "seconds waited for a turn at the AI (429)",
+            "title": "Waited S",
+            "type": "number"
+          },
+          "warning": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Warning"
+          }
+        },
+        "required": [
+          "optimization_id",
+          "session_id",
+          "status",
+          "mode",
+          "reasoning_effort",
+          "round",
+          "rounds",
+          "progress_pct",
+          "waited_s",
+          "strategy",
+          "simulation_mode",
+          "seed",
+          "max_ticks",
+          "products",
+          "evaluated",
+          "discarded",
+          "rounds_info",
+          "stopped_early",
+          "started_at"
+        ],
+        "title": "Optimization",
+        "type": "object"
+      },
+      "OptimizeCandidate": {
+        "properties": {
+          "all_done": {
+            "title": "All Done",
+            "type": "boolean"
+          },
+          "analysis": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "the AI's analysis of its round",
+            "title": "Analysis"
+          },
+          "index": {
+            "title": "Index",
+            "type": "integer"
+          },
+          "label": {
+            "description": "\"Original\", \"Heuristic\" or \"AI round k · i\"",
+            "title": "Label",
+            "type": "string"
+          },
+          "makespan_ticks": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Makespan Ticks"
+          },
+          "makespan_time": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "u.t.",
+            "title": "Makespan Time"
+          },
+          "order": {
+            "description": "permutation of the positions of the session's list at the start",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Order",
+            "type": "array"
+          },
+          "origin": {
+            "enum": [
+              "original",
+              "heuristic",
+              "ai"
+            ],
+            "title": "Origin",
+            "type": "string"
+          },
+          "reasoning": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reasoning"
+          },
+          "round": {
+            "description": "0: original and heuristic; 1..N: the AI's rounds",
+            "title": "Round",
+            "type": "integer"
+          },
+          "saving_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Saving Pct"
+          },
+          "saving_time": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "u.t. saved against the original (negative: worse)",
+            "title": "Saving Time"
+          },
+          "types": {
+            "description": "product types in that order, e.g. ABIE",
+            "title": "Types",
+            "type": "string"
+          },
+          "wall_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Wall S"
+          }
+        },
+        "required": [
+          "index",
+          "origin",
+          "round",
+          "label",
+          "order",
+          "types",
+          "all_done"
+        ],
+        "title": "OptimizeCandidate",
+        "type": "object"
+      },
+      "OptimizeDiscarded": {
+        "additionalProperties": true,
+        "properties": {
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "order": {
+            "anyOf": [
+              {
+                "items": {},
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order"
+          },
+          "origin": {
+            "title": "Origin",
+            "type": "string"
+          },
+          "reason": {
+            "enum": [
+              "invalid",
+              "same_as"
+            ],
+            "title": "Reason",
+            "type": "string"
+          },
+          "reasoning": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reasoning"
+          },
+          "round": {
+            "title": "Round",
+            "type": "integer"
+          },
+          "same_as": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Same As"
+          }
+        },
+        "required": [
+          "origin",
+          "round",
+          "label",
+          "reason"
+        ],
+        "title": "OptimizeDiscarded",
+        "type": "object"
+      },
+      "OptimizeRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "mode": {
+            "description": "quick: reasoning \"none\", 1 round with the AI (~1 min); full: reasoning \"medium\", ACLOPI_OPTIMIZE_ROUNDS_FULL rounds (~3 min)",
+            "enum": [
+              "quick",
+              "full"
+            ],
+            "title": "Mode",
+            "type": "string"
+          }
+        },
+        "required": [
+          "mode"
+        ],
+        "title": "OptimizeRequest",
+        "type": "object"
+      },
+      "OptimizeRound": {
+        "properties": {
+          "analysis": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Analysis"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "latency_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latency Ms"
+          },
+          "round": {
+            "title": "Round",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "round"
+        ],
+        "title": "OptimizeRound",
+        "type": "object"
+      },
       "OthersMetric": {
         "properties": {
           "finished": {
@@ -1469,6 +2123,17 @@
             ],
             "title": "Mode"
           },
+          "optimization": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AppliedOptimization"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optimize order applied before the run: estimated makespan and saving"
+          },
           "product_set_id": {
             "anyOf": [
               {
@@ -1906,6 +2571,29 @@
             "description": "Mode of the current or paused run",
             "title": "Mode"
           },
+          "optimization": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AppliedOptimization"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The order applied by optimize order"
+          },
+          "optimize_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Status of the session's last optimize order, if any",
+            "title": "Optimize Status"
+          },
           "parameters": {
             "$ref": "#/components/schemas/RunParameters"
           },
@@ -1925,6 +2613,21 @@
               }
             ],
             "title": "Product Set Id"
+          },
+          "products": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ProductItem-Output"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The session's own copy of the list, in entry order (apply-order changes it; the saved set does not change)",
+            "title": "Products"
           },
           "products_hash": {
             "anyOf": [
@@ -2925,7 +3628,7 @@
                 }
               }
             },
-            "description": "Unknown session (session_not_found)"
+            "description": "Unknown session (session_not_found); optimize order never started (optimization_not_found)"
           },
           "422": {
             "content": {
@@ -2975,7 +3678,7 @@
                 }
               }
             },
-            "description": "Unknown session (session_not_found)"
+            "description": "Unknown session (session_not_found); optimize order never started (optimization_not_found)"
           },
           "422": {
             "content": {
@@ -3035,7 +3738,7 @@
                 }
               }
             },
-            "description": "Unknown session (session_not_found)"
+            "description": "Unknown session (session_not_found); optimize order never started (optimization_not_found)"
           },
           "422": {
             "content": {
@@ -3087,7 +3790,7 @@
                 }
               }
             },
-            "description": "Unknown session (session_not_found)"
+            "description": "Unknown session (session_not_found); optimize order never started (optimization_not_found)"
           },
           "422": {
             "content": {
@@ -3282,7 +3985,7 @@
                 }
               }
             },
-            "description": "Unknown session (session_not_found)"
+            "description": "Unknown session (session_not_found); optimize order never started (optimization_not_found)"
           },
           "422": {
             "content": {
@@ -3339,7 +4042,7 @@
                 }
               }
             },
-            "description": "Unknown session (session_not_found)"
+            "description": "Unknown session (session_not_found); optimize order never started (optimization_not_found)"
           },
           "422": {
             "content": {
@@ -3480,7 +4183,7 @@
                 }
               }
             },
-            "description": "Unknown session (session_not_found)"
+            "description": "Unknown session (session_not_found); optimize order never started (optimization_not_found)"
           },
           "422": {
             "content": {
@@ -3532,7 +4235,7 @@
                 }
               }
             },
-            "description": "Unknown session (session_not_found)"
+            "description": "Unknown session (session_not_found); optimize order never started (optimization_not_found)"
           },
           "422": {
             "content": {
@@ -3548,6 +4251,91 @@
         "summary": "Session parameters and last known tick",
         "tags": [
           "sessions"
+        ]
+      }
+    },
+    "/sessions/{session_id}/apply-order": {
+      "post": {
+        "description": "Reorders the session's copy of the list (not the saved set) and runs setup with the same seed, rule, strategy and horizon. Only idle, before running.",
+        "operationId": "apply_order_sessions__session_id__apply_order_post",
+        "parameters": [
+          {
+            "description": "Session id returned by POST /sessions",
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "description": "Session id returned by POST /sessions",
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyOrderRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApplyOrderResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Unknown session (session_not_found); optimize order never started (optimization_not_found)"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not allowed in the session's run state (invalid_run_state), e.g. step while running; what-if: rule4_required or decision_not_pending; optimize order: optimize_not_allowed"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Session lost because its worker crashed or hung (session_lost), or closed for inactivity (session_expired)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Use an evaluated order: stops the rounds left and sets the session up again with it",
+        "tags": [
+          "optimize-order"
         ]
       }
     },
@@ -3637,7 +4425,7 @@
                 }
               }
             },
-            "description": "Unknown session (session_not_found)"
+            "description": "Unknown session (session_not_found); optimize order never started (optimization_not_found)"
           },
           "410": {
             "content": {
@@ -3726,7 +4514,7 @@
                 }
               }
             },
-            "description": "Unknown session (session_not_found)"
+            "description": "Unknown session (session_not_found); optimize order never started (optimization_not_found)"
           },
           "409": {
             "content": {
@@ -3736,7 +4524,7 @@
                 }
               }
             },
-            "description": "Not allowed in the session's run state (invalid_run_state), e.g. step while running; what-if: rule4_required or decision_not_pending"
+            "description": "Not allowed in the session's run state (invalid_run_state), e.g. step while running; what-if: rule4_required or decision_not_pending; optimize order: optimize_not_allowed"
           },
           "410": {
             "content": {
@@ -3820,7 +4608,7 @@
                 }
               }
             },
-            "description": "Unknown session (session_not_found)"
+            "description": "Unknown session (session_not_found); optimize order never started (optimization_not_found)"
           },
           "410": {
             "content": {
@@ -3904,7 +4692,7 @@
                 }
               }
             },
-            "description": "Unknown session (session_not_found)"
+            "description": "Unknown session (session_not_found); optimize order never started (optimization_not_found)"
           },
           "410": {
             "content": {
@@ -3988,7 +4776,7 @@
                 }
               }
             },
-            "description": "Unknown session (session_not_found)"
+            "description": "Unknown session (session_not_found); optimize order never started (optimization_not_found)"
           },
           "422": {
             "content": {
@@ -4079,7 +4867,7 @@
                 }
               }
             },
-            "description": "Unknown session (session_not_found)"
+            "description": "Unknown session (session_not_found); optimize order never started (optimization_not_found)"
           },
           "409": {
             "content": {
@@ -4089,7 +4877,7 @@
                 }
               }
             },
-            "description": "Not allowed in the session's run state (invalid_run_state), e.g. step while running; what-if: rule4_required or decision_not_pending"
+            "description": "Not allowed in the session's run state (invalid_run_state), e.g. step while running; what-if: rule4_required or decision_not_pending; optimize order: optimize_not_allowed"
           },
           "410": {
             "content": {
@@ -4138,6 +4926,217 @@
         ]
       }
     },
+    "/sessions/{session_id}/optimize-order": {
+      "get": {
+        "operationId": "get_optimize_order_sessions__session_id__optimize_order_get",
+        "parameters": [
+          {
+            "description": "Session id returned by POST /sessions",
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "description": "Session id returned by POST /sessions",
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Optimization"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Unknown session (session_not_found); optimize order never started (optimization_not_found)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "State, progress and results of the session's last optimize order",
+        "tags": [
+          "optimize-order"
+        ]
+      },
+      "post": {
+        "description": "Rounds: the original and the heuristic, then the AI's proposals (POST /sequence/propose), each one simulated on the session's worker. Follow it with GET or the WebSocket. 409 if the session is not idle at tick 0, has no product list, or live agent sessions run (provisional rule); 422 with more than ACLOPI_OPTIMIZE_MAX_PRODUCTS products; 503 fast_run_limit.",
+        "operationId": "optimize_order_sessions__session_id__optimize_order_post",
+        "parameters": [
+          {
+            "description": "Session id returned by POST /sessions",
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "description": "Session id returned by POST /sessions",
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OptimizeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Optimization"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Unknown session (session_not_found); optimize order never started (optimization_not_found)"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not allowed in the session's run state (invalid_run_state), e.g. step while running; what-if: rule4_required or decision_not_pending; optimize order: optimize_not_allowed"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Session lost because its worker crashed or hung (session_lost), or closed for inactivity (session_expired)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Platform starting (platform_starting), no free worker (no_free_worker), worker unavailable (worker_unavailable), too many fast runs (fast_run_limit) or agent down (agent_unavailable)"
+          }
+        },
+        "summary": "Look for a better entry order of the session's list (asynchronous)",
+        "tags": [
+          "optimize-order"
+        ]
+      }
+    },
+    "/sessions/{session_id}/optimize-order/cancel": {
+      "post": {
+        "operationId": "cancel_optimize_order_sessions__session_id__optimize_order_cancel_post",
+        "parameters": [
+          {
+            "description": "Session id returned by POST /sessions",
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "description": "Session id returned by POST /sessions",
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Optimization"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Unknown session (session_not_found); optimize order never started (optimization_not_found)"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not allowed in the session's run state (invalid_run_state), e.g. step while running; what-if: rule4_required or decision_not_pending; optimize order: optimize_not_allowed"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Stop the rounds (<= 1000 ticks, or at once while waiting for the AI); the session is set up again as it was",
+        "tags": [
+          "optimize-order"
+        ]
+      }
+    },
     "/sessions/{session_id}/pause": {
       "post": {
         "operationId": "pause_sessions__session_id__pause_post",
@@ -4173,7 +5172,7 @@
                 }
               }
             },
-            "description": "Unknown session (session_not_found)"
+            "description": "Unknown session (session_not_found); optimize order never started (optimization_not_found)"
           },
           "409": {
             "content": {
@@ -4183,7 +5182,7 @@
                 }
               }
             },
-            "description": "Not allowed in the session's run state (invalid_run_state), e.g. step while running; what-if: rule4_required or decision_not_pending"
+            "description": "Not allowed in the session's run state (invalid_run_state), e.g. step while running; what-if: rule4_required or decision_not_pending; optimize order: optimize_not_allowed"
           },
           "410": {
             "content": {
@@ -4267,7 +5266,7 @@
                 }
               }
             },
-            "description": "Unknown session (session_not_found)"
+            "description": "Unknown session (session_not_found); optimize order never started (optimization_not_found)"
           },
           "410": {
             "content": {
@@ -4351,7 +5350,7 @@
                 }
               }
             },
-            "description": "Unknown session (session_not_found)"
+            "description": "Unknown session (session_not_found); optimize order never started (optimization_not_found)"
           },
           "409": {
             "content": {
@@ -4361,7 +5360,7 @@
                 }
               }
             },
-            "description": "Not allowed in the session's run state (invalid_run_state), e.g. step while running; what-if: rule4_required or decision_not_pending"
+            "description": "Not allowed in the session's run state (invalid_run_state), e.g. step while running; what-if: rule4_required or decision_not_pending; optimize order: optimize_not_allowed"
           },
           "410": {
             "content": {
@@ -4466,7 +5465,7 @@
                 }
               }
             },
-            "description": "Unknown session (session_not_found)"
+            "description": "Unknown session (session_not_found); optimize order never started (optimization_not_found)"
           },
           "409": {
             "content": {
@@ -4476,7 +5475,7 @@
                 }
               }
             },
-            "description": "Not allowed in the session's run state (invalid_run_state), e.g. step while running; what-if: rule4_required or decision_not_pending"
+            "description": "Not allowed in the session's run state (invalid_run_state), e.g. step while running; what-if: rule4_required or decision_not_pending; optimize order: optimize_not_allowed"
           },
           "410": {
             "content": {
@@ -4570,7 +5569,7 @@
                 }
               }
             },
-            "description": "Unknown session (session_not_found)"
+            "description": "Unknown session (session_not_found); optimize order never started (optimization_not_found)"
           },
           "410": {
             "content": {
@@ -4667,7 +5666,7 @@
                 }
               }
             },
-            "description": "Unknown session (session_not_found)"
+            "description": "Unknown session (session_not_found); optimize order never started (optimization_not_found)"
           },
           "409": {
             "content": {
@@ -4677,7 +5676,7 @@
                 }
               }
             },
-            "description": "Not allowed in the session's run state (invalid_run_state), e.g. step while running; what-if: rule4_required or decision_not_pending"
+            "description": "Not allowed in the session's run state (invalid_run_state), e.g. step while running; what-if: rule4_required or decision_not_pending; optimize order: optimize_not_allowed"
           },
           "410": {
             "content": {
@@ -4798,7 +5797,7 @@
                 }
               }
             },
-            "description": "Unknown session (session_not_found)"
+            "description": "Unknown session (session_not_found); optimize order never started (optimization_not_found)"
           },
           "409": {
             "content": {
@@ -4808,7 +5807,7 @@
                 }
               }
             },
-            "description": "Not allowed in the session's run state (invalid_run_state), e.g. step while running; what-if: rule4_required or decision_not_pending"
+            "description": "Not allowed in the session's run state (invalid_run_state), e.g. step while running; what-if: rule4_required or decision_not_pending; optimize order: optimize_not_allowed"
           },
           "410": {
             "content": {

@@ -51,10 +51,57 @@ DECISIONS = [{"seq": i, "tick": 100 + 10 * i, "request_tick": 99 + 10 * i, "prod
 
 
 RUN_CALLS: list[dict[str, Any]] = []  # bodies of POST /sessions/{id}/run
+# Optimize order: the state the fake answers (the test changes it), the requests, and a 409 to answer
+OPT: dict[str, Any] = {"state": None, "calls": [], "block": None, "session": None}
+
+
+def _opt_state(status: str, evaluated: list[dict[str, Any]], **extra: Any) -> dict[str, Any]:
+    best = min((c for c in evaluated if c["all_done"]), key=lambda c: c["makespan_ticks"], default=None)
+    return {"optimization_id": "o1", "session_id": "s1", "status": status, "mode": "quick", "reasoning_effort": "none",
+            "round": 1 if status == "waiting_ai" else 0, "rounds": 1, "progress_pct": 50.0, "current": None,
+            "ai_elapsed_s": None, "waited_s": 0.0, "strategy": "rule3", "simulation_mode": "Deterministic", "seed": 1,
+            "max_ticks": 10000, "products": OPT["session"]["products"], "evaluated": evaluated, "discarded": [],
+            "rounds_info": [], "best": best["index"] if best else None, "warning": None, "error": None, "applied": None,
+            "stopped_early": False, "started_at": 0.0, "finished_at": None, **extra}
+
+
+def _candidate(index: int, origin: str, label: str, order: list[int], ticks: int, saving: float, pct: float) -> dict[str, Any]:
+    return {"index": index, "origin": origin, "round": 0, "label": label, "order": order, "types": "", "makespan_ticks": ticks,
+            "makespan_time": round(ticks * 0.31, 2), "all_done": True, "saving_time": saving, "saving_pct": pct,
+            "reasoning": None, "analysis": None, "wall_s": 1.0}
 
 
 def fake_platform(sessions: list[dict[str, Any]]) -> FastAPI:
     app = FastAPI()
+
+    @app.post("/sessions/{sid}/optimize-order", status_code=202)
+    async def optimize(sid: str, request: Request) -> Any:
+        OPT["calls"].append(("start", await request.json()))
+        if OPT["block"]:
+            return JSONResponse({"code": "optimize_not_allowed", "detail": OPT["block"], "session_id": sid}, status_code=409)
+        OPT["state"] = _opt_state("running", [], current={"label": "Original", "ticks": 1000, "done": 1, "total": 5})
+        return OPT["state"]
+
+    @app.get("/sessions/{sid}/optimize-order")
+    def get_optimize(sid: str) -> Any:
+        if OPT["state"] is None:
+            return JSONResponse({"code": "optimization_not_found", "detail": "none"}, status_code=404)
+        return OPT["state"]
+
+    @app.post("/sessions/{sid}/apply-order")
+    async def apply_order(sid: str, request: Request) -> Any:
+        body = await request.json()
+        OPT["calls"].append(("apply", body))
+        c = OPT["state"]["evaluated"][body["candidate"]]
+        products = [OPT["session"]["products"][i] for i in c["order"]]
+        OPT["session"] = {**OPT["session"], "products": products,
+                          "optimization": {"optimized": True, "mode": "quick", "order": c["order"], "origin": c["origin"]}}
+        OPT["state"] = {**OPT["state"], "status": "done", "applied": body["candidate"], "stopped_early": True}
+        return {"session": OPT["session"], "products": products, "optimization": OPT["state"]}
+
+    @app.get("/sessions/{sid}")
+    def get_session(sid: str) -> Any:
+        return OPT["session"]
 
     @app.post("/sessions/{sid}/run")
     async def run(sid: str, request: Request) -> dict[str, Any]:
@@ -91,9 +138,14 @@ def fake_platform(sessions: list[dict[str, Any]]) -> FastAPI:
 
     @app.post("/sessions")
     async def create(request: Request) -> dict[str, Any]:
-        sessions.append(await request.json())
-        return {"session_id": "s1", "parameters": {"seed": 1}, "seed_source": "random", "warnings": [],
-                "scenario": {"id": "S0", "params": {}}}
+        body = await request.json()
+        sessions.append(body)
+        products = [{"type": p["type"], "priority": p.get("priority", 80)} for p in body.get("products") or []] or None
+        OPT["session"] = {"session_id": "s1", "parameters": {"seed": 1, "rule": body.get("rule", 3)}, "seed_source": "random",
+                          "warnings": [], "scenario": {"id": "S0", "params": {}}, "run_state": "idle", "ticks": 0,
+                          "products_total": len(products) if products else None, "products": products}
+        OPT["state"] = None
+        return OPT["session"]
 
     return app
 
@@ -397,4 +449,66 @@ def test_order_csv_ids_priority_due_date(server: tuple[str, list], browser: Any,
     sent = _sent(sessions, before)
     assert sent["products"][0] == {"type": "A", "priority": 70, "po": "PO-17", "item_id": "IT-3", "number": "1", "due_date": 1500}
     assert sent["products"][1] == {"type": "E", "priority": 80, "po": "PO-17", "item_id": "IT-3", "number": "2"}
+    page.close()
+
+
+def test_optimize_order_panel(server: tuple[str, list], browser: Any, tmp_path: Path) -> None:
+    """Quick / full options, progress (AI thinking), best so far with "Use this", the table, the notice,
+    and the session's list in its new order after applying; a blocked start shows the reason."""
+    url, sessions = server
+    page = browser.new_page()
+    page.goto(f"{url}/ui")
+    _ready(page)
+    # without a list the panel is hidden
+    page.select_option("#session-set", "")
+    page.click("#create")
+    page.wait_for_function("document.querySelector('#sid').textContent === 's1'")
+    assert page.is_hidden("#optimize-panel")
+    # with the current list (A I P B E)
+    load_csv(page, tmp_path, CSV_OK)
+    page.click("#tab-session")
+    page.select_option("#session-set", "__current__")
+    page.click("#create")
+    page.wait_for_function("!document.querySelector('#optimize-panel').hidden")
+    assert page.inner_text("#opt-quick") == "Quick (~1 min)" and page.inner_text("#opt-full") == "Full (~3 min)"
+    assert page.is_enabled("#opt-quick") and page.is_enabled("#opt-full")
+    dots = lambda sel: page.eval_on_selector_all(f"{sel} .type-dot", "els => els.map(e => e.textContent)")  # noqa: E731
+    assert dots("#opt-list") == list("AIPBE")
+    # blocked by the platform (e.g. the provisional rule): the reason is shown, nothing starts
+    OPT["block"] = "optimize order is not available while there are live simulations with the agent"
+    page.click("#opt-full")
+    page.wait_for_function("document.querySelector('#opt-blocked').textContent.includes('live simulations')")
+    assert OPT["calls"][-1] == ("start", {"mode": "full"}) and page.is_hidden("#opt-progress")
+    OPT["block"] = None
+    # quick: progress with the simulation in course, cancel, run buttons disabled
+    page.click("#opt-quick")
+    page.wait_for_function("!document.querySelector('#opt-progress').hidden")
+    assert OPT["calls"][-1] == ("start", {"mode": "quick"})
+    assert "simulating Original" in page.inner_text("#opt-progress-text") and page.is_visible("#opt-cancel")
+    assert page.is_disabled("#opt-quick") and page.is_disabled("#fast") and page.is_disabled("#live")
+    # round 0 done, the AI thinking: best so far (heuristic) with its saving, and the table
+    OPT["state"] = _opt_state("waiting_ai", [_candidate(0, "original", "Original", [0, 1, 2, 3, 4], 10000, 0.0, 0.0),
+                                             _candidate(1, "heuristic", "Heuristic", [0, 3, 4, 1, 2], 9000, 310.0, 10.0)],
+                              ai_elapsed_s=25.0)
+    page.evaluate("handle({type: 'optimize_best', optimization_id: 'o1'})")
+    page.wait_for_function("document.querySelector('#opt-best').textContent.includes('Best order found so far')")
+    assert "The AI is thinking… 25 s" in page.inner_text("#opt-progress-text")
+    best = page.inner_text("#opt-best")
+    assert "2790.0" in best and "Heuristic" in best and "310.0 u.t. (−10 %)" in best
+    rows = page.eval_on_selector_all("#opt-rows tr", "els => els.map(e => e.cells[0].textContent.trim())")
+    assert rows == ["Original", "Heuristic"]
+    page.click("#opt-rows tr:nth-child(2) summary")
+    assert dots("#opt-rows tr:nth-child(2) details") == list("ABEIP")
+    assert "single seed" in page.inner_text("#opt-note") and "may vary" in page.inner_text("#opt-note")
+    # a progress message updates the text without a request
+    page.evaluate("handle({type: 'optimize_progress', optimization_id: 'o1', status: 'waiting_ai', round: 1, "
+                  "simulation: null, progress_pct: 50, ai_elapsed_s: 31, waited_s: 0})")
+    assert "31 s" in page.inner_text("#opt-progress-text")
+    # "Use this": stops the rounds and applies; the session's list shows the new order
+    page.click("#opt-use-best")
+    page.wait_for_function("document.querySelector('#opt-best').textContent.includes('Applied')")
+    assert OPT["calls"][-1] == ("apply", {"candidate": 1})
+    assert dots("#opt-list") == list("ABEIP") and "Order applied (Heuristic)" in page.inner_text("#msg")
+    assert page.is_hidden("#opt-progress") and page.is_enabled("#fast") and page.is_enabled("#opt-quick")
+    assert "Why:" in page.inner_text("#opt-why") and "longest first" in page.inner_text("#opt-why").lower()
     page.close()

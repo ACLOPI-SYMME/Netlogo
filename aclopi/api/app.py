@@ -28,12 +28,12 @@ from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 
 from aclopi.api import errors
 from aclopi.api.errors import (
-    InvalidRunState, NoWorkerAvailable, ScenariosUnavailable, PlatformStarting, ProductSetNotFound, RunNotFound, Unauthorized,
+    InvalidRunState, NoWorkerAvailable, OptimizeNotAllowed, ScenariosUnavailable, PlatformStarting, ProductSetNotFound, RunNotFound, Unauthorized,
     WorkerUnavailable,
 )
 from aclopi.api.instance_lock import InstanceLock
 from aclopi.api.models import (
-    STEP_N_DESCRIPTION, CandidatesResult, Event, Health, Kpis, PlantLayout, PlantState, Probe, RunRequest,
+    STEP_N_DESCRIPTION, ApplyOrderRequest, ApplyOrderResponse, CandidatesResult, Event, Optimization, OptimizeRequest, Health, Kpis, PlantLayout, PlantState, Probe, RunRequest,
     GeneratedProducts, GenerateRequest, NextMachineRequest, NextMachineResponse, ParsedCsv, ProductSet, ProductSetIn,
     ProductItem, ProductSetSummary, RunPage, RunRecord, SessionCreate, SessionInfo, SessionMetrics, StepResult, WhatIfRequest,
     WhatIfResponse,
@@ -43,6 +43,7 @@ from aclopi.api.agent import AgentClient
 from aclopi.contracts.agent import bearer_matches
 from aclopi.api.product_sets import InMemoryProductSetStore, parse_csv, summary, to_csv
 from aclopi.api.results import DynamoProductSetStore, DynamoResultsStore, InMemoryResultsStore
+from aclopi.api.optimize import get_optimization
 from aclopi.api.whatif import run_whatif
 from aclopi.api.ws import stream_session
 from aclopi.api.registry import SessionRegistry
@@ -520,6 +521,46 @@ def create_app(
     async def delete_session(session_id: str = session_id_path) -> Response:
         await runtime.sessions.delete(session_id)
         return Response(status_code=204)
+
+    # ----- optimize order (docs/optimize-order.md) -----
+
+    @app.post("/sessions/{session_id}/optimize-order", response_model=Optimization, status_code=202,
+              tags=["optimize-order"], summary="Look for a better entry order of the session's list (asynchronous)",
+              description="Rounds: the original and the heuristic, then the AI's proposals (POST /sequence/propose), "
+                          "each one simulated on the session's worker. Follow it with GET or the WebSocket. 409 if the "
+                          "session is not idle at tick 0, has no product list, or live agent sessions run (provisional "
+                          "rule); 422 with more than ACLOPI_OPTIMIZE_MAX_PRODUCTS products; 503 fast_run_limit.",
+              responses=errors.responses(404, 409, 410, 503))
+    async def optimize_order(body: OptimizeRequest, session_id: str = session_id_path) -> Any:
+        registry = runtime.require_ready()
+        optimizer = await registry.start_optimize(session_id, body.mode, settings)
+        return optimizer.public()
+
+    @app.get("/sessions/{session_id}/optimize-order", response_model=Optimization, tags=["optimize-order"],
+             summary="State, progress and results of the session's last optimize order", responses=errors.responses(404))
+    async def get_optimize_order(session_id: str = session_id_path) -> Any:
+        return get_optimization(runtime.sessions.get(session_id)).public()
+
+    @app.post("/sessions/{session_id}/optimize-order/cancel", response_model=Optimization, tags=["optimize-order"],
+              summary="Stop the rounds (<= 1000 ticks, or at once while waiting for the AI); the session is set up "
+                      "again as it was", responses=errors.responses(404, 409))
+    async def cancel_optimize_order(session_id: str = session_id_path) -> Any:
+        optimizer = get_optimization(runtime.sessions.get(session_id))
+        await optimizer.cancel()
+        return optimizer.public()
+
+    @app.post("/sessions/{session_id}/apply-order", response_model=ApplyOrderResponse, tags=["optimize-order"],
+              summary="Use an evaluated order: stops the rounds left and sets the session up again with it",
+              description="Reorders the session's copy of the list (not the saved set) and runs setup with the same "
+                          "seed, rule, strategy and horizon. Only idle, before running.",
+              responses=errors.responses(404, 409, 410))
+    async def apply_order(body: ApplyOrderRequest, session_id: str = session_id_path) -> Any:
+        record = runtime.sessions.get(session_id)
+        optimizer = get_optimization(record)
+        await optimizer.apply(body.candidate)
+        if optimizer.applied != body.candidate:
+            raise OptimizeNotAllowed(optimizer.error or "the order could not be applied", session_id)
+        return {"session": record.info(), "products": record.product_list, "optimization": optimizer.public()}
 
     # ----- decisions: candidates and what-if (L5.4) -----
 
