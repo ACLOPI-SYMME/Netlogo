@@ -235,3 +235,62 @@ def test_endpoint(tmp_path) -> None:
     assert [o["order"] for o in rotated["orders"]] == [list(range(1, 20)) + [0]]  # the evaluated one discarded
     down = asyncio.run(run(FakeLLM(invalid_rate=1.0)))[1]
     assert down.status_code == 200 and down.json()["orders"] == [] and down.json()["heuristic"]["reasoning"] == HEURISTIC_REASONING
+
+
+# ----- numbers only from the data; own semaphore -----
+
+def test_prompt_forbids_numbers_not_in_the_data() -> None:
+    llm = FixedLLM({"analysis": "a", "orders": [{"order": [1, 0], "reasoning": "r"}]})
+    asyncio.run(propose(llm, ["A", "B"], evaluated=[{"order": [0, 1], "makespan_ticks": 100}]))
+    system = llm.prompts[0][0]["content"]
+    assert "cite only numbers that appear in the data you were given" in system
+    assert "Do NOT estimate times of your own" in system
+
+
+class SplitLLM(FakeLLM):
+    """Ordering calls take `seq_s`; machine decisions answer at once (FakeLLM)."""
+
+    def __init__(self, seq_s: float) -> None:
+        super().__init__()
+        self.seq_s = seq_s
+
+    async def _complete(self, messages: Any, schema: dict[str, Any], timeout_s: float) -> Any:
+        if "orders" in schema.get("properties", {}):
+            await asyncio.sleep(self.seq_s)
+        return await super()._complete(messages, schema, timeout_s)
+
+
+def test_sequence_calls_have_their_own_semaphore(tmp_path) -> None:
+    from test_agent_service import FakePlatform, decide_body
+
+    async def run(parallel: int) -> dict[str, Any]:
+        platform = FakePlatform()
+        app = create_app(AgentSettings(token="tok", log_path=str(tmp_path / "d.jsonl"), sequence_max_parallel=parallel,
+                                       llm_max_parallel=1),
+                         llm=SplitLLM(seq_s=1.0), platform_transport=httpx.MockTransport(platform.handler))
+        auth = {"Authorization": "Bearer tok"}
+        body = {"products": [{"type": t} for t in LIST_20]}
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://agent") as c:
+            first = asyncio.ensure_future(c.post("/sequence/propose", json=body, headers=auth))
+            await asyncio.sleep(0.2)
+            second = await c.post("/sequence/propose", json=body, headers=auth)
+            health = (await c.get("/health")).json()
+            t0 = asyncio.get_running_loop().time()
+            assert (await c.post("/decide", json=decide_body(201, "agent"), headers=auth)).status_code == 202
+            while app.state.tasks:  # the decision (LLM call included) runs while the ordering call waits
+                await asyncio.gather(*list(app.state.tasks))
+            decided_s = asyncio.get_running_loop().time() - t0
+            decided_first = not first.done()
+            first = await first
+            after = await c.post("/sequence/propose", json=body, headers=auth)
+        return {"first": first, "second": second, "after": after, "health": health, "decided_s": decided_s,
+                "decided_first": decided_first, "sent": platform.sent}
+
+    out = asyncio.run(run(1))
+    assert out["first"].status_code == 200 and out["after"].status_code == 200
+    assert out["second"].status_code == 429 and out["second"].json()["code"] == "sequence_busy"
+    assert 1 <= int(out["second"].headers["Retry-After"]) <= 90
+    assert out["health"]["running_sequences"] == 1
+    assert out["decided_first"] and out["decided_s"] < 0.5 and out["sent"][0]["decision_level"] == "llm"
+    two = asyncio.run(run(2))
+    assert two["second"].status_code == 200  # ACLOPI_SEQUENCE_MAX_PARALLEL=2: both run
