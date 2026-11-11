@@ -115,7 +115,10 @@ ANSWER: only the JSON object requested.
   numbers of its details (idle time of {m1}, missed entry checks, last product, occupancy, lower bound).
 - "orders": 2 NEW orders that correct that, different from every evaluated order. Each "order" lists
   every index of the list exactly once. Each "reasoning": at most {REASONING_MAX} characters, what you changed
-  and why it should finish earlier. Write in English."""
+  and why it should finish earlier. Write in English.
+- NUMBERS: cite only numbers that appear in the data you were given (makespans, details of the evaluated
+  orders, precomputed figures). Do NOT estimate times of your own (no "finishes by ~X", no predicted
+  makespan or entry tick for a new order): describe the expected effect without a number."""
 
 
 def _types(order: Sequence[int], types: Sequence[str]) -> str:

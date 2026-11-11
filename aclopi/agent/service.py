@@ -10,7 +10,10 @@
     POST /sequence/propose -> up to 2 new entry orders of a product list from the LLM (with the plant facts
                       and the orders already simulated) plus the heuristic (aclopi.agent.sequencing;
                       docs/sequencing.md). 200 also when the LLM fails. ACLOPI_SEQUENCE_REASONING (medium)
-                      and ACLOPI_SEQUENCE_TIMEOUT_S (90) apply only here.
+                      and ACLOPI_SEQUENCE_TIMEOUT_S (90) apply only here. Its calls have their own
+                      semaphore (ACLOPI_SEQUENCE_MAX_PARALLEL, default 1), apart from the decisions' one:
+                      when it is full the answer is 429 with Retry-After (the call is not queued), and a
+                      machine decision never waits behind an ordering call.
 Configuration only by environment variables (AgentSettings.from_env). Several decisions run at the
 same time; LLM calls share a semaphore (LLM_MAX_PARALLEL, default 2).
 """
@@ -20,6 +23,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
 import os
 import time
 from collections import deque
@@ -30,6 +34,7 @@ from typing import Any, AsyncIterator, Mapping
 
 import httpx
 from fastapi import FastAPI, Header, Response
+from fastapi.responses import JSONResponse
 
 from aclopi.agent.core import Agent, AgentConfig, candidates_summary
 from aclopi.agent.llm import LLMClient, client_from_env
@@ -50,6 +55,7 @@ class AgentSettings:
     health_interval_s: float = 30.0
     sequence_timeout_s: float = 90.0
     sequence_reasoning: str = "medium"
+    sequence_max_parallel: int = 1
     log_path: str = "results/agent/decisions.jsonl"
     config: AgentConfig = AgentConfig()
 
@@ -65,6 +71,7 @@ class AgentSettings:
             health_interval_s=f("ACLOPI_AGENT_HEALTH_INTERVAL_S", "30"),
             sequence_timeout_s=f("ACLOPI_SEQUENCE_TIMEOUT_S", "90"),
             sequence_reasoning=env.get("ACLOPI_SEQUENCE_REASONING", "medium").strip(),
+            sequence_max_parallel=int(env.get("ACLOPI_SEQUENCE_MAX_PARALLEL", "1")),
             log_path=env.get("ACLOPI_AGENT_LOG", "results/agent/decisions.jsonl"),
             config=AgentConfig(
                 triage=TriageParams(u_wide=f("ACLOPI_U_WIDE", "100"), u_narrow=f("ACLOPI_U_NARROW", "50")),
@@ -109,6 +116,8 @@ def create_app(settings: AgentSettings | None = None, llm: LLMClient | None = No
     llm = llm or client_from_env()
     platform = HttpPlatform(settings.platform_url, settings.token, platform_transport)
     agent = Agent(platform, llm, settings.config, asyncio.Semaphore(settings.llm_max_parallel))
+    sequence_slots = asyncio.Semaphore(max(1, settings.sequence_max_parallel))  # not the decisions' semaphore
+    sequence_started: list[float] = []  # monotonic start of the ordering calls running now
     health = {"llm": "ok" if settings.provider == "fake" else "unknown", "checked_at": None}
     log_path = Path(settings.log_path)
 
@@ -136,7 +145,7 @@ def create_app(settings: AgentSettings | None = None, llm: LLMClient | None = No
     @app.get("/health")
     async def get_health() -> dict[str, Any]:
         return {"status": "ok", "provider": settings.provider, "llm": health["llm"], "llm_checked_at": health["checked_at"],
-                "running_decisions": len(app.state.tasks)}
+                "running_decisions": len(app.state.tasks), "running_sequences": len(sequence_started)}
 
     @app.get("/decisions")
     async def get_decisions(session_id: str | None = None) -> list[dict[str, Any]]:
@@ -157,8 +166,18 @@ def create_app(settings: AgentSettings | None = None, llm: LLMClient | None = No
     async def post_sequence(body: SequenceRequest, authorization: str | None = Header(None)) -> Any:
         if settings.token and not bearer_matches(authorization, settings.token):
             return Response(status_code=401)
-        return await propose(llm, [p.model_dump() for p in body.products], [e.model_dump() for e in body.evaluated],
-                             body.strategy, body.mode, settings.sequence_timeout_s, settings.sequence_reasoning)
+        if sequence_slots.locked():  # busy: answer at once instead of queueing (no await since the check)
+            left = settings.sequence_timeout_s - (time.monotonic() - min(sequence_started, default=time.monotonic()))
+            return JSONResponse({"code": "sequence_busy", "detail": "an ordering call is already running"},
+                                status_code=429, headers={"Retry-After": str(max(1, math.ceil(left)))})
+        async with sequence_slots:
+            started = time.monotonic()
+            sequence_started.append(started)
+            try:
+                return await propose(llm, [p.model_dump() for p in body.products], [e.model_dump() for e in body.evaluated],
+                                     body.strategy, body.mode, settings.sequence_timeout_s, settings.sequence_reasoning)
+            finally:
+                sequence_started.remove(started)
 
     async def run_decision(req: dict[str, Any]) -> None:
         start = time.monotonic()
