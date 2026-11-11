@@ -1,0 +1,1445 @@
+{
+ "list": "interleaved",
+ "types": "ABIEABIEABIEABABABAA",
+ "seed": 42,
+ "reasoning": "none",
+ "rows": [
+  {
+   "round": 0,
+   "by": "original",
+   "order": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19
+   ],
+   "types": "ABIEABIEABIEABABABAA",
+   "reasoning": "list order",
+   "makespan_ticks": 27950,
+   "details": {
+    "products": [
+     {
+      "index": 0,
+      "type": "A",
+      "entry_tick": 323,
+      "start_tick": 367,
+      "end_tick": 8183
+     },
+     {
+      "index": 1,
+      "type": "B",
+      "entry_tick": 968,
+      "start_tick": 1012,
+      "end_tick": 7826
+     },
+     {
+      "index": 2,
+      "type": "I",
+      "entry_tick": 1613,
+      "start_tick": 1657,
+      "end_tick": 6451
+     },
+     {
+      "index": 3,
+      "type": "E",
+      "entry_tick": 2581,
+      "start_tick": 2625,
+      "end_tick": 9072
+     },
+     {
+      "index": 4,
+      "type": "A",
+      "entry_tick": 3226,
+      "start_tick": 3270,
+      "end_tick": 10845
+     },
+     {
+      "index": 5,
+      "type": "B",
+      "entry_tick": 3871,
+      "start_tick": 3915,
+      "end_tick": 10488
+     },
+     {
+      "index": 6,
+      "type": "I",
+      "entry_tick": 4839,
+      "start_tick": 4883,
+      "end_tick": 9429
+     },
+     {
+      "index": 7,
+      "type": "E",
+      "entry_tick": 5484,
+      "start_tick": 5528,
+      "end_tick": 11697
+     },
+     {
+      "index": 8,
+      "type": "A",
+      "entry_tick": 6452,
+      "start_tick": 6496,
+      "end_tick": 13310
+     },
+     {
+      "index": 9,
+      "type": "B",
+      "entry_tick": 7097,
+      "start_tick": 7141,
+      "end_tick": 14601
+     },
+     {
+      "index": 10,
+      "type": "I",
+      "entry_tick": 9678,
+      "start_tick": 9722,
+      "end_tick": 13780
+     },
+     {
+      "index": 11,
+      "type": "E",
+      "entry_tick": 10968,
+      "start_tick": 11012,
+      "end_tick": 16828
+     },
+     {
+      "index": 12,
+      "type": "A",
+      "entry_tick": 11936,
+      "start_tick": 11980,
+      "end_tick": 18715
+     },
+     {
+      "index": 13,
+      "type": "B",
+      "entry_tick": 12581,
+      "start_tick": 12625,
+      "end_tick": 20085
+     },
+     {
+      "index": 14,
+      "type": "A",
+      "entry_tick": 13871,
+      "start_tick": 13915,
+      "end_tick": 20445
+     },
+     {
+      "index": 15,
+      "type": "B",
+      "entry_tick": 14839,
+      "start_tick": 14883,
+      "end_tick": 21503
+     },
+     {
+      "index": 16,
+      "type": "A",
+      "entry_tick": 15484,
+      "start_tick": 15528,
+      "end_tick": 22291
+     },
+     {
+      "index": 17,
+      "type": "B",
+      "entry_tick": 17097,
+      "start_tick": 17141,
+      "end_tick": 23876
+     },
+     {
+      "index": 18,
+      "type": "A",
+      "entry_tick": 17742,
+      "start_tick": 17786,
+      "end_tick": 27950
+     },
+     {
+      "index": 19,
+      "type": "A",
+      "entry_tick": 19355,
+      "start_tick": 19399,
+      "end_tick": 25972
+     }
+    ],
+    "last": 18,
+    "occupancy": {
+     "M1": 46.2,
+     "M2": 71.6,
+     "M3": 55.5,
+     "M4": 55.5,
+     "M5": 50.8,
+     "M6": 27.7,
+     "M7": 34.7
+    },
+    "m1_idle": {
+     "intervals": [
+      [
+       0,
+       367
+      ],
+      [
+       690,
+       1012
+      ],
+      [
+       1335,
+       1657
+      ],
+      [
+       1980,
+       2625
+      ],
+      [
+       2948,
+       3270
+      ],
+      [
+       3593,
+       3915
+      ],
+      [
+       4238,
+       4883
+      ],
+      [
+       5206,
+       5528
+      ],
+      [
+       5851,
+       6128
+      ],
+      [
+       6451,
+       6496
+      ],
+      [
+       6819,
+       7141
+      ],
+      [
+       7464,
+       7503
+      ],
+      [
+       7826,
+       7860
+      ],
+      [
+       8183,
+       8749
+      ],
+      [
+       9072,
+       9106
+      ],
+      [
+       9429,
+       9722
+      ],
+      [
+       10045,
+       10165
+      ],
+      [
+       10488,
+       10522
+      ],
+      [
+       10845,
+       11012
+      ],
+      [
+       11335,
+       11374
+      ],
+      [
+       11697,
+       11980
+      ],
+      [
+       12303,
+       12625
+      ],
+      [
+       12948,
+       12987
+      ],
+      [
+       13310,
+       13457
+      ],
+      [
+       13780,
+       13915
+      ],
+      [
+       14238,
+       14278
+      ],
+      [
+       14601,
+       14883
+      ],
+      [
+       15206,
+       15528
+      ],
+      [
+       15851,
+       16505
+      ],
+      [
+       16828,
+       17141
+      ],
+      [
+       17464,
+       17786
+      ],
+      [
+       18109,
+       18392
+      ],
+      [
+       18715,
+       19399
+      ],
+      [
+       19722,
+       19762
+      ],
+      [
+       20085,
+       20122
+      ],
+      [
+       20445,
+       21180
+      ],
+      [
+       21503,
+       21968
+      ],
+      [
+       22291,
+       23553
+      ],
+      [
+       23876,
+       25649
+      ],
+      [
+       25972,
+       27627
+      ]
+     ],
+     "total_ticks": 15030
+    },
+    "entry_windows": {
+     "checks": 40,
+     "created": 20,
+     "zone_busy": 20,
+     "wip_full": 0
+    }
+   }
+  },
+  {
+   "round": 0,
+   "by": "heuristic",
+   "order": [
+    0,
+    1,
+    4,
+    5,
+    8,
+    9,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    3,
+    7,
+    11,
+    2,
+    6,
+    10
+   ],
+   "types": "ABABABABABABAAEEEIII",
+   "reasoning": "Longest first",
+   "makespan_ticks": 26612,
+   "details": {
+    "products": [
+     {
+      "index": 0,
+      "type": "A",
+      "entry_tick": 323,
+      "start_tick": 367,
+      "end_tick": 7182
+     },
+     {
+      "index": 1,
+      "type": "B",
+      "entry_tick": 968,
+      "start_tick": 1012,
+      "end_tick": 7747
+     },
+     {
+      "index": 2,
+      "type": "A",
+      "entry_tick": 1613,
+      "start_tick": 1657,
+      "end_tick": 8917
+     },
+     {
+      "index": 3,
+      "type": "B",
+      "entry_tick": 2581,
+      "start_tick": 2625,
+      "end_tick": 11819
+     },
+     {
+      "index": 4,
+      "type": "A",
+      "entry_tick": 3226,
+      "start_tick": 3270,
+      "end_tick": 11086
+     },
+     {
+      "index": 5,
+      "type": "B",
+      "entry_tick": 3871,
+      "start_tick": 3915,
+      "end_tick": 10729
+     },
+     {
+      "index": 6,
+      "type": "A",
+      "entry_tick": 4839,
+      "start_tick": 4883,
+      "end_tick": 13496
+     },
+     {
+      "index": 7,
+      "type": "B",
+      "entry_tick": 5484,
+      "start_tick": 5528,
+      "end_tick": 12310
+     },
+     {
+      "index": 8,
+      "type": "A",
+      "entry_tick": 6452,
+      "start_tick": 6496,
+      "end_tick": 17136
+     },
+     {
+      "index": 9,
+      "type": "B",
+      "entry_tick": 8065,
+      "start_tick": 8109,
+      "end_tick": 14924
+     },
+     {
+      "index": 10,
+      "type": "A",
+      "entry_tick": 9355,
+      "start_tick": 9399,
+      "end_tick": 17689
+     },
+     {
+      "index": 11,
+      "type": "B",
+      "entry_tick": 10000,
+      "start_tick": 10044,
+      "end_tick": 16779
+     },
+     {
+      "index": 12,
+      "type": "A",
+      "entry_tick": 12581,
+      "start_tick": 12625,
+      "end_tick": 21379
+     },
+     {
+      "index": 13,
+      "type": "A",
+      "entry_tick": 13549,
+      "start_tick": 13593,
+      "end_tick": 20683
+     },
+     {
+      "index": 14,
+      "type": "E",
+      "entry_tick": 14194,
+      "start_tick": 14238,
+      "end_tick": 20326
+     },
+     {
+      "index": 15,
+      "type": "E",
+      "entry_tick": 15484,
+      "start_tick": 15528,
+      "end_tick": 21736
+     },
+     {
+      "index": 16,
+      "type": "E",
+      "entry_tick": 17742,
+      "start_tick": 17786,
+      "end_tick": 23905
+     },
+     {
+      "index": 17,
+      "type": "I",
+      "entry_tick": 18710,
+      "start_tick": 18754,
+      "end_tick": 23548
+     },
+     {
+      "index": 18,
+      "type": "I",
+      "entry_tick": 19355,
+      "start_tick": 19399,
+      "end_tick": 24879
+     },
+     {
+      "index": 19,
+      "type": "I",
+      "entry_tick": 21936,
+      "start_tick": 21980,
+      "end_tick": 26612
+     }
+    ],
+    "last": 19,
+    "occupancy": {
+     "M1": 48.5,
+     "M2": 68.0,
+     "M3": 55.8,
+     "M4": 53.4,
+     "M5": 51.0,
+     "M6": 43.7,
+     "M7": 38.8
+    },
+    "m1_idle": {
+     "intervals": [
+      [
+       0,
+       367
+      ],
+      [
+       690,
+       1012
+      ],
+      [
+       1335,
+       1657
+      ],
+      [
+       1980,
+       2625
+      ],
+      [
+       2948,
+       3270
+      ],
+      [
+       3593,
+       3915
+      ],
+      [
+       4238,
+       4883
+      ],
+      [
+       5206,
+       5528
+      ],
+      [
+       5851,
+       6496
+      ],
+      [
+       6819,
+       6859
+      ],
+      [
+       7182,
+       7424
+      ],
+      [
+       7747,
+       8109
+      ],
+      [
+       8432,
+       8594
+      ],
+      [
+       8917,
+       9399
+      ],
+      [
+       9722,
+       10044
+      ],
+      [
+       10367,
+       10406
+      ],
+      [
+       10729,
+       10763
+      ],
+      [
+       11086,
+       11496
+      ],
+      [
+       11819,
+       11987
+      ],
+      [
+       12310,
+       12625
+      ],
+      [
+       12948,
+       13173
+      ],
+      [
+       13496,
+       13593
+      ],
+      [
+       13916,
+       14238
+      ],
+      [
+       14561,
+       14601
+      ],
+      [
+       14924,
+       15528
+      ],
+      [
+       15851,
+       16456
+      ],
+      [
+       16779,
+       16813
+      ],
+      [
+       17136,
+       17366
+      ],
+      [
+       17689,
+       17786
+      ],
+      [
+       18109,
+       18754
+      ],
+      [
+       19077,
+       19399
+      ],
+      [
+       19722,
+       20003
+      ],
+      [
+       20326,
+       20360
+      ],
+      [
+       20683,
+       21056
+      ],
+      [
+       21379,
+       21413
+      ],
+      [
+       21736,
+       21980
+      ],
+      [
+       22303,
+       23225
+      ],
+      [
+       23548,
+       23582
+      ],
+      [
+       23905,
+       24556
+      ],
+      [
+       24879,
+       26289
+      ]
+     ],
+     "total_ticks": 13692
+    },
+    "entry_windows": {
+     "checks": 46,
+     "created": 20,
+     "zone_busy": 26,
+     "wip_full": 0
+    }
+   }
+  },
+  {
+   "round": 1,
+   "by": "LLM 1",
+   "order": [
+    0,
+    1,
+    4,
+    5,
+    8,
+    9,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    2,
+    6,
+    10,
+    3,
+    7,
+    11
+   ],
+   "types": "ABABABABABABAAIIIEEE",
+   "reasoning": "Moved all I products (indices 2, 6, 10) to positions 14-16 and E products (3, 7, 11) to the end. This groups short-path items earlier than in the best order but keeps them after the long A/B chain. It aims to reduce the tail latency by ensuring shorter jobs finish sooner, potentially freeing M1 cap…",
+   "makespan_ticks": 28713,
+   "details": {
+    "products": [
+     {
+      "index": 0,
+      "type": "A",
+      "entry_tick": 323,
+      "start_tick": 367,
+      "end_tick": 7182
+     },
+     {
+      "index": 1,
+      "type": "B",
+      "entry_tick": 968,
+      "start_tick": 1012,
+      "end_tick": 7747
+     },
+     {
+      "index": 2,
+      "type": "A",
+      "entry_tick": 1613,
+      "start_tick": 1657,
+      "end_tick": 8917
+     },
+     {
+      "index": 3,
+      "type": "B",
+      "entry_tick": 2581,
+      "start_tick": 2625,
+      "end_tick": 11819
+     },
+     {
+      "index": 4,
+      "type": "A",
+      "entry_tick": 3226,
+      "start_tick": 3270,
+      "end_tick": 11086
+     },
+     {
+      "index": 5,
+      "type": "B",
+      "entry_tick": 3871,
+      "start_tick": 3915,
+      "end_tick": 10729
+     },
+     {
+      "index": 6,
+      "type": "A",
+      "entry_tick": 4839,
+      "start_tick": 4883,
+      "end_tick": 13496
+     },
+     {
+      "index": 7,
+      "type": "B",
+      "entry_tick": 5484,
+      "start_tick": 5528,
+      "end_tick": 12310
+     },
+     {
+      "index": 8,
+      "type": "A",
+      "entry_tick": 6452,
+      "start_tick": 6496,
+      "end_tick": 17136
+     },
+     {
+      "index": 9,
+      "type": "B",
+      "entry_tick": 8065,
+      "start_tick": 8109,
+      "end_tick": 14924
+     },
+     {
+      "index": 10,
+      "type": "A",
+      "entry_tick": 9355,
+      "start_tick": 9399,
+      "end_tick": 17689
+     },
+     {
+      "index": 11,
+      "type": "B",
+      "entry_tick": 10000,
+      "start_tick": 10044,
+      "end_tick": 16779
+     },
+     {
+      "index": 12,
+      "type": "A",
+      "entry_tick": 12581,
+      "start_tick": 12625,
+      "end_tick": 21042
+     },
+     {
+      "index": 13,
+      "type": "A",
+      "entry_tick": 13549,
+      "start_tick": 13593,
+      "end_tick": 20328
+     },
+     {
+      "index": 14,
+      "type": "I",
+      "entry_tick": 14194,
+      "start_tick": 14238,
+      "end_tick": 19138
+     },
+     {
+      "index": 15,
+      "type": "I",
+      "entry_tick": 15484,
+      "start_tick": 15528,
+      "end_tick": 20685
+     },
+     {
+      "index": 16,
+      "type": "I",
+      "entry_tick": 17742,
+      "start_tick": 17786,
+      "end_tick": 22418
+     },
+     {
+      "index": 17,
+      "type": "E",
+      "entry_tick": 19355,
+      "start_tick": 19399,
+      "end_tick": 25215
+     },
+     {
+      "index": 18,
+      "type": "E",
+      "entry_tick": 21613,
+      "start_tick": 21657,
+      "end_tick": 27635
+     },
+     {
+      "index": 19,
+      "type": "E",
+      "entry_tick": 22581,
+      "start_tick": 22625,
+      "end_tick": 28713
+     }
+    ],
+    "last": 19,
+    "occupancy": {
+     "M1": 45.0,
+     "M2": 63.0,
+     "M3": 51.7,
+     "M4": 45.0,
+     "M5": 51.7,
+     "M6": 40.5,
+     "M7": 36.0
+    },
+    "m1_idle": {
+     "intervals": [
+      [
+       0,
+       367
+      ],
+      [
+       690,
+       1012
+      ],
+      [
+       1335,
+       1657
+      ],
+      [
+       1980,
+       2625
+      ],
+      [
+       2948,
+       3270
+      ],
+      [
+       3593,
+       3915
+      ],
+      [
+       4238,
+       4883
+      ],
+      [
+       5206,
+       5528
+      ],
+      [
+       5851,
+       6496
+      ],
+      [
+       6819,
+       6859
+      ],
+      [
+       7182,
+       7424
+      ],
+      [
+       7747,
+       8109
+      ],
+      [
+       8432,
+       8594
+      ],
+      [
+       8917,
+       9399
+      ],
+      [
+       9722,
+       10044
+      ],
+      [
+       10367,
+       10406
+      ],
+      [
+       10729,
+       10763
+      ],
+      [
+       11086,
+       11496
+      ],
+      [
+       11819,
+       11987
+      ],
+      [
+       12310,
+       12625
+      ],
+      [
+       12948,
+       13173
+      ],
+      [
+       13496,
+       13593
+      ],
+      [
+       13916,
+       14238
+      ],
+      [
+       14561,
+       14601
+      ],
+      [
+       14924,
+       15528
+      ],
+      [
+       15851,
+       16456
+      ],
+      [
+       16779,
+       16813
+      ],
+      [
+       17136,
+       17366
+      ],
+      [
+       17689,
+       17786
+      ],
+      [
+       18109,
+       18815
+      ],
+      [
+       19138,
+       19399
+      ],
+      [
+       19722,
+       20005
+      ],
+      [
+       20328,
+       20362
+      ],
+      [
+       20685,
+       20719
+      ],
+      [
+       21042,
+       21657
+      ],
+      [
+       21980,
+       22095
+      ],
+      [
+       22418,
+       22625
+      ],
+      [
+       22948,
+       24892
+      ],
+      [
+       25215,
+       27312
+      ],
+      [
+       27635,
+       28390
+      ]
+     ],
+     "total_ticks": 15793
+    },
+    "entry_windows": {
+     "checks": 47,
+     "created": 20,
+     "zone_busy": 27,
+     "wip_full": 0
+    }
+   }
+  },
+  {
+   "round": 1,
+   "by": "LLM 2",
+   "order": [
+    0,
+    2,
+    4,
+    6,
+    8,
+    10,
+    12,
+    14,
+    16,
+    18,
+    1,
+    3,
+    5,
+    7,
+    9,
+    11,
+    13,
+    15,
+    17,
+    19
+   ],
+   "types": "AIAIAIAAAABEBEBEBBBA",
+   "reasoning": "Interleaved A and I products in the first half (indices 0-18 even) followed by B and E products. This mixes short-path (I) with long-path (A) items early to balance machine loads on M2/M3/M5/M7 and prevent M1 from idling while waiting for specific product types, aiming to smooth out the entry flow…",
+   "makespan_ticks": 27102,
+   "details": {
+    "products": [
+     {
+      "index": 0,
+      "type": "A",
+      "entry_tick": 323,
+      "start_tick": 367,
+      "end_tick": 7181
+     },
+     {
+      "index": 1,
+      "type": "I",
+      "entry_tick": 968,
+      "start_tick": 1012,
+      "end_tick": 5070
+     },
+     {
+      "index": 2,
+      "type": "A",
+      "entry_tick": 1613,
+      "start_tick": 1657,
+      "end_tick": 11697
+     },
+     {
+      "index": 3,
+      "type": "I",
+      "entry_tick": 2581,
+      "start_tick": 2625,
+      "end_tick": 9439
+     },
+     {
+      "index": 4,
+      "type": "A",
+      "entry_tick": 3226,
+      "start_tick": 3270,
+      "end_tick": 10408
+     },
+     {
+      "index": 5,
+      "type": "I",
+      "entry_tick": 3871,
+      "start_tick": 3915,
+      "end_tick": 8149
+     },
+     {
+      "index": 6,
+      "type": "A",
+      "entry_tick": 5484,
+      "start_tick": 5528,
+      "end_tick": 12340
+     },
+     {
+      "index": 7,
+      "type": "A",
+      "entry_tick": 6452,
+      "start_tick": 6496,
+      "end_tick": 13670
+     },
+     {
+      "index": 8,
+      "type": "A",
+      "entry_tick": 7420,
+      "start_tick": 7464,
+      "end_tick": 14609
+     },
+     {
+      "index": 9,
+      "type": "A",
+      "entry_tick": 8710,
+      "start_tick": 8754,
+      "end_tick": 15648
+     },
+     {
+      "index": 10,
+      "type": "B",
+      "entry_tick": 9678,
+      "start_tick": 9722,
+      "end_tick": 16770
+     },
+     {
+      "index": 11,
+      "type": "E",
+      "entry_tick": 10968,
+      "start_tick": 11012,
+      "end_tick": 17127
+     },
+     {
+      "index": 12,
+      "type": "B",
+      "entry_tick": 12581,
+      "start_tick": 12625,
+      "end_tick": 19439
+     },
+     {
+      "index": 13,
+      "type": "E",
+      "entry_tick": 13871,
+      "start_tick": 13915,
+      "end_tick": 20003
+     },
+     {
+      "index": 14,
+      "type": "B",
+      "entry_tick": 14839,
+      "start_tick": 14883,
+      "end_tick": 21640
+     },
+     {
+      "index": 15,
+      "type": "E",
+      "entry_tick": 15807,
+      "start_tick": 15851,
+      "end_tick": 21997
+     },
+     {
+      "index": 16,
+      "type": "B",
+      "entry_tick": 17420,
+      "start_tick": 17464,
+      "end_tick": 24199
+     },
+     {
+      "index": 17,
+      "type": "B",
+      "entry_tick": 18065,
+      "start_tick": 18109,
+      "end_tick": 24844
+     },
+     {
+      "index": 18,
+      "type": "B",
+      "entry_tick": 18710,
+      "start_tick": 18754,
+      "end_tick": 25530
+     },
+     {
+      "index": 19,
+      "type": "A",
+      "entry_tick": 20323,
+      "start_tick": 20367,
+      "end_tick": 27102
+     }
+    ],
+    "last": 19,
+    "occupancy": {
+     "M1": 47.7,
+     "M2": 73.9,
+     "M3": 57.2,
+     "M4": 52.4,
+     "M5": 66.7,
+     "M6": 42.9,
+     "M7": 11.9
+    },
+    "m1_idle": {
+     "intervals": [
+      [
+       0,
+       367
+      ],
+      [
+       690,
+       1012
+      ],
+      [
+       1335,
+       1657
+      ],
+      [
+       1980,
+       2625
+      ],
+      [
+       2948,
+       3270
+      ],
+      [
+       3593,
+       3915
+      ],
+      [
+       4238,
+       4747
+      ],
+      [
+       5070,
+       5528
+      ],
+      [
+       5851,
+       6496
+      ],
+      [
+       6819,
+       6858
+      ],
+      [
+       7181,
+       7464
+      ],
+      [
+       7787,
+       7826
+      ],
+      [
+       8149,
+       8754
+      ],
+      [
+       9077,
+       9116
+      ],
+      [
+       9439,
+       9722
+      ],
+      [
+       10045,
+       10085
+      ],
+      [
+       10408,
+       11012
+      ],
+      [
+       11335,
+       11374
+      ],
+      [
+       11697,
+       12017
+      ],
+      [
+       12340,
+       12625
+      ],
+      [
+       12948,
+       13347
+      ],
+      [
+       13670,
+       13915
+      ],
+      [
+       14238,
+       14286
+      ],
+      [
+       14609,
+       14883
+      ],
+      [
+       15206,
+       15325
+      ],
+      [
+       15648,
+       15851
+      ],
+      [
+       16174,
+       16447
+      ],
+      [
+       16770,
+       16804
+      ],
+      [
+       17127,
+       17464
+      ],
+      [
+       17787,
+       18109
+      ],
+      [
+       18432,
+       18754
+      ],
+      [
+       19077,
+       19116
+      ],
+      [
+       19439,
+       19680
+      ],
+      [
+       20003,
+       20367
+      ],
+      [
+       20690,
+       21317
+      ],
+      [
+       21640,
+       21674
+      ],
+      [
+       21997,
+       23876
+      ],
+      [
+       24199,
+       24521
+      ],
+      [
+       24844,
+       25207
+      ],
+      [
+       25530,
+       26779
+      ]
+     ],
+     "total_ticks": 14182
+    },
+    "entry_windows": {
+     "checks": 43,
+     "created": 20,
+     "zone_busy": 23,
+     "wip_full": 0
+    }
+   }
+  }
+ ],
+ "calls": [
+  {
+   "round": 1,
+   "latency_s": 6.7,
+   "error": null,
+   "kept": 2,
+   "analysis": "The best order (26612 ticks) suffers from severe M1 idle time (13692 ticks) caused by late entries of short products (I, E). The last product (index 10, I) enters at tick 21936 and finishes at 26612. By delaying these short-path items to the end, they block entry checks (26 missed) and leave M1 idl…",
+   "prompt": [
+    {
+     "role": "system",
+     "content": "You plan the ENTRY ORDER of a list of products into a simulated monorail plant, to finish the\nWHOLE list as early as possible (minimum makespan). Every order you propose is simulated and you get\nthe results back; use them.\n\nPLANT (read from the simulation model; times in simulated time units, u.t.; 1 tick = 0.31 u.t.)\n- Machines, operations they can do and processing time (Machine.Operations.Time, u.t.):\n  M1: O8 100, O9 100\n  M2: O1 200, O2 200, O4 200\n  M3: O1 200, O2 200, O5 200\n  M4: O3 200, O4 200, O5 200\n  M5: O1 200, O3 200, O5 200, O6 200\n  M6: O2 200, O3 200, O4 200, O6 200\n  M7: O1 200, O2 200, O3 200, O4 200, O5 200\n- M1 loads and unloads: EVERY product starts with O8 and ends with O9 on M1, so M1 is shared by all.\n- Mode Deterministic: processing times are exactly the ones above (no random extra; in Stochastic mode M2, M3, M4, M5, M6, M7 add an exponential extra of mean 10 u.t.).\n- Travel time between machines (u.t., row = from, column = to; 0 = staying on the same machine,\n  which also skips that machine's queue):\n          M1     M2     M3     M4     M5     M6     M7\n   M1      0  111.3  201.8  186.6  125.5  212.1  298.4\n   M2  287.9      0  124.6  109.4  187.2  273.7  360.8\n   M3  247.4  161.8      0  69.13  146.9  233.4  320.2\n   M4  212.3  126.8  217.3      0  111.9  198.4  285.2\n   M5  129.6  211.7  302.2  187.6      0  115.6  202.2\n   M6  208.1  290.1  380.7  365.5  304.4      0  121.2\n   M7  120.9  203.1  293.5  278.4  217.3  139.5      0\n\nENTRY RULE\n- Products enter in list order. The model checks the entry when the simulated time is within\n  0.2 u.t. after a multiple of 100 u.t. (time advances 0.31 u.t. per tick, so some\n  100 u.t. windows get no check). A new product enters only if there are fewer than 10 products\n  in the plant AND no product is in the entry zone next to M1 (x 90-115, y 80-110 of the\n  plant layout). A missed check waits for the next one.\n- A new product needs 13.64 u.t. to reach M1.\n\nROUTING (b1b): each operation goes to the capable machine with the lowest finish_plus_next = estimated end of the operation there (travel, queue and products on their way included) + travel to the closest machine of the following operation; ties: lowest machine number. Staying on the same machine costs no travel.\n\nANSWER: only the JSON object requested.\n- \"analysis\": at most 300 characters, why the best evaluated order loses time, with the\n  numbers of its details (idle time of M1, missed entry checks, last product, occupancy, lower bound).\n- \"orders\": 2 NEW orders that correct that, different from every evaluated order. Each \"order\" lists\n  every index of the list exactly once. Each \"reasoning\": at most 300 characters, what you changed\n  and why it should finish earlier. Write in English.\n- NUMBERS: cite only numbers that appear in the data you were given (makespans, details of the evaluated\n  orders, precomputed figures). Do NOT estimate times of your own (no \"finishes by ~X\", no predicted\n  makespan or entry tick for a new order): describe the expected effect without a number."
+    },
+    {
+     "role": "user",
+     "content": "LIST: 20 products (8 A, 3 I, 6 B, 3 E). Index: type, in the current order:\n0:A 1:B 2:I 3:E 4:A 5:B 6:I 7:E 8:A 9:B 10:I 11:E 12:A 13:B 14:A 15:B 16:A 17:B 18:A 19:A\n\nPRODUCT TYPES IN THE LIST (min_time = from creation to the end of O9 with no waiting: entry travel + processing + travel on the best route)\n- A x8: O8[M1] O1[M2/M3/M5/M7] O1[M2/M3/M5/M7] O1[M2/M3/M5/M7] O2[M2/M3/M6/M7] O4[M2/M4/M6/M7] O3[M4/M5/M6/M7] O5[M3/M4/M5/M7] O9[M1]; work 1600 u.t.; min_time 2032.94 u.t. (6558 ticks) via M1-M7-M7-M7-M7-M7-M7-M7-M1\n- B x6: O8[M1] O1[M2/M3/M5/M7] O1[M2/M3/M5/M7] O1[M2/M3/M5/M7] O2[M2/M3/M6/M7] O2[M2/M3/M6/M7] O3[M4/M5/M6/M7] O5[M3/M4/M5/M7] O9[M1]; work 1600 u.t.; min_time 2032.94 u.t. (6558 ticks) via M1-M7-M7-M7-M7-M7-M7-M7-M1\n- I x3: O8[M1] O1[M2/M3/M5/M7] O1[M2/M3/M5/M7] O3[M4/M5/M6/M7] O5[M3/M4/M5/M7] O9[M1]; work 1000 u.t.; min_time 1268.74 u.t. (4093 ticks) via M1-M5-M5-M5-M5-M1\n- E x3: O8[M1] O1[M2/M3/M5/M7] O1[M2/M3/M5/M7] O1[M2/M3/M5/M7] O2[M2/M3/M6/M7] O2[M2/M3/M6/M7] O4[M2/M4/M6/M7] O9[M1]; work 1400 u.t.; min_time 1812.84 u.t. (5848 ticks) via M1-M2-M2-M2-M2-M2-M2-M1\n\nFIGURES OF THE LIST (u.t.)\n- Work per operation: O1 11400, O2 5200, O3 3400, O4 2200, O5 3400, O8 2000, O9 2000\n- Work each machine could take (sum of the operations it can do): M1 4000, M2 18800, M3 20000, M4 9000, M5 18200, M6 10800, M7 25600\n- M1 load (O8 + O9 of all): 4000 u.t.\n- Earliest entries (one per entry check, if nothing blocks): first 100.13, last 3000.18 u.t.\n- Lower bound of the makespan in the current order: 16236 ticks (5033.12 u.t.) = max(M1 bound 4113.77: first arrival + M1 load; path bound 5033.12: earliest entry + min_time, worst for index 19)\n\nEVALUATED ORDERS (simulated; makespan in ticks; idle = ticks without processing; missed = entry checks missed because the zone was occupied / the plant was full)\n0. ABIEABIEABIEABABABAA order [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]: makespan 27950; last: index 18 (A, position 18); M1 idle 15030; missed zone 20 / full 0 of 40 checks; occupancy M1 46.2% M2 71.6% M3 55.5% M4 55.5% M5 50.8% M6 27.7% M7 34.7%\n1. ABABABABABABAAEEEIII order [0, 1, 4, 5, 8, 9, 12, 13, 14, 15, 16, 17, 18, 19, 3, 7, 11, 2, 6, 10]: makespan 26612; last: index 10 (I, position 19); M1 idle 13692; missed zone 26 / full 0 of 46 checks; occupancy M1 48.5% M2 68% M3 55.8% M4 53.4% M5 51% M6 43.7% M7 38.8% <- BEST\n\nDETAILS OF THE BEST (26612 ticks, 10376 above the lower bound of the current order)\nposition: index type entry_tick start_tick end_tick (entry = created; start = O8 starts on M1)\n  0: 0 A 323 367 7182\n  1: 1 B 968 1012 7747\n  2: 4 A 1613 1657 8917\n  3: 5 B 2581 2625 11819\n  4: 8 A 3226 3270 11086\n  5: 9 B 3871 3915 10729\n  6: 12 A 4839 4883 13496\n  7: 13 B 5484 5528 12310\n  8: 14 A 6452 6496 17136\n  9: 15 B 8065 8109 14924\n  10: 16 A 9355 9399 17689\n  11: 17 B 10000 10044 16779\n  12: 18 A 12581 12625 21379\n  13: 19 A 13549 13593 20683\n  14: 3 E 14194 14238 20326\n  15: 7 E 15484 15528 21736\n  16: 11 E 17742 17786 23905\n  17: 2 I 18710 18754 23548\n  18: 6 I 19355 19399 24879\n  19: 10 I 21936 21980 26612\n- M1 idle intervals, longest first (ticks): [1980-2625], [4238-4883], [5851-6496], [22303-23225], [23905-24556], [24879-26289]\n\nGive the analysis and 2 NEW orders of the indices 0-19."
+    }
+   ]
+  }
+ ],
+ "beats_heuristic": false,
+ "first_round_beating": null
+}

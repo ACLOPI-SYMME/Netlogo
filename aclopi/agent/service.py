@@ -10,7 +10,10 @@
     POST /sequence/propose -> up to 2 new entry orders of a product list from the LLM (with the plant facts
                       and the orders already simulated) plus the heuristic (aclopi.agent.sequencing;
                       docs/sequencing.md). 200 also when the LLM fails. ACLOPI_SEQUENCE_REASONING (medium)
-                      and ACLOPI_SEQUENCE_TIMEOUT_S (90) apply only here. Its calls have their own
+                      and ACLOPI_SEQUENCE_TIMEOUT_S (90) apply only here; the request's "reasoning" overrides
+                      the first, and "none" uses ACLOPI_SEQUENCE_FAST_TIMEOUT_S (30) and
+                      ACLOPI_SEQUENCE_FAST_MAX_TOKENS (1000 + 6 per product). Prompt over
+                      ACLOPI_SEQUENCE_PROMPT_BUDGET (30000 tokens): details of the 3 best orders only. Its calls have their own
                       semaphore (ACLOPI_SEQUENCE_MAX_PARALLEL, default 1), apart from the decisions' one:
                       when it is full the answer is 429 with Retry-After (the call is not queued), and a
                       machine decision never waits behind an ordering call.
@@ -56,6 +59,9 @@ class AgentSettings:
     sequence_timeout_s: float = 90.0
     sequence_reasoning: str = "medium"
     sequence_max_parallel: int = 1
+    sequence_fast_timeout_s: float = 30.0  # reasoning "none"
+    sequence_fast_max_tokens: int = 1000  # reasoning "none" (+6 per product)
+    sequence_prompt_budget: int = 30_000
     log_path: str = "results/agent/decisions.jsonl"
     config: AgentConfig = AgentConfig()
 
@@ -72,6 +78,9 @@ class AgentSettings:
             sequence_timeout_s=f("ACLOPI_SEQUENCE_TIMEOUT_S", "90"),
             sequence_reasoning=env.get("ACLOPI_SEQUENCE_REASONING", "medium").strip(),
             sequence_max_parallel=int(env.get("ACLOPI_SEQUENCE_MAX_PARALLEL", "1")),
+            sequence_fast_timeout_s=f("ACLOPI_SEQUENCE_FAST_TIMEOUT_S", "30"),
+            sequence_fast_max_tokens=int(env.get("ACLOPI_SEQUENCE_FAST_MAX_TOKENS", "1000")),
+            sequence_prompt_budget=int(env.get("ACLOPI_SEQUENCE_PROMPT_BUDGET", "30000")),
             log_path=env.get("ACLOPI_AGENT_LOG", "results/agent/decisions.jsonl"),
             config=AgentConfig(
                 triage=TriageParams(u_wide=f("ACLOPI_U_WIDE", "100"), u_narrow=f("ACLOPI_U_NARROW", "50")),
@@ -117,7 +126,7 @@ def create_app(settings: AgentSettings | None = None, llm: LLMClient | None = No
     platform = HttpPlatform(settings.platform_url, settings.token, platform_transport)
     agent = Agent(platform, llm, settings.config, asyncio.Semaphore(settings.llm_max_parallel))
     sequence_slots = asyncio.Semaphore(max(1, settings.sequence_max_parallel))  # not the decisions' semaphore
-    sequence_started: list[float] = []  # monotonic start of the ordering calls running now
+    sequence_deadlines: list[float] = []  # monotonic deadline of the ordering calls running now
     health = {"llm": "ok" if settings.provider == "fake" else "unknown", "checked_at": None}
     log_path = Path(settings.log_path)
 
@@ -145,7 +154,7 @@ def create_app(settings: AgentSettings | None = None, llm: LLMClient | None = No
     @app.get("/health")
     async def get_health() -> dict[str, Any]:
         return {"status": "ok", "provider": settings.provider, "llm": health["llm"], "llm_checked_at": health["checked_at"],
-                "running_decisions": len(app.state.tasks), "running_sequences": len(sequence_started)}
+                "running_decisions": len(app.state.tasks), "running_sequences": len(sequence_deadlines)}
 
     @app.get("/decisions")
     async def get_decisions(session_id: str | None = None) -> list[dict[str, Any]]:
@@ -167,17 +176,21 @@ def create_app(settings: AgentSettings | None = None, llm: LLMClient | None = No
         if settings.token and not bearer_matches(authorization, settings.token):
             return Response(status_code=401)
         if sequence_slots.locked():  # busy: answer at once instead of queueing (no await since the check)
-            left = settings.sequence_timeout_s - (time.monotonic() - min(sequence_started, default=time.monotonic()))
+            left = min(sequence_deadlines, default=time.monotonic()) - time.monotonic()
             return JSONResponse({"code": "sequence_busy", "detail": "an ordering call is already running"},
                                 status_code=429, headers={"Retry-After": str(max(1, math.ceil(left)))})
+        effort = body.reasoning or settings.sequence_reasoning
+        fast = effort == "none"
+        timeout_s = settings.sequence_fast_timeout_s if fast else settings.sequence_timeout_s
         async with sequence_slots:
-            started = time.monotonic()
-            sequence_started.append(started)
+            deadline = time.monotonic() + timeout_s
+            sequence_deadlines.append(deadline)
             try:
                 return await propose(llm, [p.model_dump() for p in body.products], [e.model_dump() for e in body.evaluated],
-                                     body.strategy, body.mode, settings.sequence_timeout_s, settings.sequence_reasoning)
+                                     body.strategy, body.mode, timeout_s, effort,
+                                     settings.sequence_fast_max_tokens if fast else None, settings.sequence_prompt_budget)
             finally:
-                sequence_started.remove(started)
+                sequence_deadlines.remove(deadline)
 
     async def run_decision(req: dict[str, Any]) -> None:
         start = time.monotonic()
