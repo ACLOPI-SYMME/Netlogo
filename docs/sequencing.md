@@ -112,6 +112,9 @@ Usa autenticación `Authorization: Bearer <ACLOPI_AGENT_TOKEN>`, el mismo token 
 
 - `ACLOPI_SEQUENCE_REASONING`: `reasoning_effort` del LLM; por defecto `medium`. Las decisiones de máquina siguen en `none`.
 - `ACLOPI_SEQUENCE_TIMEOUT_S`: tope de la llamada; por defecto 90 s.
+- `ACLOPI_SEQUENCE_MAX_PARALLEL`: llamadas de ordenamiento a la vez; por defecto 1. Tienen su propio semáforo, separado del de las decisiones de máquina, así que una decisión nunca espera detrás de un ordenamiento. Si ya están todas ocupadas, responde **429** de inmediato, con `{"code": "sequence_busy"}` y la cabecera `Retry-After` (segundos hasta el tope de la llamada en curso). El pedido no queda en cola.
+
+El prompt pide citar solo cifras que estén en los datos (makespan, `details`, cifras precalculadas) y no estimar tiempos propios.
 
 El pedido usa hasta 8.000 tokens más 6 por producto, para que quepan el razonamiento y la respuesta.
 
