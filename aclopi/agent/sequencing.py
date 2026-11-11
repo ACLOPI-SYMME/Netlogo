@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Any, Mapping, Sequence
+from typing import Any, Literal, Mapping, Sequence
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -33,7 +33,13 @@ REASONING_MAX = 300
 HEURISTIC_REASONING = "Longest first"
 TIMEOUT_S = 90.0
 EFFORT = "medium"
+EFFORTS = ("none", "low", "medium")
 MIN_TOKENS = 8000  # room for the reasoning tokens (reasoning_effort) and the answer
+FAST_TIMEOUT_S = 30.0  # reasoning "none": no reasoning tokens, a short answer
+FAST_MIN_TOKENS = 1000
+TOKENS_PER_PRODUCT = 6  # the 2 orders: ~2 tokens per index each, plus margin
+PROMPT_BUDGET = 30_000  # tokens (characters / 4) before the details are cut to the best FULL_DETAILS_KEPT
+FULL_DETAILS_KEPT = 3
 
 
 def product_type(p: Any) -> str:
@@ -126,7 +132,9 @@ def _types(order: Sequence[int], types: Sequence[str]) -> str:
 
 
 def user_prompt(plant: dict[str, Any], products: Sequence[Any], evaluated: Sequence[Mapping[str, Any]],
-                strategy: str, mode: str) -> str:
+                strategy: str, mode: str, with_details: set[int] | None = None) -> str:
+    """with_details: positions in `evaluated` whose details are shown (None: all); the others show only
+    their makespan."""
     types = [product_type(p) for p in products]
     fig = list_figures(plant, types, strategy, mode)
     m1 = plant["load_unload_machine"]
@@ -158,7 +166,7 @@ def user_prompt(plant: dict[str, Any], products: Sequence[Any], evaluated: Seque
         # details come from simulate_list on the list in that order: their "index" / "last" are positions
         # in the order; order[position] is the index in this list.
         for k, e in enumerate(evaluated):
-            d = e.get("details") or {}
+            d = (e.get("details") or {}) if with_details is None or k in with_details else {}
             row = f"{k}. {_types(e['order'], types)} order {list(e['order'])}: makespan {e.get('makespan_ticks')}"
             if d:
                 w = d["entry_windows"]
@@ -184,11 +192,32 @@ def user_prompt(plant: dict[str, Any], products: Sequence[Any], evaluated: Seque
     return "\n".join(lines)
 
 
+def prompt_tokens(messages: Sequence[Mapping[str, str]]) -> int:
+    """Approximate size of a prompt in tokens: characters / 4."""
+    return sum(len(m["content"]) for m in messages) // 4
+
+
+def best_positions(evaluated: Sequence[Mapping[str, Any]], k: int) -> set[int]:
+    """Positions of the k evaluated orders with the lowest makespan (None last; ties: first given)."""
+    ranked = sorted(range(len(evaluated)), key=lambda i: (evaluated[i].get("makespan_ticks") is None,
+                                                           evaluated[i].get("makespan_ticks") or 0, i))
+    return set(ranked[:k])
+
+
 def build_messages(products: Sequence[Any], evaluated: Sequence[Mapping[str, Any]] = (), strategy: str = "b1b",
-                   mode: str = "Deterministic", plant: dict[str, Any] | None = None) -> list[dict[str, str]]:
+                   mode: str = "Deterministic", plant: dict[str, Any] | None = None,
+                   budget: int | None = PROMPT_BUDGET) -> list[dict[str, str]]:
+    """Over `budget` tokens (prompt_tokens), only the FULL_DETAILS_KEPT best evaluated orders keep their
+    details; the others show only their makespan."""
     plant = plant or load_plant()
-    return [{"role": "system", "content": system_prompt(plant, strategy, mode)},
-            {"role": "user", "content": user_prompt(plant, products, evaluated, strategy, mode)}]
+    system = {"role": "system", "content": system_prompt(plant, strategy, mode)}
+    messages = [system, {"role": "user", "content": user_prompt(plant, products, evaluated, strategy, mode)}]
+    if budget is not None and prompt_tokens(messages) > budget and len(evaluated) > FULL_DETAILS_KEPT:
+        keep = best_positions(evaluated, FULL_DETAILS_KEPT)
+        messages = [system, {"role": "user", "content": user_prompt(plant, products, evaluated, strategy, mode, keep)}]
+        logger.info("sequence: prompt over %d tokens; details of the %d best orders only (%d tokens)",
+                    budget, FULL_DETAILS_KEPT, prompt_tokens(messages))
+    return messages
 
 
 def answer_schema(n: int) -> dict[str, Any]:
@@ -226,13 +255,18 @@ def valid_orders(data: Any, n: int, evaluated: Sequence[Sequence[int]] = ()) -> 
 
 async def propose(llm: LLMClient, products: Sequence[Any], evaluated: Sequence[Mapping[str, Any]] = (),
                   strategy: str = "b1b", mode: str = "Deterministic", timeout_s: float = TIMEOUT_S,
-                  effort: str | None = EFFORT) -> dict[str, Any]:
+                  effort: str | None = EFFORT, min_tokens: int | None = None,
+                  budget: int | None = PROMPT_BUDGET) -> dict[str, Any]:
+    """min_tokens: max_tokens of the call, plus TOKENS_PER_PRODUCT per product (default: MIN_TOKENS, or
+    FAST_MIN_TOKENS with effort "none")."""
     start = time.perf_counter()
     n = len(products)
     plant = load_plant()
     heuristic = {"order": largest_first(products, plant), "reasoning": HEURISTIC_REASONING}
-    messages = build_messages(products, evaluated, strategy, mode, plant)
-    with call_options(min_tokens=MIN_TOKENS + 6 * n, reasoning_effort=effort, timeout_s=timeout_s):
+    messages = build_messages(products, evaluated, strategy, mode, plant, budget)
+    if min_tokens is None:
+        min_tokens = FAST_MIN_TOKENS if effort == "none" else MIN_TOKENS
+    with call_options(min_tokens=min_tokens + TOKENS_PER_PRODUCT * n, reasoning_effort=effort, timeout_s=timeout_s):
         data, _ = await llm.complete_json(messages, answer_schema(n), timeout_s)
     analysis = None
     if isinstance(data, LLMError):
@@ -276,6 +310,7 @@ class SequenceRequest(BaseModel):
     evaluated: list[Evaluated] = Field(default_factory=list, max_length=50)
     strategy: str = "b1b"
     mode: str = "Deterministic"
+    reasoning: Literal["none", "low", "medium"] | None = None  # None: ACLOPI_SEQUENCE_REASONING
 
     @model_validator(mode="after")
     def _check(self) -> "SequenceRequest":

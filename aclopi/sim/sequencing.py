@@ -1,5 +1,6 @@
 """Makespan of a product list in a given entry order, for the "Optimize order" button (docs/sequencing.md).
 
+    heuristic_order(products) -> [indices]   the heuristic order (largest_first), pure
     simulate_list(session, products, strategy, mode, seed, max_ticks, on_progress, details=False)
         -> {"makespan_ticks", "makespan_time", "all_done", "cancelled", "ticks", "wall_s"[, "details"]}
 
@@ -32,6 +33,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
+from aclopi.agent.sequencing import largest_first
 from aclopi.agent.sequencing_context import entry_checks, parse_model_rules
 from aclopi.agent.strategies import DecisionContext, decide
 from aclopi.sim.candidates import candidates_for_session, read_model_static
@@ -97,6 +99,12 @@ def compute_details(rows: list[list[Any]], rules: dict[str, Any], makespan_time:
             windows["zone_busy"] += 1
     return {"products": products, "last": last, "occupancy": occupancy,
             "m1_idle": {"intervals": idle, "total_ticks": sum(b - a for a, b in idle)}, "entry_windows": windows}
+
+
+def heuristic_order(products: Sequence[Any]) -> list[int]:
+    """The heuristic entry order of a list (0-based indices): largest_first of aclopi.agent.sequencing,
+    the "heuristic" of POST /sequence/propose. Pure: no NetLogo, no LLM."""
+    return largest_first(products)
 
 
 @lru_cache(maxsize=4)

@@ -294,3 +294,51 @@ def test_sequence_calls_have_their_own_semaphore(tmp_path) -> None:
     assert out["decided_first"] and out["decided_s"] < 0.5 and out["sent"][0]["decision_level"] == "llm"
     two = asyncio.run(run(2))
     assert two["second"].status_code == 200  # ACLOPI_SEQUENCE_MAX_PARALLEL=2: both run
+
+
+# ----- heuristic_order, reasoning per request, prompt budget -----
+
+def test_heuristic_order_is_the_heuristic() -> None:
+    from aclopi.sim.sequencing import heuristic_order
+
+    assert heuristic_order(LIST_20) == largest_first(LIST_20)
+    assert types(heuristic_order(LIST_20), LIST_20) == "ABABABABABABAAEEEIII"
+    assert heuristic_order([{"type": "I", "priority": 60}, {"type": "L"}]) == [1, 0]
+
+
+def test_reasoning_per_request(tmp_path) -> None:
+    async def run(body_extra: dict[str, Any]) -> tuple[httpx.Response, FixedLLM]:
+        llm = FixedLLM({"analysis": "a", "orders": [{"order": list(range(19, -1, -1)), "reasoning": "r"}]})
+        settings = AgentSettings(token="tok", log_path=str(tmp_path / "d.jsonl"), sequence_reasoning="low",
+                                 sequence_fast_timeout_s=12.0, sequence_fast_max_tokens=500)
+        app = create_app(settings, llm=llm)
+        body = {"products": [{"type": t} for t in LIST_20], **body_extra}
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://agent") as c:
+            r = await c.post("/sequence/propose", json=body, headers={"Authorization": "Bearer tok"})
+        return r, llm
+
+    r, llm = asyncio.run(run({}))
+    assert r.status_code == 200 and llm.seen[0] == (8120, "low", 90.0)  # ACLOPI_SEQUENCE_REASONING
+    r, llm = asyncio.run(run({"reasoning": "medium"}))
+    assert llm.seen[0] == (8120, "medium", 90.0)
+    r, llm = asyncio.run(run({"reasoning": "none"}))
+    assert r.status_code == 200 and llm.seen[0] == (620, "none", 12.0)  # fast: 500 + 6 x 20 tokens, 12 s
+    r, _ = asyncio.run(run({"reasoning": "high"}))
+    assert r.status_code == 422
+
+
+def test_prompt_budget_keeps_the_details_of_the_3_best() -> None:
+    from aclopi.agent.sequencing import best_positions, prompt_tokens
+
+    ev = [{"order": o, "makespan_ticks": m, "details": details_of(o)} for o, m in (
+        (list(range(20)), 27745), (largest_first(LIST_20), 26612), (list(range(19, -1, -1)), 25000),
+        (list(range(1, 20)) + [0], 26000), (list(range(2, 20)) + [0, 1], 28000))]
+    assert best_positions(ev, 3) == {1, 2, 3}
+    full = build_messages(LIST_20, ev)  # 30000: far over this prompt
+    assert full[1]["content"].count("; last: index") == 5
+    cut = build_messages(LIST_20, ev, budget=prompt_tokens(full) - 1)
+    rows = [line for line in cut[1]["content"].splitlines() if line[:2] in {f"{k}." for k in range(5)}]
+    assert [("; last: index" in r) for r in rows] == [False, True, True, True, False]  # makespan only for 0 and 4
+    assert all(f"makespan {m}" in r for r, m in zip(rows, (27745, 26612, 25000, 26000, 28000)))
+    assert prompt_tokens(cut) < prompt_tokens(full) and "DETAILS OF THE BEST (25000 ticks" in cut[1]["content"]
+    assert build_messages(LIST_20, ev[:3], budget=10) == build_messages(LIST_20, ev[:3])  # 3 or fewer: nothing to cut
