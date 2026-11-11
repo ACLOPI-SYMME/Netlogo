@@ -1,27 +1,27 @@
-# What-if y candidates (L5.4)
+# What-if and candidates (L5.4)
 
-Estos dos endpoints permiten al código del agente (Línea A) evaluar una decisión pendiente de la regla 4 antes de tomarla. El gancho de decisión está descrito en `docs/rule4-decision-hook.md`.
+These two endpoints let the agent's code (Línea A) evaluate a pending rule-4 decision before taking it. The decision hook is described in `docs/rule4-decision-hook.md`. How to read the responses: `docs/records/candidates-and-whatif.md`.
 
-## Contexto y plazos
+## Context and deadlines
 
-- **Cuándo decide el agente.** Mientras el producto se procesa en una máquina: la petición se crea al **entrar** a la máquina y la respuesta se usa cuando la operación termina.
-- **Plazo de decisión en vivo.** Es lo que le falta al producto en su máquina actual menos ~2 s de margen: **~8 s desde M1** y **~18 s desde M2–M7**.
-- **Duración del what-if.** La fija el agente con `budget_ms` en cada pedido (10 s por defecto, de 2 a 15 s), a partir de su plazo de decisión y del tiempo que necesitan sus llamadas al LLM:
-  - **desde M2–M7** (~18 s) cabe un what-if de ~10 s;
-  - **desde M1** (~8 s) el what-if **no cabe** junto con las llamadas al LLM, así que el agente no debería pedirlo.
-- **Meta de concurrencia.** **5 sesiones simultáneas**, con 2 workers de what-if compartidos.
-- **Sesiones válidas.** Solo las de **regla 4**. La regla 4 sin decisor es exactamente la regla 3.
+- **When the agent decides.** While the product is being processed in a machine: the request is created when it **enters** the machine and the answer is used when the operation ends.
+- **Live decision deadline.** It is what the product has left on its current machine minus ~2 s of margin: **~8 s from M1** and **~18 s from M2–M7**.
+- **Duration of the what-if.** The agent sets it with `budget_ms` in each request (10 s by default, 2 to 15 s), from its decision deadline and the time its LLM calls need:
+  - **from M2–M7** (~18 s) a what-if of ~10 s fits;
+  - **from M1** (~8 s) the what-if **does not fit** together with the LLM calls, so the agent should not ask for one.
+- **Concurrency target.** **5 simultaneous sessions**, with 2 shared what-if workers.
+- **Valid sessions.** Only **rule 4** ones. Rule 4 without a decider is exactly rule 3.
 
 ## `GET /sessions/{id}/candidates?product=&seq=`
 
-Devuelve las máquinas candidatas para la operación `seq` del producto `product`, con su carga y su inicio y fin estimados.
+Returns the candidate machines for operation `seq` of product `product`, with their load and their estimated start and finish.
 
-- **Parámetros:** los dos son obligatorios. `seq` es la operación pendiente, `CurrentSequenceOrder + 1`.
-- **Cálculo:** lo hace `aclopi.sim.candidates.compute_candidates` (Línea A) sobre `platform-state`, dentro del worker de la sesión. No consume azar ni altera la simulación, y mientras la sesión corre se atiende entre bloques.
-- **Pedido inválido:** responde 200 con `valid: false` y `reason` (`unknown-or-finished-product`, `invalid-seq`, `seq-mismatch` o `not-in-machine`).
-- **Esquema:** la respuesta es directamente `CandidatesResult` de `aclopi/contracts/candidates.py` (Línea A), sin copia en la API. Así sus campos aparecen en `contracts/openapi.json`. El significado de cada campo está en `docs/agent-status.md` ("Campos de `CandidatesResult`").
+- **Parameters:** both are required. `seq` is the pending operation, `CurrentSequenceOrder + 1`.
+- **Computation:** done by `aclopi.sim.candidates.compute_candidates` (Línea A) on `platform-state`, inside the session's worker. It consumes no randomness and does not alter the simulation, and while the session runs it is served between blocks.
+- **Invalid request:** answers 200 with `valid: false` and `reason` (`unknown-or-finished-product`, `invalid-seq`, `seq-mismatch` or `not-in-machine`).
+- **Schema:** the response is directly the `CandidatesResult` of `aclopi/contracts/candidates.py` (Línea A), with no copy in the API. That way its fields appear in `contracts/openapi.json`. The meaning of each field is in `docs/agent-status.md` ("Fields of `CandidatesResult`").
 
-Campos principales: `candidates` (ordenadas por `finish`), `current_machine`, `own_remaining`, `next_operation`, `best_by_finish`, `best_by_finish_plus_next`, `gap_*`, `travel_source`. Por candidata: `travel` = `distances[actual][m]` en u.t., `available` (bool) y el tiempo hasta que la máquina queda libre en `available_in`, `arrival`, `start`, `finish` (u.t. absolutos), `proc_time`, `next_machine`, `travel_next`, `is_current_machine`, `queue`, `en_route`, `stay_time` y `stay`.
+Main fields: `candidates` (sorted by `finish`), `current_machine`, `own_remaining`, `next_operation`, `best_by_finish`, `best_by_finish_plus_next`, `gap_*`, `travel_source`. Per candidate: `travel` = `distances[current][m]` in u.t., `available` (bool) and the time until the machine is free in `available_in`, `arrival`, `start`, `finish` (absolute u.t.), `proc_time`, `next_machine`, `travel_next`, `is_current_machine`, `queue`, `en_route`, `stay_time` and `stay`.
 
 ## `POST /sessions/{id}/what-if`
 
@@ -29,131 +29,131 @@ Campos principales: `candidates` (ordenadas por `finish`), `current_machine`, `o
 {"product": 201, "seq": 1, "options": ["M2", "M3"], "max_ticks": 3000, "budget_ms": 10000}
 ```
 
-- **`options`:** exactamente **2 máquinas distintas**, elegidas por el código del agente. Si son iguales, o si no son exactamente dos, la API responde 422.
-- **`max_ticks`:** tope de ticks por copia, de 1 a 5000 (3000 por defecto).
-- **`budget_ms`:** tiempo máximo del pedido completo (las dos copias, en serie en un solo worker), de 2000 a 15000 ms (10000 por defecto). Fuera de rango → 422. Al agotarse, la API devuelve lo que haya con `status: "timeout"`.
+- **`options`:** exactly **2 different machines**, chosen by the agent's code. If they are equal, or if they are not exactly two, the API answers 422.
+- **`max_ticks`:** tick cap per copy, 1 to 5000 (3000 by default).
+- **`budget_ms`:** maximum time of the whole request (the two copies, in series on a single worker), 2000 to 15000 ms (10000 by default). Out of range → 422. When it runs out, the API returns whatever it has with `status: "timeout"`.
 
-### Qué hace
+### What it does
 
-1. **¿Ya probado?** Si en esta sesión ya hubo un what-if para el mismo (`product`, `seq`), responde `skipped` con `already-used`.
-2. **Worker libre.** Toma prestado un worker de what-if **sin cola**: si no hay uno libre, responde `skipped` con `no-free-worker` en pocos milisegundos.
-3. **Foto y validación.** El worker de la sesión, entre dos bloques, valida las dos opciones con `platform-check-next-machine`, mide la carga de las dos máquinas y toma **una sola foto** (export) del mundo. La sesión real no se detiene: en vivo sigue corriendo.
-4. **Copias, una tras otra.** Cada copia se ejecuta en el worker prestado: importa la foto, fuerza la opción con `platform-set-next-machine` y avanza.
-   - Corre primero la opción con **menor entrada estimada** (con viaje; ver "Estimación de la entrada").
-   - Dentro de la copia nunca se llama al agente: las demás decisiones las toma el código de la regla 3, y las peticiones de la copia no salen del worker.
-   - La copia **no aplica eventos de escenario**: el agente no debe conocer el futuro. (Los escenarios no están disponibles en la plataforma; esto solo importa en los experimentos que usan el mecanismo del worker, `docs/scenarios.md`.)
-5. **Parada de cada copia:**
+1. **Already tested?** If this session already had a what-if for the same (`product`, `seq`), it answers `skipped` with `already-used`.
+2. **Free worker.** It borrows a what-if worker **without a queue**: if none is free, it answers `skipped` with `no-free-worker` within a few milliseconds.
+3. **Snapshot and validation.** The session's worker, between two blocks, validates both options with `platform-check-next-machine`, measures the load of both machines and takes **a single snapshot** (export) of the world. The real session does not stop: live, it keeps running.
+4. **Copies, one after the other.** Each copy runs on the borrowed worker: it imports the snapshot, forces the option with `platform-set-next-machine` and advances.
+   - The option with the **lowest estimated entry** (with travel; see "Entry estimate") runs first.
+   - Inside the copy the agent is never called: the other decisions are taken by the rule-3 code, and the copy's requests never leave the worker.
+   - The copy **does not apply scenario events**: the agent must not know the future. (Scenarios are not available on the platform; this only matters in the experiments that use the worker mechanism, `docs/scenarios.md`.)
+5. **Stop of each copy:**
 
-   | `stop_reason` | Cuándo |
+   | `stop_reason` | When |
    |---|---|
-   | `entered` | El producto **entra** a la máquina probada. Se leen el tick, el tiempo de entrada y el fin de la operación (`Next.Completion`), que se fija al entrar, con su parte aleatoria incluida |
-   | `cap` | Llegó a `max_ticks` sin entrar |
-   | `stalled` | Bloqueo: durante `ACLOPI_WHATIF_STALL_TICKS` ticks (300) ningún producto cambió de posición **y** ninguna operación empezó ni terminó (el total de elementos de `ProductRealStart` y `ProductRealCompletion` de todos los productos no cambió). Se compara cada `min(150, stall_ticks)` ticks. Una operación en M2–M7 dura ~645 ticks: que todos esperen en máquina o en cola no es un bloqueo |
-   | `pruned` | Solo la segunda copia: llegó a la ventana común sin entrar, así que ya es peor que la primera |
-   | `timeout` | Se acabó `budget_ms` |
-   | `horizon` | Terminó la corrida |
+   | `entered` | The product **enters** the tested machine. The tick, the entry time and the end of the operation (`Next.Completion`) are read; the end is fixed on entry, random part included |
+   | `cap` | It reached `max_ticks` without entering |
+   | `stalled` | Deadlock: for `ACLOPI_WHATIF_STALL_TICKS` ticks (300) no product changed position **and** no operation started or ended (the total number of elements of `ProductRealStart` and `ProductRealCompletion` of every product did not change). It is checked every `min(150, stall_ticks)` ticks. An operation on M2–M7 lasts ~645 ticks: everybody waiting in a machine or in a queue is not a deadlock |
+   | `pruned` | Second copy only: it reached the common window without entering, so it is already worse than the first |
+   | `timeout` | `budget_ms` ran out |
+   | `horizon` | The run ended |
 
-   Si el producto no entró, la entrada y el fin se **estiman** (`entry_estimated`) sobre el estado de la copia en la parada, con la fórmula de "Estimación de la entrada", y la copia queda marcada.
+   If the product did not enter, the entry and the end are **estimated** (`entry_estimated`) on the state of the copy at the stop, with the formula of "Entry estimate", and the copy is flagged.
 
-   El JSON del diagnóstico de un bloqueo incluye el pedido, la máquina, el tick, `quiet_ticks` y cuántas máquinas estaban procesando.
+   The diagnostic JSON of a deadlock includes the request, the machine, the tick, `quiet_ticks` and how many machines were processing.
 
-### Estimación de la entrada (con viaje)
+### Entry estimate (with travel)
 
-El producto puede entrar a la máquina probada cuando **llegó** y la máquina está **libre**:
-
-```
-llegada = ahora + lo que le falta a su operación actual (si está en una máquina)
-                + viaje desde su máquina hasta la probada − viaje ya hecho (si ya salió)
-libre   = ahora + lo que le falta al trabajo en curso de la máquina probada
-                + tiempos de proceso de los productos en su cola o en camino (+10 en M2–M7 en Stochastic)
-entrada = max(llegada, libre)        fin = entrada + tiempo de la operación en esa máquina
-```
-
-**Qué estimación se usa.** Para ordenar las copias (y para `entry-beyond-cap`), la foto usa el `start` de `candidates` de la Línea A para cada opción, porque cuenta la cola, los productos en camino y el ocupante que se queda. Si `candidates` no da la máquina (por ejemplo, el producto ya no está en una máquina), se usa la fórmula de arriba como respaldo. La respuesta del snapshot dice cuál se usó (`estimate_source`: `candidates` o `fallback`). Cuando una copia no entró, la entrada estimada en la parada sale siempre de la fórmula de arriba, porque en ese momento el producto suele ir viajando.
-
-**Viaje.** `distances[origen][destino]` (global `distances`, `Set.distances.Machines`; la fila es la máquina de origen) **ya está en u.t.**: es el viaje mínimo medido en cada ruta (`data/a0/travel_times.csv`, Línea A).
+The product can enter the tested machine when it has **arrived** and the machine is **free**:
 
 ```
-viaje (u.t.) = distances[origen][destino]        viaje (ticks) = viaje / 0,31
+arrival = now + what is left of its current operation (if it is in a machine)
+              + trip from its machine to the tested one − trip already made (if it already left)
+free    = now + what is left of the job in progress on the tested machine
+              + processing times of the products in its queue or on their way (+10 on M2–M7 in Stochastic)
+entry   = max(arrival, free)        end = entry + time of the operation on that machine
 ```
 
-Antes se dividía por la velocidad del transportador (0,3 por tick) y se multiplicaba por 0,31, lo que sobreestimaba el viaje un 3,3 %. Corregido en `aclopi.sim.candidates.travel_time`.
+**Which estimate is used.** To order the copies (and for `entry-beyond-cap`), the snapshot uses Línea A's `candidates` `start` for each option, because it counts the queue, the products on their way and the occupant that stays. If `candidates` does not give the machine (for example, the product is no longer in a machine), the formula above is used as a fallback. The snapshot's response says which one was used (`estimate_source`: `candidates` or `fallback`). When a copy did not enter, the estimated entry at the stop always comes from the formula above, because at that moment the product is usually travelling.
 
-- **Origen:** la máquina en la que está el producto (`product` de la máquina en `platform-state`) o, si ya salió, la última de `Machine.Used`. En ese caso el viaje ya hecho sale de `ahora − última ProductRealCompletion`.
-- **Qué no incluye:** las esperas en compuertas ni el bloqueo detrás de otros productos. Por eso puede quedarse corta.
+**Travel.** `distances[origin][destination]` (global `distances`, `Set.distances.Machines`; the row is the origin machine) **is already in u.t.**: it is the minimum trip measured on each route (`data/a0/travel_times.csv`, Línea A).
 
-   Con un bloqueo, la foto y el pedido se guardan en `results/whatif_diagnostics/` (`ACLOPI_WHATIF_DIAG_DIR`) y la ruta viene en `diagnostic_file`.
+```
+travel (u.t.) = distances[origin][destination]        travel (ticks) = travel / 0.31
+```
 
-**Por qué la predicción es exacta.** La copia parte de la misma foto, con el mismo estado del generador aleatorio, y la regla 3 decide lo mismo en la copia y en la sesión real. Por eso una entrada real (`entered`) predice exactamente lo que pasará si el agente asigna esa máquina en ese momento. Lo verifica `tests/test_whatif.py` (prueba a).
+It used to be divided by the conveyor speed (0.3 per tick) and multiplied by 0.31, which overestimated the trip by 3.3 %. Fixed in `aclopi.sim.candidates.travel_time`.
 
-### Ventana común y métrica de los demás productos
+- **Origin:** the machine the product is in (`product` of the machine in `platform-state`) or, if it already left, the last one of `Machine.Used`. In that case the trip already made comes from `now − last ProductRealCompletion`.
+- **What it does not include:** the waits at gates or being blocked behind other products. That is why it can fall short.
 
-**Ventana.** Es el tick en que se detuvo la **primera** copia, por entrada, tope o bloqueo.
-- **Si la segunda no entró antes de la ventana:** se poda ahí, porque entra más tarde.
-- **Si entró antes:** sigue hasta la ventana.
+   With a deadlock, the snapshot and the request are saved in `results/whatif_diagnostics/` (`ACLOPI_WHATIF_DIAG_DIR`) and the path comes in `diagnostic_file`.
 
-Así las dos métricas se miden en el mismo tick, y la poda coincide con la ventana.
+**Why the prediction is exact.** The copy starts from the same snapshot, with the same state of the random generator, and rule 3 decides the same in the copy and in the real session. That is why a real entry (`entered`) predicts exactly what will happen if the agent assigns that machine at that moment. Verified by `tests/test_whatif.py` (test a).
 
-**Métrica `others`**, sobre `[foto, ventana]`, para todos los productos salvo el que se decide:
+### Common window and metric of the other products
 
-| Campo | Significado |
+**Window.** It is the tick at which the **first** copy stopped, by entry, cap or deadlock.
+- **If the second did not enter before the window:** it is pruned there, because it enters later.
+- **If it entered before:** it goes on until the window.
+
+That way both metrics are measured at the same tick, and the pruning matches the window.
+
+**Metric `others`**, over `[snapshot, window]`, for every product except the one being decided:
+
+| Field | Meaning |
 |---|---|
-| `work` | Trabajo de proceso **nominal** hecho en la ventana: una operación completada suma su `OperationDuration` y la que está en curso, la fracción procesada (igual que el KPI `work_completed`) |
-| `wait` | Tiempo en planta dentro de la ventana menos el tiempo de proceso recibido: viajando o en cola |
-| `presence` | Tiempo que los demás productos estuvieron en planta dentro de la ventana (`wait` = `presence` − proceso recibido) |
-| `finished` | Productos terminados dentro de la ventana |
+| `work` | **Nominal** processing work done in the window: a completed operation adds its `OperationDuration` and the one in progress, the fraction processed (same as the KPI `work_completed`) |
+| `wait` | Time in the plant within the window minus the processing time received: travelling or queuing |
+| `presence` | Time the other products spent in the plant within the window (`wait` = `presence` − processing received) |
+| `finished` | Products finished within the window |
 
-La plataforma no combina estas cantidades ni ordena las opciones: eso lo decide el agente.
+The platform neither combines these quantities nor ranks the options: the agent decides that.
 
-### Definición de los campos
+### Definition of the fields
 
-Todos los valores están en **unidades de tiempo simulado (u.t.)**, salvo los ticks y los conteos. 1 tick = 0,31 u.t. (`set simulated.time precision (simulated.time + 0.31) 2`, línea 1020).
+Every value is in **units of simulated time (u.t.)**, except ticks and counts. 1 tick = 0.31 u.t. (`set simulated.time precision (simulated.time + 0.31) 2`, line 1020).
 
-Notación:
+Notation:
 
-| Símbolo | Significado |
+| Symbol | Meaning |
 |---|---|
-| `T0` | `Simulated.Time` de la foto, que es el momento de la petición |
-| `T` | `Simulated.Time` en la parada de la copia, que es la ventana común para comparar |
-| `W` | El producto que se decide |
-| "los demás" | Todos los productos de la copia salvo `W`: también los creados dentro de la ventana y los que terminan dentro de ella. Los que terminaron antes de `T0` aportan 0 |
+| `T0` | `Simulated.Time` of the snapshot, which is the moment of the request |
+| `T` | `Simulated.Time` at the stop of the copy, which is the common window for comparing |
+| `W` | The product being decided |
+| "the others" | Every product of the copy except `W`: also those created within the window and those finishing within it. Those that finished before `T0` add 0 |
 
-**Entrada y fin de la operación de `W`**
+**Entry and end of `W`'s operation**
 
-| Campo | Definición |
+| Field | Definition |
 |---|---|
-| `entry_tick` | Tick del `go` en que `W` entra a la máquina probada, es decir, en que `length ProductRealStart` pasa de `seq` a `seq + 1` |
-| `entry_time` | `item seq ProductRealStart` de `W`, en u.t. |
-| `op_end_time` | `Next.Completion` de la máquina probada leída en ese tick. Se fija al entrar e incluye la parte aleatoria `random-exponential 10` en M2–M7 (líneas 1310–1317 para M1, sin término aleatorio, y 1455–1462 y sus copias para M2–M7) |
-| Valores estimados (`*_estimated: true`) | Cuando `W` no entra, salen de "Estimación de la entrada" sobre el estado de la copia en la parada |
+| `entry_tick` | Tick of the `go` in which `W` enters the tested machine, that is, in which `length ProductRealStart` goes from `seq` to `seq + 1` |
+| `entry_time` | `item seq ProductRealStart` of `W`, in u.t. |
+| `op_end_time` | `Next.Completion` of the tested machine read at that tick. It is fixed on entry and includes the random part `random-exponential 10` on M2–M7 (lines 1310–1317 for M1, without a random term, and 1455–1462 and their copies for M2–M7) |
+| Estimated values (`*_estimated: true`) | When `W` does not enter, they come from "Entry estimate" on the state of the copy at the stop |
 
-**Ventana**
+**Window**
 
-| Campo | Definición |
+| Field | Definition |
 |---|---|
-| `window_tick` | El tick en que se detuvo la **primera** copia, la de menor entrada estimada, ya sea por entrar, por tope, por bloqueo o por plazo |
-| Cómo corre la segunda copia | Corre hasta su entrada o hasta `window_tick`, lo que llegue primero. Si entra antes, sigue hasta `window_tick`. Si no entró al llegar a la ventana, se poda (`pruned`). En ambos casos, su `others` se mide en `window_tick` |
-| Excepción | Si la segunda copia se queda sin plazo antes de la ventana, `others.window_tick` dice dónde se midió |
+| `window_tick` | The tick at which the **first** copy stopped, the one with the lowest estimated entry, by entry, cap, deadlock or deadline |
+| How the second copy runs | It runs until its entry or until `window_tick`, whichever comes first. If it enters before, it goes on until `window_tick`. If it had not entered when reaching the window, it is pruned (`pruned`). Either way, its `others` is measured at `window_tick` |
+| Exception | If the second copy runs out of time before the window, `others.window_tick` says where it was measured |
 
-**Métrica `others`** (las sumas son sobre los demás)
+**Metric `others`** (the sums are over the others)
 
-| Campo | Fórmula |
+| Field | Formula |
 |---|---|
-| `work` | `Σ trabajo_nominal(T) − Σ trabajo_nominal(T0)`. `trabajo_nominal` es el de `work_completed` (`aclopi/sim/kpis.py`): cada operación completada suma su `OperationDuration` (200 en O1–O7, 100 en O8–O9; `Set.operations`, línea 2633). La que está en curso suma `OperationDuration × fracción procesada`, donde la fracción es `(Simulated.Time − last ProductRealStart) / (Next.Completion − last ProductRealStart)`, recortada a [0, 1]. Usa el **tiempo nominal**, no el real. Una operación que cae solo en parte dentro de la ventana aporta la parte de su nominal que avanzó en ella |
-| `presence` | `Σ solapamiento([max(ProductCreationTime, T0), fin], [T0, T])`, con `fin` = `last ProductRealCompletion` si terminó (estado `death`), o `T` si sigue en planta. Es tiempo **real** en planta |
-| `wait` | `presence − Σ proceso_real`, con `proceso_real` = `Σ solapamiento([ProductRealStart_i, ProductRealCompletion_i o T], [T0, T])`. Es tiempo **real** sin proceso, es decir, viajando o en cola. **No usa `work`**: como `presence` y `proceso_real` son reales, `wait` no arrastra el término aleatorio. El tiempo extra de una operación larga por `random-exponential` cuenta como proceso, no como espera |
-| `finished` | Cantidad de los demás con estado `death` y `last ProductRealCompletion > T0`, es decir, que terminaron dentro de la ventana |
+| `work` | `Σ nominal_work(T) − Σ nominal_work(T0)`. `nominal_work` is the one of `work_completed` (`aclopi/sim/kpis.py`): each completed operation adds its `OperationDuration` (200 for O1–O7, 100 for O8–O9; `Set.operations`, line 2633). The one in progress adds `OperationDuration × fraction processed`, where the fraction is `(Simulated.Time − last ProductRealStart) / (Next.Completion − last ProductRealStart)`, clipped to [0, 1]. It uses the **nominal time**, not the real one. An operation falling only partly within the window adds the part of its nominal it advanced in it |
+| `presence` | `Σ overlap([max(ProductCreationTime, T0), end], [T0, T])`, with `end` = `last ProductRealCompletion` if it finished (state `death`), or `T` if it is still in the plant. It is **real** time in the plant |
+| `wait` | `presence − Σ real_processing`, with `real_processing` = `Σ overlap([ProductRealStart_i, ProductRealCompletion_i or T], [T0, T])`. It is **real** time without processing, that is, travelling or queuing. **It does not use `work`**: since `presence` and `real_processing` are real, `wait` does not carry the random term. The extra time of a long operation due to `random-exponential` counts as processing, not as waiting |
+| `finished` | Number of the others with state `death` and `last ProductRealCompletion > T0`, that is, that finished within the window |
 
-**Ejemplo.** Con `T0` = 300 y `T` = 500 u.t. hay dos productos más:
+**Example.** With `T0` = 300 and `T` = 500 u.t. there are two other products:
 
-| Producto | Qué pasa en la ventana | `presence` | `proceso_real` | `work` |
+| Product | What happens in the window | `presence` | `real_processing` | `work` |
 |---|---|---|---|---|
-| A | En planta desde antes. Procesa O1 entre 350 y 560 (real 210: nominal 200 + 10 aleatorio) | 200 | 150 | `200 × (150 / 210) ≈ 142,9` |
-| B | Se crea en 420 y viaja | 80 | 0 | 0 |
+| A | In the plant since before. Processes O1 between 350 and 560 (real 210: nominal 200 + 10 random) | 200 | 150 | `200 × (150 / 210) ≈ 142.9` |
+| B | Created at 420 and travels | 80 | 0 | 0 |
 
-Totales: `presence` = 280, `wait` = 280 − 150 = 130, `work` ≈ 142,9 y `finished` = 0.
+Totals: `presence` = 280, `wait` = 280 − 150 = 130, `work` ≈ 142.9 and `finished` = 0.
 
-### Respuesta (siempre 200, salvo validación)
+### Response (always 200, except validation)
 
 ```jsonc
 {"status": "ok",                     // ok | timeout | skipped | error
@@ -162,7 +162,7 @@ Totales: `presence` = 280, `wait` = 280 − 150 = 130, `work` ≈ 142,9 y `finis
  "window_tick": 1987, "run_order": ["M3", "M2"],
  "timings_ms": {"export": 98, "import": 1010, "advance": 1630, "total": 2850},
  "would_skip_entry_beyond_cap": false, "loads": {"M2": 1, "M3": 0}, "estimated_entry_ticks": {"M2": 995, "M3": 694},
- "options": [                        // en el orden del pedido
+ "options": [                        // in the order of the request
    {"machine": "M2", "entered": true, "stop_reason": "entered",
     "entry_tick": 1987, "entry_time": 615.97, "entry_estimated": false,
     "op_end_time": 829.1, "op_end_estimated": false,
@@ -173,48 +173,48 @@ Totales: `presence` = 280, `wait` = 280 − 150 = 130, `work` ≈ 142,9 y `finis
    {"machine": "M3", ...}]}
 ```
 
-- **`skipped`:** es una respuesta normal; `options` viene vacío.
-- **`timeout`:** trae lo que se alcanzó. Una opción que no llegó a correr viene con `skipped: true`.
+- **`skipped`:** it is a normal response; `options` comes empty.
+- **`timeout`:** it carries whatever was reached. An option that did not get to run comes with `skipped: true`.
 
-### Errores de validación
+### Validation errors
 
-| HTTP | `code` | Cuándo |
+| HTTP | `code` | When |
 |---|---|---|
-| 422 | `invalid_option` | Producto inexistente, máquina desconocida o no capaz de la operación, `seq` fuera de rango. `detail` dice el motivo de cada opción |
-| 409 | `decision_not_pending` | Producto terminado (`product-finished`), fuera de una máquina (`not-in-machine`) o `seq` que no es la pendiente (`seq-mismatch`, `stale-seq`) |
-| 409 | `rule4_required` | La sesión no tiene regla 4 |
-| 422 | – | Formato inválido (no son 2 opciones, opciones iguales, `max_ticks` o `budget_ms` fuera de rango) |
+| 422 | `invalid_option` | Product that does not exist, unknown machine or one not capable of the operation, `seq` out of range. `detail` gives the reason for each option |
+| 409 | `decision_not_pending` | Product finished (`product-finished`), outside a machine (`not-in-machine`) or `seq` that is not the pending one (`seq-mismatch`, `stale-seq`) |
+| 409 | `rule4_required` | The session is not rule 4 |
+| 422 | – | Invalid format (not 2 options, equal options, `max_ticks` or `budget_ms` out of range) |
 
-### Entrada más allá del tope: `entry-beyond-cap` (POR CONFIRMAR, solo se registra)
+### Entry beyond the cap: `entry-beyond-cap` (TO BE CONFIRMED, only recorded)
 
-- **Criterio:** la entrada estimada **con viaje** (ver "Estimación de la entrada") de **las dos** opciones queda más allá de `max_ticks`. En ese caso ninguna copia llegaría a ver la entrada y el what-if solo devolvería estimaciones.
-- **Comportamiento actual:** el what-if **no** se salta. Se registra `would_skip_entry_beyond_cap: true` en la respuesta y en las métricas. Para que se salte (`skipped` con `entry-beyond-cap`), poner `ACLOPI_WHATIF_SKIP_BEYOND_CAP=1` (apagado por defecto).
-- **Datos en la respuesta:** `estimated_entry_ticks` (por opción, desde la foto) y `loads`.
-- La calidad de la estimación y la frecuencia del criterio se miden con `scripts/l5/whatif_estimation.py`.
+- **Criterion:** the estimated entry **with travel** (see "Entry estimate") of **both** options falls beyond `max_ticks`. In that case no copy would get to see the entry and the what-if would only return estimates.
+- **Current behaviour:** the what-if is **not** skipped. `would_skip_entry_beyond_cap: true` is recorded in the response and in the metrics. To skip it (`skipped` with `entry-beyond-cap`), set `ACLOPI_WHATIF_SKIP_BEYOND_CAP=1` (off by default).
+- **Data in the response:** `estimated_entry_ticks` (per option, from the snapshot) and `loads`.
+- The quality of the estimate and how often the criterion holds are measured with `scripts/l5/whatif_estimation.py`.
 
 ## `GET /sessions/{id}/metrics`
 
-`{"whatif": {...}}`, para la sección 3.4 del plan:
+`{"whatif": {...}}`, for section 3.4 of the plan:
 
-| Grupo | Campos |
+| Group | Fields |
 |---|---|
-| Pedidos | `requests`, `ok`, `timeout`, `error`, `invalid` |
-| Saltados | `skipped` por motivo (`no-free-worker`, `already-used`, `entry-beyond-cap`), `would_skip_entry_beyond_cap` |
-| Opciones | `options_run`, `entered`, `cap_reached`, `stalled`, `pruned`, `options_timed_out` |
-| Tiempos (media, p95, máx., n) | `duration_ms`, `export_ms`, `import_ms`, `advance_ms` |
-| Ticks (media, p95, máx., n) | `ticks_to_entry`, `ticks_simulated` |
+| Requests | `requests`, `ok`, `timeout`, `error`, `invalid` |
+| Skipped | `skipped` by reason (`no-free-worker`, `already-used`, `entry-beyond-cap`), `would_skip_entry_beyond_cap` |
+| Options | `options_run`, `entered`, `cap_reached`, `stalled`, `pruned`, `options_timed_out` |
+| Times (mean, p95, max, n) | `duration_ms`, `export_ms`, `import_ms`, `advance_ms` |
+| Ticks (mean, p95, max, n) | `ticks_to_entry`, `ticks_simulated` |
 
-## Configuración
+## Configuration
 
-| Variable | Por defecto | |
+| Variable | Default | |
 |---|---|---|
-| `ACLOPI_WHATIF_STALL_TICKS` | 300 | Ticks sin movimiento ni proceso para declarar un bloqueo |
-| `ACLOPI_WHATIF_CHUNK_TICKS` | 150 | Ticks entre lecturas de control de la copia |
-| `ACLOPI_WHATIF_SKIP_BEYOND_CAP` | 0 | 1 = saltar el what-if cuando la entrada estimada de las dos opciones supera `max_ticks` |
-| `ACLOPI_WHATIF_DIAG_DIR` | `results/whatif_diagnostics` | Fotos de los bloqueos |
+| `ACLOPI_WHATIF_STALL_TICKS` | 300 | Ticks without movement or processing to declare a deadlock |
+| `ACLOPI_WHATIF_CHUNK_TICKS` | 150 | Ticks between control reads of the copy |
+| `ACLOPI_WHATIF_SKIP_BEYOND_CAP` | 0 | 1 = skip the what-if when the estimated entry of both options exceeds `max_ticks` |
+| `ACLOPI_WHATIF_DIAG_DIR` | `results/whatif_diagnostics` | Snapshots of the deadlocks |
 
-## Diseño previsto para L5.5 (todavía no implementado)
+## Design planned for L5.5 (now implemented, see `docs/agent-api.md`)
 
-- **Latidos en modo rápido.** Mientras se espera una decisión, el worker enviará latidos para que el vigilante de 15 s no lo mate.
-- **Agente que no responde en modo rápido.** Si pasan ~90 s sin respuesta, la corrida se marca como **fallida**: no sigue con la regla 3. Si la lanzó un usuario desde `/ui`, verá "agente no disponible".
-- **Agente que no responde en vivo.** El modelo aplica la regla 3 por su cuenta y la plataforma mostrará el % de `rule3-fallback`.
+- **Heartbeats in fast mode.** While a decision is awaited, the worker sends heartbeats so that the 15 s watchdog does not kill it.
+- **Agent not answering in fast mode.** If ~90 s go by without an answer, the run is marked as **failed**: it does not continue with rule 3. If a user launched it from `/ui`, they see "Agent not available".
+- **Agent not answering live.** The model applies rule 3 on its own and the platform shows the % of `rule3-fallback`.

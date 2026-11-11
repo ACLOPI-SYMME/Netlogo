@@ -1,210 +1,210 @@
-# API REST (L5.2)
+# REST API (L5.2)
 
-API HTTP (FastAPI) sobre el `WorkerPool` de L5.1 (`docs/workers.md`). Código en `aclopi/api/`. El contrato para la Línea A está en `contracts/openapi.json`, que se genera con `python scripts/export_openapi.py`; un test comprueba que el archivo versionado coincide con la app.
+HTTP API (FastAPI) over the L5.1 `WorkerPool` (`docs/workers.md`). Code in `aclopi/api/`. The contract for Línea A is in `contracts/openapi.json`, generated with `python scripts/export_openapi.py`; a test checks that the committed file matches the app.
 
-**Cómo leer los datos que produce la plataforma** (corridas, decisiones, métricas, KPIs, eventos, mensajes del WebSocket, logs…), campo por campo y con ejemplos reales: [`docs/registros/README.md`](registros/README.md).
+**How to read the data the platform produces** (runs, decisions, metrics, KPIs, events, WebSocket messages, logs…), field by field and with real examples: [`docs/records/README.md`](records/README.md).
 
-## Un solo proceso, un solo worker de uvicorn
+## One process, one uvicorn worker
 
-Cada proceso de la API arranca su propio pool: 7 procesos con su JVM, unos 3,3 GB. Si se usan varios workers de uvicorn (`--workers N`), o dos APIs sobre la misma carpeta de trabajo, se arrancan varios pools, con el doble de JVM y de memoria. Para evitarlo:
+Each API process starts its own pool: 7 processes with their JVM, about 3.3 GB. If several uvicorn workers are used (`--workers N`), or two APIs on the same working folder, several pools are started, with twice the JVMs and the memory. To avoid it:
 
-- `python -m aclopi.api` fija `workers=1`, sin `reload` y sin opción para cambiarlo. No hay que lanzar la app con `uvicorn ... --workers`.
-- Al arrancar, la API toma el archivo `<ACLOPI_WORK_DIR>/api.lock`, que guarda el pid, el host y la hora de inicio del proceso:
-  - si otra instancia viva lo tiene, el arranque falla con un mensaje claro y el código de salida es 3;
-  - un archivo que dejó un proceso muerto, u otro contenedor que comparte `results/`, se detecta como viejo y se reemplaza.
+- `python -m aclopi.api` sets `workers=1`, without `reload` and without an option to change it. Do not launch the app with `uvicorn ... --workers`.
+- On startup, the API takes the file `<ACLOPI_WORK_DIR>/api.lock`, which stores the pid, the host and the start time of the process:
+  - if another live instance holds it, the startup fails with a clear message and exit code 3;
+  - a file left by a dead process, or by another container sharing `results/`, is detected as stale and replaced.
 
-Para atender más usuarios se agregan workers al pool (`ACLOPI_N_SESSION_WORKERS`), no procesos de API.
+To serve more users, add workers to the pool (`ACLOPI_N_SESSION_WORKERS`), not API processes.
 
-## Arranque y salud
+## Startup and health
 
-El pool arranca en segundo plano al levantar la API (lifespan), así que uvicorn responde desde el primer segundo. Las fases de la plataforma son:
+The pool starts in the background when the API comes up (lifespan), so uvicorn answers from the first second. The platform's phases are:
 
-| Fase | Significado |
+| Phase | Meaning |
 |---|---|
-| `starting` | Los workers están cargando y precalentando. `POST /sessions` responde 503 `platform_starting` ("plataforma iniciando"). |
-| `ready` | Los 7 workers están listos. |
-| `degraded` | Ya arrancó, pero algún worker se está reiniciando o falló. Se aceptan sesiones mientras haya workers libres. |
-| `failed` | Algún worker no arrancó dentro de `ACLOPI_STARTUP_TIMEOUT_S`. |
-| `stopping` | La API se está apagando. |
+| `starting` | The workers are loading and warming up. `POST /sessions` answers 503 `platform_starting`. |
+| `ready` | The 7 workers are ready. |
+| `degraded` | It has started, but some worker is restarting or failed. Sessions are accepted while there are free workers. |
+| `failed` | Some worker did not start within `ACLOPI_STARTUP_TIMEOUT_S`. |
+| `stopping` | The API is shutting down. |
 
-Si el arranque falla, el log JSON indica qué worker falló y por qué. Luego el pool se apaga ordenadamente y el proceso termina con **código 3**. En la nube, la política de reinicio de Docker es la que reintenta (ver README).
+If the startup fails, the JSON log says which worker failed and why. Then the pool shuts down in order and the process ends with **exit code 3**. In the cloud, Docker's restart policy is what retries (see README).
 
-| Ruta | Respuesta | Uso |
+| Route | Response | Use |
 |---|---|---|
-| `GET /health/live` | 200 mientras el proceso responde, también durante el arranque | `HEALTHCHECK` del Dockerfile |
-| `GET /health/ready` | 200 con `ready` o `degraded`; 503 con `starting`, `failed` o `stopping` | Balanceador de la nube |
-| `GET /health` | Siempre 200 | Detalle: fase, sesiones activas y, por worker: rol, listo, estado, pid, memoria, reinicios y sesión |
+| `GET /health/live` | 200 while the process answers, also during startup | The Dockerfile's `HEALTHCHECK` |
+| `GET /health/ready` | 200 with `ready` or `degraded`; 503 with `starting`, `failed` or `stopping` | Cloud load balancer |
+| `GET /health` | Always 200 | Detail: phase, active sessions and, per worker: role, ready, state, pid, memory, restarts and session |
 
-`/health` lee el estado del pool sin hablar con los workers, así que responde aunque estén ocupados.
+`/health` reads the pool's state without talking to the workers, so it answers even when they are busy.
 
 ## Endpoints
 
-| Método y ruta | Descripción |
+| Method and route | Description |
 |---|---|
-| `POST /sessions` | Crea una sesión (`seed`, `rule` 1\|2\|3, `modeling_type`, `horizon_ticks`) en un worker libre y hace el setup. Devuelve 201 `SessionInfo` |
-| — | **Escenarios: no disponibles** (`docs/scenarios.md`). `GET /scenarios` ya no existe. `POST /sessions` solo acepta `scenario` como S0 sin parámetros (la planta original); con cualquier otro responde 422 `scenarios_unavailable` ("los escenarios no están disponibles") |
-| `GET /sessions` | Todas las sesiones: activas, perdidas y expiradas |
-| `GET /sessions/{id}` | Parámetros, último tick conocido, si terminó, estado, motivo de la pérdida y última actividad |
-| `POST /sessions/{id}/step?n=` | Avanza hasta `n` ticks (1–2000); se detiene en el horizonte |
-| `POST /sessions/{id}/reset` | Repite el setup con los mismos parámetros |
+| `POST /sessions` | Creates a session (`seed`, `rule` 1\|2\|3\|4, `modeling_type`, `horizon_ticks`) on a free worker and runs the setup. Returns 201 `SessionInfo` |
+| — | **Scenarios: not available** (`docs/scenarios.md`). `GET /scenarios` no longer exists. `POST /sessions` only accepts `scenario` as S0 without parameters (the original plant); with any other it answers 422 `scenarios_unavailable` ("scenarios are not available") |
+| `GET /sessions` | Every session: active, lost and expired |
+| `GET /sessions/{id}` | Parameters, last known tick, whether it finished, state, reason for the loss and last activity |
+| `POST /sessions/{id}/step?n=` | Advances up to `n` ticks (1–2000); stops at the horizon |
+| `POST /sessions/{id}/reset` | Repeats the setup with the same parameters |
 | `GET /sessions/{id}/state` | `platform-state` |
-| `GET /sessions/{id}/events` | Eventos desde la llamada anterior. **No es idempotente**: leerlos vacía el buffer |
+| `GET /sessions/{id}/events` | Events since the previous call. **Not idempotent**: reading them empties the buffer |
 | `GET /sessions/{id}/layout` | `platform-layout` |
-| `GET /sessions/{id}/kpis` | KPIs del estado actual; no altera la simulación |
-| `DELETE /sessions/{id}` | Cierra la sesión, detiene su corrida y libera su worker (204) |
-| `POST /sessions/{id}/run` | Corrida continua: `{"mode": "live", "speed": 0.5\|1\|2\|4}` o `{"mode": "fast"}` (L5.3) |
-| `POST /sessions/{id}/pause` | Pausa una corrida (409 si no está corriendo) |
-| `POST /sessions/{id}/resume` | Reanuda con el mismo modo y velocidad (409 si no está en pausa) |
-| `WS /ws/sessions/{id}` | Transmisión en tiempo real (formato en `docs/websocket.md`) |
-| `GET /sessions/{id}/candidates?product=&seq=` | Candidatas de una decisión pendiente, con su carga y su espera estimada (L5.4, `docs/whatif.md`) |
-| `POST /sessions/{id}/what-if` | Prueba 2 asignaciones de una decisión en copias de la simulación, dentro de `budget_ms` (por defecto 10 s, de 2 a 15 s; el agente lo calcula con su plazo de decisión: desde M2–M7 cabe ~10 s, desde M1 no cabe con las llamadas al LLM). Solo regla 4; `docs/whatif.md` |
-| `GET /sessions/{id}/metrics` | Métricas de la sesión: what-if (`whatif`) y decisiones (`decisions`, L5.5) |
-| `POST /sessions/{id}/next-machine` | Decisión del agente para una petición pendiente (regla 4; `docs/agent-api.md`) |
+| `GET /sessions/{id}/kpis` | KPIs of the current state; does not alter the simulation |
+| `DELETE /sessions/{id}` | Closes the session, stops its run and frees its worker (204) |
+| `POST /sessions/{id}/run` | Continuous run: `{"mode": "live", "speed": 0.5\|1\|2\|4}` or `{"mode": "fast"}` (L5.3). Also changes the mode or the speed of a running or paused run |
+| `POST /sessions/{id}/pause` | Pauses a run (409 if it is not running) |
+| `POST /sessions/{id}/resume` | Resumes with the same mode and speed (409 if it is not paused) |
+| `WS /ws/sessions/{id}` | Real-time stream (format in `docs/websocket.md`) |
+| `GET /sessions/{id}/candidates?product=&seq=` | Candidates of a pending decision, with their load and estimated wait (L5.4, `docs/whatif.md`) |
+| `POST /sessions/{id}/what-if` | Tests 2 assignments of a decision in copies of the simulation, within `budget_ms` (10 s by default, 2 to 15 s; the agent computes it from its decision deadline: from M2–M7 ~10 s fits, from M1 it does not fit together with the LLM calls). Rule 4 only; `docs/whatif.md` |
+| `GET /sessions/{id}/metrics` | Session metrics: what-if (`whatif`) and decisions (`decisions`, L5.5) |
+| `POST /sessions/{id}/next-machine` | The agent's decision for a pending request (rule 4; `docs/agent-api.md`) |
 
-**Resultados (L5.7).**
-- Cada corrida se guarda al terminar, fallar o detenerse, en memoria o en DynamoDB según `ACLOPI_DYNAMODB_ENDPOINT` / `ACLOPI_RESULTS_STORE`.
-- Rutas:
-  - `GET /runs`, con filtros `seed`, `strategy`, `rule`, `product_set_id`, `scenario` (solo útil para corridas guardadas antes de quitar los escenarios), `limit` y `cursor`;
+**Results (L5.7).**
+- Each run is saved when it finishes, fails or is stopped, in memory or in DynamoDB depending on `ACLOPI_DYNAMODB_ENDPOINT` / `ACLOPI_RESULTS_STORE`.
+- Routes:
+  - `GET /runs`, with filters `seed`, `strategy`, `rule`, `product_set_id`, `scenario` (only useful for runs saved before scenarios were taken out), `limit` and `cursor`;
   - `GET /runs/{id}`;
-  - `GET /runs/{id}/decisions`: cada decisión trae también `operation` y `product_type` (las guardadas desde este cambio). La página las muestra con "Ver decisiones", paginadas y descargables en CSV.
-- `SessionInfo.last_run_id` dice la última corrida guardada de la sesión.
-- Detalle en `docs/deploy-local.md`.
+  - `GET /runs/{id}/decisions`: each decision also carries `operation` and `product_type` (those saved since that change). The page shows them with the "Decisions" button (History Logs tab), paginated and downloadable as CSV.
+- `SessionInfo.last_run_id` gives the session's last saved run.
+- Detail in `docs/deploy-local.md`.
 
-**Sets de productos y semilla opcional (L5.6).**
-- `POST /sessions` acepta `product_set_id` o `products`, y `seed` es opcional: sin ella se sortea, y queda en `parameters.seed` con `seed_source`.
-- Rutas `/product-sets*`.
-- KPIs `products_total`, `all_done`, `makespan_ticks` y `makespan_time`.
-- Una sesión con lista termina con `run_reason: "all_products_done"`.
-- Detalle en `docs/product-sets.md`.
+**Product sets and optional seed (L5.6).**
+- `POST /sessions` accepts `product_set_id` or `products` (at most 30 products), and `seed` is optional: without it one is drawn, and it is kept in `parameters.seed` with `seed_source`.
+- Routes `/product-sets*`.
+- KPIs `products_total`, `all_done`, `makespan_ticks` and `makespan_time`.
+- A session with a list ends with `run_reason: "all_products_done"`.
+- Detail in `docs/product-sets.md`.
 
-**Estrategias (L5.5).** Con `rule: 4`, `POST /sessions` acepta `strategy`, que es **opcional**:
+**Strategies (L5.5).** With `rule: 4`, `POST /sessions` accepts `strategy`, which is **optional**:
 
-| `strategy` | Comportamiento | ¿Opción de usuario? |
+| `strategy` | Behaviour | User option? |
 |---|---|---|
-| `agent` (por defecto) | El agente IA decide (código → LLM → what-if) | Sí: para el usuario, la regla 4 **es** el agente |
-| `b1`, `b1b` | Llaman al agente con las estrategias de referencia | No: puntos de comparación de los experimentos de la Línea A |
-| `none` | Regla 4 sin decisor, igual a la regla 3 | No: solo para tests |
+| `agent` (default) | The AI agent decides (code → LLM → what-if) | Yes: for the user, rule 4 **is** the agent |
+| `b1`, `b1b` | Call the agent with the baseline strategies | No: comparison points of Línea A's experiments |
+| `none` | Rule 4 without a decider, equal to rule 3 | No: tests only |
 
-- Con `rule: 4` y sin `strategy`, el valor es `agent`.
-- `b1`, `b1b` y `none` se siguen aceptando por la API, pero la página (`/ui`) no los ofrece: la regla 4 siempre crea la sesión con `agent`. En la lista de corridas, una corrida con `b1`/`b1b` se muestra como "Regla 4 (B1)" o "Regla 4 (B1b)", y "Repetir" conserva su estrategia.
-- Con las reglas 1–3, enviar `strategy` responde 422.
-- `SessionInfo` incluye `strategy`, `run_reason` (por ejemplo `agent_unavailable`), `pending_decisions` y `warnings`.
-- `candidates`, `what-if` y `next-machine` exigen `Authorization: Bearer` cuando `ACLOPI_AGENT_TOKEN` está definida.
-- `GET /health` muestra el estado del agente (`agent`), que no afecta a `/health/ready`.
-- Detalles en `docs/agent-api.md`.
+- With `rule: 4` and no `strategy`, the value is `agent`.
+- `b1`, `b1b` and `none` are still accepted by the API, but the page (`/ui`) does not offer them: rule 4 always creates the session with `agent`. In the list of runs, a run with `b1`/`b1b` shows as "Rule 4 (B1)" or "Rule 4 (B1b)", and "Repeat" keeps its strategy.
+- With rules 1–3, sending `strategy` answers 422.
+- `SessionInfo` includes `strategy`, `run_reason` (for example `agent_unavailable`), `pending_decisions` and `warnings`.
+- `candidates`, `what-if` and `next-machine` require `Authorization: Bearer` when `ACLOPI_AGENT_TOKEN` is set.
+- `GET /health` shows the state of the agent (`agent`), which does not affect `/health/ready`.
+- Details in `docs/agent-api.md`.
 
-**Regla 4.** `POST /sessions` acepta `rule: 4` (AI Agent). Sin decisor se comporta exactamente como la regla 3.
+**Rule 4.** `POST /sessions` accepts `rule: 4` (AI Agent). Without a decider it behaves exactly like rule 3.
 
-**KPIs** (`GET /kpis`, mensajes del WebSocket):
+**KPIs** (`GET /kpis`, WebSocket messages):
 
-| KPI | Definición |
+| KPI | Definition |
 |---|---|
-| `finished`, `wip`, `created` | Productos terminados, en proceso y creados (`created` = terminados + en proceso) |
-| `throughput` | Terminados ÷ `Simulated.Time` |
-| `mean_flow_time` | Media de (última finalización − **inicio de la primera operación**, `ProductRealStart`) de los terminados. **Se mide desde la primera operación, no desde la creación** (`docs/product-sequence.md`) |
-| `utilization` | Tiempo ocupado ÷ `Simulated.Time`, por máquina |
-| `work_completed` | Trabajo de proceso en tiempo **nominal** (`OperationDuration`): la operación en curso suma la fracción procesada |
-| `GET /ui` | Página HTML mínima de prueba (fuera del contrato OpenAPI) |
+| `finished`, `wip`, `created` | Products finished, in process and created (`created` = finished + in process) |
+| `throughput` | Finished ÷ `Simulated.Time` |
+| `mean_flow_time` | Mean of (last completion − **start of the first operation**, `ProductRealStart`) of the finished ones. **Measured from the first operation, not from creation** (`docs/product-sequence.md`) |
+| `utilization` | Busy time ÷ `Simulated.Time`, per machine |
+| `work_completed` | Processing work in **nominal** time (`OperationDuration`): the operation in progress adds the fraction processed |
+| `GET /ui` | Minimal HTML test page (outside the OpenAPI contract) |
 
-## Corridas continuas (L5.3)
+## Continuous runs (L5.3)
 
-La corrida la ejecuta el worker dentro de su propio bucle, en bloques cortos: nunca es un pedido largo. Entre bloques el worker sigue atendiendo `state`, `kpis`, pausa y export para what-if.
+The worker runs the run inside its own loop, in short blocks: it is never a long request. Between blocks the worker keeps serving `state`, `kpis`, pause and export for what-if.
 
-- **En vivo:** el ritmo objetivo es 32 ticks/s × velocidad. Hay un bloque cada ~100 ms (`ACLOPI_LIVE_UPDATE_MS`) y, después de cada bloque, un mensaje con el estado y los eventos nuevos. El ritmo lo marca el worker, no el cliente.
-- **Rápido:** sin límite de velocidad, en bloques de `ACLOPI_FAST_BLOCK_TICKS` ticks (1000 por defecto). Por cada bloque se envían el progreso y los eventos del bloque, sin el estado completo.
-- **Resultados:** no dependen de la velocidad ni del tamaño de bloque. Una corrida hasta el final da los mismos KPIs que `SimulationSession` directo con la misma semilla (lo verifica `tests/test_live.py`).
+- **Live:** the target pace is 32 ticks/s × speed. There is a block every ~100 ms (`ACLOPI_LIVE_UPDATE_MS`) and, after each block, a message with the state and the new events. The worker sets the pace, not the client.
+- **Fast:** no speed limit, in blocks of `ACLOPI_FAST_BLOCK_TICKS` ticks (1000 by default). For each block the progress and the block's events are sent, without the full state.
+- **Results:** they do not depend on the speed nor on the block size. A run to the end gives the same KPIs as `SimulationSession` directly with the same seed (verified by `tests/test_live.py`).
 
-Estados (`run_state` en `SessionInfo`, junto con `mode` y `speed`):
+States (`run_state` in `SessionInfo`, together with `mode` and `speed`):
 
 ```
-idle ──run──► running_live / running_fast ──pause──► paused ──resume──► (mismo modo y velocidad)
-  ▲              │  run con otro modo o velocidad: cambia sin detenerse
-  │ reset        ▼ horizonte (también por un step manual)
+idle ──run──► running_live / running_fast ──pause──► paused ──resume──► (same mode and speed)
+  ▲              │  run with another mode or speed: changes without stopping
+  │ reset        ▼ horizon (also by a manual step)
   └─────────── finished
 ```
 
-Con decisor y en modo rápido, la corrida pasa a `waiting_decision` mientras espera al agente. Si nadie responde en `ACLOPI_FAST_DECISION_TIMEOUT_S` termina en `failed`, con `run_reason: "agent_unavailable"`; desde `failed` solo vale `reset`.
+With a decider and in fast mode, the run goes to `waiting_decision` while it waits for the agent. If nobody answers within `ACLOPI_FAST_DECISION_TIMEOUT_S` it ends in `failed`, with `run_reason: "agent_unavailable"`; from `failed` only `reset` is valid.
 
-| Pedido | idle | running_* | paused | finished |
+| Request | idle | running_* | paused | finished |
 |---|---|---|---|---|
-| `step` | ✔ | 409 | ✔ | 200 con `advanced: 0` |
-| `run` | ✔ | ✔ (cambia modo o velocidad) | ✔ | 409 |
+| `step` | ✔ | 409 | ✔ | 200 with `advanced: 0` |
+| `run` | ✔ | ✔ (changes mode or speed) | ✔ | 409 |
 | `pause` / `resume` | 409 / 409 | ✔ / 409 | 409 / ✔ | 409 / 409 |
-| `events` (HTTP) | ✔ | 409 (los eventos van por WebSocket) | ✔ | ✔ |
+| `events` (HTTP) | ✔ | 409 (events go through the WebSocket) | ✔ | ✔ |
 | `reset`, `state`, `kpis`, `layout`, `DELETE` | ✔ | ✔ | ✔ | ✔ |
 
-**Corridas rápidas simultáneas.** Como mucho `ACLOPI_MAX_FAST_RUNS` (1 por defecto). Pasado el límite, `run` (o `resume` de una corrida rápida pausada) responde 503 `fast_run_limit`. Las corridas en vivo no tienen este límite. El objetivo es que una corrida rápida, que ocupa un núcleo entero, no frene a las sesiones en vivo. **Para corridas de experimentos sin usuarios en vivo** (por ejemplo, la Línea A con regla 4) se puede subir, por ejemplo a 4.
+**Simultaneous fast runs.** At most `ACLOPI_MAX_FAST_RUNS` (1 by default). Past the limit, `run` (or `resume` of a paused fast run) answers 503 `fast_run_limit`. Live runs have no such limit. The goal is that a fast run, which takes a whole core, does not slow down the live sessions. **For experiment runs without live users** (for example, Línea A with rule 4) it can be raised, for example to 4.
 
-**Vigilante.** Si una sesión corriendo no envía ningún mensaje durante 15 s (`RUN_WATCHDOG_S` × `ACLOPI_TIMEOUT_SCALE`), la API trata al worker como colgado: lo mata y la sesión queda perdida (410). Los bloques duran mucho menos de 1 s. En L5.5, el estado `waiting_decision` (esperando al agente) deberá enviar un latido para no caer en este límite.
+**Watchdog.** If a running session sends no message for 15 s (`RUN_WATCHDOG_S` × `ACLOPI_TIMEOUT_SCALE`), the API treats the worker as hung: it kills it and the session is lost (410). Blocks last much less than 1 s. The `waiting_decision` state (waiting for the agent) sends a heartbeat so as not to hit this limit.
 
-Notas:
-- `ticks` y `finished` de `SessionInfo` son el último valor conocido. Todo avance pasa por la API, así que el valor es exacto, y leerlo no consulta al worker.
-- Las operaciones de diagnóstico de los workers (`command`, `report`) no existen en la API, y el pool siempre se crea con `debug=False`.
-- Un `step` sobre una sesión que ya terminó responde 200 con `advanced: 0`.
+Notes:
+- `ticks` and `finished` of `SessionInfo` are the last known value. Every advance goes through the API, so the value is exact, and reading it does not query the worker.
+- The workers' diagnostic operations (`command`, `report`) do not exist in the API, and the pool is always created with `debug=False`.
+- A `step` on a session that already finished answers 200 with `advanced: 0`.
 
-## Errores
+## Errors
 
-El cuerpo es `{"code": ..., "detail": ..., "session_id": ...}`. La excepción es 422, que usa el formato estándar de FastAPI.
+The body is `{"code": ..., "detail": ..., "session_id": ...}`. The exception is 422, which uses FastAPI's standard format (except the platform's own 422 codes, such as `scenarios_unavailable` or `invalid_option`).
 
-| HTTP | `code` | Cuándo |
+| HTTP | `code` | When |
 |---|---|---|
-| 404 | `session_not_found` | Id desconocido o sesión ya borrada |
-| 409 | `invalid_run_state` | El pedido no está permitido en el estado de la corrida (p. ej. `step` mientras corre) |
-| 410 | `session_lost` | El worker de la sesión se cayó o se colgó. `detail` dice el motivo |
-| 410 | `session_expired` | La sesión se cerró por inactividad |
-| 422 | – | Parámetros inválidos (`n` fuera de 1–2000, regla, tipo de modelado, campos de más) |
-| 500 | `simulation_error` | Error de NetLogo o del worker, con su mensaje. El worker sigue vivo |
-| 503 | `platform_starting` | La plataforma está iniciando |
-| 503 | `no_free_worker` | Todos los workers de sesión están ocupados |
-| 503 | `fast_run_limit` | Ya hay `ACLOPI_MAX_FAST_RUNS` corridas rápidas en curso |
-| 503 | `worker_unavailable` | El worker se cayó durante la creación, o la plataforma no está lista (`failed` o `stopping`) |
-| 504 | `worker_timeout` | El worker no respondió a tiempo. El pool lo reinicia y la sesión queda perdida, así que el siguiente pedido da 410 |
+| 404 | `session_not_found` | Unknown id or session already deleted |
+| 409 | `invalid_run_state` | The request is not allowed in the run's state (e.g. `step` while it runs) |
+| 410 | `session_lost` | The session's worker crashed or hung. `detail` gives the reason |
+| 410 | `session_expired` | The session was closed for inactivity |
+| 422 | – | Invalid parameters (`n` outside 1–2000, rule, modelling type, extra fields, more than 30 products) |
+| 500 | `simulation_error` | NetLogo or worker error, with its message. The worker stays alive |
+| 503 | `platform_starting` | The platform is starting |
+| 503 | `no_free_worker` | Every session worker is busy |
+| 503 | `fast_run_limit` | There are already `ACLOPI_MAX_FAST_RUNS` fast runs in progress |
+| 503 | `worker_unavailable` | The worker crashed during the creation, or the platform is not ready (`failed` or `stopping`) |
+| 504 | `worker_timeout` | The worker did not answer in time. The pool restarts it and the session is lost, so the next request gives 410 |
 
-Las sesiones perdidas o expiradas siguen apareciendo en `GET /sessions` y responden 410 hasta que se borran con `DELETE` o pasan 24 h (como máximo se guardan 1000).
+Lost or expired sessions still appear in `GET /sessions` and answer 410 until they are deleted with `DELETE` or 24 h go by (at most 1000 are kept).
 
-## Concurrencia
+## Concurrency
 
-- Las llamadas a los workers son bloqueantes y corren en hilos (`anyio.to_thread`, como máximo 32 a la vez), nunca en el event loop.
-- Cada sesión tiene un `asyncio.Lock`, así sus pedidos se ejecutan de a uno y en orden de llegada. Sesiones distintas avanzan en paralelo.
-- Si el cliente se desconecta, el pedido en curso termina igual y el candado se libera.
-- Para no entregar un worker muerto, un worker que se mató por timeout sigue figurando como ocupado hasta que el monitor del pool lo reinicia.
+- Calls to the workers are blocking and run in threads (`anyio.to_thread`, at most 32 at once), never in the event loop.
+- Each session has an `asyncio.Lock`, so its requests run one at a time and in order of arrival. Different sessions advance in parallel.
+- If the client disconnects, the request in progress finishes anyway and the lock is released.
+- So as not to hand out a dead worker, a worker killed by a timeout still shows as busy until the pool's monitor restarts it.
 
-## Inactividad
+## Inactivity
 
-Una sesión sin actividad durante `ACLOPI_SESSION_IDLE_TIMEOUT_S` segundos (1800 por defecto) se cierra sola: su corrida se detiene y su worker queda libre.
+A session without activity for `ACLOPI_SESSION_IDLE_TIMEOUT_S` seconds (1800 by default) closes by itself: its run stops and its worker becomes free.
 
-Qué cuenta como actividad:
-- **Pedidos HTTP:** cualquier pedido a la sesión, incluido `GET /sessions/{id}`. `GET /sessions` no cuenta.
-- **Clientes WebSocket:** cuentan **solo mientras la sesión está en `running_live` o `running_fast`**. En `idle`, `paused` o `finished` solo cuentan los pedidos HTTP, así una pestaña olvidada no retiene un worker para siempre.
-- **Corrida sin nadie:** una sesión que corre sin nadie mirando ni pidiendo nada se cierra igual cuando vence el plazo.
+What counts as activity:
+- **HTTP requests:** any request to the session, including `GET /sessions/{id}`. `GET /sessions` does not count.
+- **WebSocket clients:** they count **only while the session is in `running_live` or `running_fast`**. In `idle`, `paused` or `finished` only HTTP requests count, so a forgotten tab does not hold a worker forever.
+- **A run with nobody around:** a session that runs with nobody watching or asking for anything also closes when the time is up.
 
-Una sesión con un pedido en curso nunca se cierra.
+A session with a request in progress never closes.
 
-## Configuración (variables de entorno)
+## Configuration (environment variables)
 
-| Variable | Por defecto | Descripción |
+| Variable | Default | Description |
 |---|---|---|
-| `ACLOPI_API_HOST` | `0.0.0.0` | Interfaz donde escucha |
-| `ACLOPI_API_PORT` | `8000` | Puerto |
-| `ACLOPI_N_SESSION_WORKERS` | `5` | Workers de sesión |
-| `ACLOPI_N_WHATIF_WORKERS` | `2` | Workers de what-if |
-| `ACLOPI_SESSION_IDLE_TIMEOUT_S` | `1800` | Segundos sin pedidos antes de cerrar una sesión |
-| `ACLOPI_STARTUP_TIMEOUT_S` | `300` | Tiempo máximo para que arranquen todos los workers |
-| `ACLOPI_TIMEOUT_SCALE` | `1.0` | Multiplica los timeouts por operación de `protocol.py` |
-| `ACLOPI_JVM_ARGS` | `-Xmx768m` | Argumentos de la JVM de cada worker |
-| `ACLOPI_WORK_DIR` | `results/workers` | Carpeta de trabajo del pool y del lock |
-| `ACLOPI_LOG_LEVEL` | `INFO` | Nivel de log |
-| `ACLOPI_MAX_FAST_RUNS` | `1` | Corridas rápidas simultáneas (subirlo, p. ej. a 4, para experimentos sin usuarios en vivo) |
-| `ACLOPI_LIVE_UPDATE_MS` | `100` | Intervalo objetivo entre bloques del modo en vivo |
-| `ACLOPI_FAST_BLOCK_TICKS` | `1000` | Ticks por bloque del modo rápido |
-| `ACLOPI_FAST_YIELD` | `0` | Pausa entre bloques rápidos, como fracción del tiempo del bloque |
-| `ACLOPI_WS_QUEUE` | `32` | Mensajes en cola por cliente WebSocket antes de resincronizarlo |
+| `ACLOPI_API_HOST` | `0.0.0.0` | Interface it listens on |
+| `ACLOPI_API_PORT` | `8000` | Port |
+| `ACLOPI_N_SESSION_WORKERS` | `5` | Session workers |
+| `ACLOPI_N_WHATIF_WORKERS` | `2` | What-if workers |
+| `ACLOPI_SESSION_IDLE_TIMEOUT_S` | `1800` | Seconds without requests before closing a session |
+| `ACLOPI_STARTUP_TIMEOUT_S` | `300` | Maximum time for every worker to start |
+| `ACLOPI_TIMEOUT_SCALE` | `1.0` | Multiplies the per-operation timeouts of `protocol.py` |
+| `ACLOPI_JVM_ARGS` | `-Xmx768m` | JVM arguments of each worker |
+| `ACLOPI_WORK_DIR` | `results/workers` | Working folder of the pool and of the lock |
+| `ACLOPI_LOG_LEVEL` | `INFO` | Log level |
+| `ACLOPI_MAX_FAST_RUNS` | `1` | Simultaneous fast runs (raise it, e.g. to 4, for experiments without live users) |
+| `ACLOPI_LIVE_UPDATE_MS` | `100` | Target interval between live-mode blocks |
+| `ACLOPI_FAST_BLOCK_TICKS` | `1000` | Ticks per fast-mode block |
+| `ACLOPI_FAST_YIELD` | `0` | Pause between fast blocks, as a fraction of the block's time |
+| `ACLOPI_WS_QUEUE` | `32` | Queued messages per WebSocket client before resynchronising it |
 
 ## Logs
 
-Cada línea es un objeto JSON en stderr con `ts`, `level`, `logger`, `msg` y `session_id`. Según el caso, también llevan `worker`, `method`, `path`, `status_code`, `elapsed_ms` o `phase`.
+Each line is a JSON object on stderr with `ts`, `level`, `logger`, `msg` and `session_id`. Depending on the case, they also carry `worker`, `method`, `path`, `status_code`, `elapsed_ms` or `phase`. How to read them: `docs/records/logs.md`.
 
-- **API:** el `session_id` sale de la ruta o, al crear la sesión, de la sesión nueva.
-- **Workers:** también escriben JSON, con su nombre en `worker` y el `session_id` de su último setup.
-- **Health:** las líneas de acceso de `/health*` van en nivel DEBUG, para que el sondeo del balanceador no llene el log.
-- **Líneas generales** (arranque, apagado): llevan `session_id: null`.
+- **API:** the `session_id` comes from the route or, when the session is created, from the new session.
+- **Workers:** they also write JSON, with their name in `worker` and the `session_id` of their last setup.
+- **Health:** the access lines of `/health*` go at DEBUG level, so that the load balancer's polling does not flood the log.
+- **General lines** (startup, shutdown): they carry `session_id: null`.

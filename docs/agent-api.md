@@ -1,16 +1,16 @@
-# Contrato plataforma ↔ agente (L5.5)
+# Platform ↔ agent contract (L5.5)
 
-**Acordado con la Línea A el 4 nov.** El código está en `aclopi/contracts/agent.py`. Lo implementan la API, el agente simulado (`aclopi/agent_mock/`) y el agente (`aclopi/agent/`).
+**Agreed with Línea A on 4 Nov.** The code is in `aclopi/contracts/agent.py`. The API, the mock agent (`aclopi/agent_mock/`) and the agent (`aclopi/agent/`) implement it.
 
-## Cuándo se llama al agente
+## When the agent is called
 
-Con la **regla 4**, cuando un producto **entra** a una máquina y su siguiente operación tiene varias máquinas posibles, el modelo deja una petición en `decision-queue` (`docs/rule4-decision-hook.md`). Con una sola máquina posible no hay petición, y el registro lo marca como `single-option`.
+With **rule 4**, when a product **enters** a machine and its next operation has several possible machines, the model leaves a request in `decision-queue` (`docs/rule4-decision-hook.md`). With only one possible machine there is no request, and the record marks it as `single-option`.
 
-- **La plataforma siempre llama al agente** si la sesión tiene `strategy` = `b1`, `b1b` o `agent`. El filtro de los casos obvios vive dentro del agente.
-- **`strategy: "none"`** es la regla 4 sin decisor (igual a la regla 3): no se llama a nadie. Solo para tests.
-- Con la regla 4 y sin `strategy`, la sesión usa `agent`. `b1`, `b1b` y `none` no son opciones de usuario (ver `docs/api.md`).
+- **The platform always calls the agent** if the session has `strategy` = `b1`, `b1b` or `agent`. The filter for obvious cases lives inside the agent.
+- **`strategy: "none"`** is rule 4 without a decider (equal to rule 3): nobody is called. Tests only.
+- With rule 4 and no `strategy`, the session uses `agent`. `b1`, `b1b` and `none` are not user options (see `docs/api.md`).
 
-## Plataforma → agente: `POST {ACLOPI_AGENT_URL}/decide`
+## Platform → agent: `POST {ACLOPI_AGENT_URL}/decide`
 
 ```json
 {"session_id": "…", "product": 201, "seq": 1, "strategy": "agent", "mode": "live",
@@ -21,121 +21,121 @@ Con la **regla 4**, cuando un producto **entra** a una máquina y su siguiente o
  "products_in_plant": 6, "m1": {"busy": true, "remaining": 30.7, "queue_length": 2}}
 ```
 
-| Campo | Significado |
+| Field | Meaning |
 |---|---|
-| `mode` | `live` o `fast` |
-| `ticks_per_second` | 32 × velocidad en vivo; `null` en rápido, donde la corrida espera |
-| `tick`, `simulated_time` | Momento de la petición, que es la entrada a la máquina |
-| `operation`, `origin`, `candidates` | Operación a decidir (`seq`), máquina donde está y máquinas capaces |
-| `context_tick` | Tick del estado del que se leyó el contexto. En rápido es el fin del `go` en que se hizo la petición (`tick` o `tick + 1`, porque `ticks` avanza al final del `go`); en vivo, el fin del bloque que la recogió (puede ser algo mayor) |
-| `product_type`, `priority` | Tipo del producto (`A`, `I`, `P`, `B`, `E`, `L` o `T`) y su prioridad (60–100, variable `priority` del modelo). La prioridad se lee con un reporter aparte en el mismo momento, porque `platform-state` no la trae |
-| `current_machine` | Máquina que procesa el producto (`null` si ya salió de ella) |
-| `current_operation` | Operación en proceso (`seq − 1`) |
-| `own_remaining` | Lo que le falta a la operación en proceso, en u.t. (0 si ya no está en una máquina) |
-| `next_operation` | Operación `seq + 1`, la que sigue a la que se decide (`null` si `seq` es la última). Igual que en `candidates` |
-| `pending_operations` | Operaciones desde `seq` en orden; la primera es la que se decide |
-| `products_in_plant` | Productos vivos en la planta |
-| `m1` | `busy`, `remaining` (u.t. que le faltan a su trabajo; 0 si está libre) y `queue_length` de M1 (O8/O9, por donde pasan todos) |
+| `mode` | `live` or `fast` |
+| `ticks_per_second` | 32 × live speed; `null` in fast mode, where the run waits |
+| `tick`, `simulated_time` | Moment of the request, which is the entry to the machine |
+| `operation`, `origin`, `candidates` | Operation to decide (`seq`), machine where it is and capable machines |
+| `context_tick` | Tick of the state the context was read from. In fast mode it is the end of the `go` in which the request was made (`tick` or `tick + 1`, because `ticks` advances at the end of the `go`); live, the end of the block that collected it (it can be a little later) |
+| `product_type`, `priority` | Type of the product (`A`, `I`, `P`, `B`, `E`, `L` or `T`) and its priority (60–100, model variable `priority`). The priority is read with a separate reporter at the same moment, because `platform-state` does not carry it |
+| `current_machine` | Machine processing the product (`null` if it already left it) |
+| `current_operation` | Operation in process (`seq − 1`) |
+| `own_remaining` | What is left of the operation in process, in u.t. (0 if it is no longer in a machine) |
+| `next_operation` | Operation `seq + 1`, the one after the one being decided (`null` if `seq` is the last). Same as in `candidates` |
+| `pending_operations` | Operations from `seq` on, in order; the first is the one being decided |
+| `products_in_plant` | Live products in the plant |
+| `m1` | `busy`, `remaining` (u.t. left of its job; 0 if idle) and `queue_length` of M1 (O8/O9, which every product goes through) |
 
-**Contexto.** Lo lee el worker de la sesión en el mismo momento en que recoge la petición, de **un solo** `platform-state`. No consume azar ni altera la corrida. Los tiempos están en u.t. (1 tick = 0,31 u.t.).
+**Context.** The session's worker reads it at the same moment it collects the request, from **a single** `platform-state`. It consumes no randomness and does not alter the run. Times are in u.t. (1 tick = 0.31 u.t.).
 
-- **Respuesta esperada:** **202** inmediato. El agente decide después.
-- **Si falla o tarda más de 2 s** (`ACLOPI_AGENT_DECIDE_TIMEOUT_S`), se registra y **no se reintenta**:
-  - en vivo, el modelo aplica la regla 3 al terminar la máquina (`rule3-fallback`);
-  - en rápido, la corrida espera; ver "Modo rápido".
+- **Expected response:** an immediate **202**. The agent decides afterwards.
+- **If it fails or takes more than 2 s** (`ACLOPI_AGENT_DECIDE_TIMEOUT_S`), it is logged and **not retried**:
+  - live, the model applies rule 3 when the machine finishes (`rule3-fallback`);
+  - fast, the run waits; see "Fast mode".
 
-## Agente → plataforma: `POST /sessions/{id}/next-machine`
+## Agent → platform: `POST /sessions/{id}/next-machine`
 
 ```json
 {"product": 201, "seq": 1, "machine": "M3", "decision_level": "llm",
- "reason": "texto corto", "latencies": {"total_ms": 3400, "llm_ms": [3100]}}
+ "reason": "short text", "latencies": {"total_ms": 3400, "llm_ms": [3100]}}
 ```
 
-- **`decision_level`:** `code-obvious`, `code-fallback`, `llm`, `llm-what-if` o `heuristic`.
-- **`latencies`:** opcional. Campos `total_ms`, `llm_ms` (uno por llamada al LLM) y `what_if_ms`; se guardan también otros extras.
-- **Aplicación:** se aplica en el worker con `platform-set-next-machine`, entre bloques.
+- **`decision_level`:** `code-obvious`, `code-fallback`, `llm`, `llm-what-if` or `heuristic`.
+- **`latencies`:** optional. Fields `total_ms`, `llm_ms` (one per LLM call) and `what_if_ms`; other extras are kept too.
+- **Application:** applied in the worker with `platform-set-next-machine`, between blocks.
 
-| Respuesta | Cuándo |
+| Response | When |
 |---|---|
-| 200 `{"applied": true, "tick", "late": false, "run_state", "pending_decisions"}` | Se aplicó |
-| 409 `decision_not_pending` | La seq es vieja o ya no está pendiente (por ejemplo, el producto terminó la operación). Se registra como **late** |
-| 422 `invalid_option` | Máquina no capaz o desconocida. Una máquina fuera de M1–M7 se rechaza al validar el cuerpo |
-| 409 `rule4_required` | La sesión no tiene regla 4 |
+| 200 `{"applied": true, "tick", "late": false, "run_state", "pending_decisions"}` | It was applied |
+| 409 `decision_not_pending` | The seq is old or no longer pending (for example, the product finished the operation). It is recorded as **late** |
+| 422 `invalid_option` | Machine not capable or unknown. A machine outside M1–M7 is rejected when validating the body |
+| 409 `rule4_required` | The session is not rule 4 |
 
-## Agente → plataforma: datos para decidir
+## Agent → platform: data to decide
 
-- `GET /sessions/{id}/candidates?product=&seq=`. La respuesta es el `CandidatesResult` de la Línea A (`aclopi/contracts/candidates.py`; campos en `docs/agent-status.md`), ver `docs/whatif.md`.
-- `POST /sessions/{id}/what-if` (ver `docs/whatif.md`).
+- `GET /sessions/{id}/candidates?product=&seq=`. The response is Línea A's `CandidatesResult` (`aclopi/contracts/candidates.py`; fields in `docs/agent-status.md`), see `docs/whatif.md`.
+- `POST /sessions/{id}/what-if` (see `docs/whatif.md`).
 
-## Token compartido
+## Shared token
 
-- **Cuando está definida `ACLOPI_AGENT_TOKEN`:** `next-machine`, `candidates` y `what-if` exigen `Authorization: Bearer <token>`, y responden 401 si falta o no coincide. La comparación es en tiempo constante (`secrets.compare_digest`, en `aclopi.contracts.agent.bearer_matches`), en la plataforma y en el agente simulado. La plataforma manda el mismo encabezado en `/decide` y en `/health`.
-- **Sin la variable (desarrollo):** no se exige.
-- **Logs:** el token nunca se escribe.
+- **When `ACLOPI_AGENT_TOKEN` is set:** `next-machine`, `candidates` and `what-if` require `Authorization: Bearer <token>`, and answer 401 if it is missing or does not match. The comparison is constant-time (`secrets.compare_digest`, in `aclopi.contracts.agent.bearer_matches`), in the platform and in the mock agent. The platform sends the same header on `/decide` and `/health`.
+- **Without the variable (development):** it is not required.
+- **Logs:** the token is never written.
 
-## Salud: `GET {ACLOPI_AGENT_URL}/health`
+## Health: `GET {ACLOPI_AGENT_URL}/health`
 
-- **Consulta:** la API la hace cada 30 s (`ACLOPI_AGENT_HEALTH_INTERVAL_S`). Un 200 es `ok`; cualquier otra respuesta o un timeout de 2 s es `down`.
-- **Dónde aparece:** en `GET /health`, campo `agent`. **No afecta** a `/health/ready`.
-- **Sesiones con `b1`, `b1b` o `agent` y el agente caído:**
-  - `POST /sessions` se permite, con `warnings: ["agent_unavailable"]`;
-  - `POST /run` en **vivo** se permite;
-  - `POST /run` en **rápido** responde **503 `agent_unavailable`**. La estrategia se fija al crear la sesión, pero el modo recién al correr, por eso el rechazo va en `POST /run`.
+- **Check:** the API makes it every 30 s (`ACLOPI_AGENT_HEALTH_INTERVAL_S`). A 200 is `ok`; any other response or a 2 s timeout is `down`.
+- **Where it shows:** in `GET /health`, field `agent`. It **does not affect** `/health/ready`.
+- **Sessions with `b1`, `b1b` or `agent` and the agent down:**
+  - `POST /sessions` is allowed, with `warnings: ["agent_unavailable"]`;
+  - `POST /run` **live** is allowed;
+  - `POST /run` **fast** answers **503 `agent_unavailable`**. The strategy is fixed when the session is created, but the mode only when running, which is why the rejection is on `POST /run`.
 
-## Modo en vivo
+## Live mode
 
-- **Recogida de peticiones:** después de cada bloque, el worker lee y vacía `decision-queue` y entrega las peticiones con el mensaje del bloque.
-- **Envío:** la API llama a `/decide` sin esperar la respuesta (cliente asíncrono), así el ritmo de 32 ticks/s no cambia.
-- **Sin pausa:** la simulación nunca se detiene. Si el agente no responde a tiempo, el modelo aplica la regla 3 al terminar la máquina, y la plataforma lo cuenta como `rule3-fallback`.
+- **Collecting requests:** after each block, the worker reads and empties `decision-queue` and delivers the requests with the block's message.
+- **Sending:** the API calls `/decide` without waiting for the response (asynchronous client), so the pace of 32 ticks/s does not change.
+- **No pause:** the simulation never stops. If the agent does not answer in time, the model applies rule 3 when the machine finishes, and the platform counts it as `rule3-fallback`.
 
-## Modo rápido
+## Fast mode
 
-- **Avance:** el worker avanza con `platform-run-until-decision` hasta que hay una petición o se acaba el bloque. Con peticiones pasa a `waiting_decision`, que es un estado y no un pedido largo: sigue atendiendo pedidos y envía un latido cada 2 s.
-- **Reanudación:** no avanza hasta recibir `next-machine` para **todas** las peticiones pendientes, incluidas las que salieron en el mismo tick.
-- **Plazo:** lo controla la API. El vigilante de 15 s solo mira la actividad del worker, que sigue con latidos, así que esperar al agente no cuenta como cuelgue.
-- **Sin respuesta en `ACLOPI_FAST_DECISION_TIMEOUT_S` (90 s):**
-  - la corrida termina con `run_state: "failed"` y `reason: "agent_unavailable"`; **no** sigue con la regla 3;
-  - el WebSocket envía `run_state` con ese motivo;
-  - `/ui` muestra "Agente no disponible: la corrida se detuvo".
+- **Advancing:** the worker advances with `platform-run-until-decision` until there is a request or the block ends. With requests it goes to `waiting_decision`, which is a state and not a long request: it keeps serving requests and sends a heartbeat every 2 s.
+- **Resuming:** it does not advance until it receives `next-machine` for **every** pending request, including those raised in the same tick.
+- **Deadline:** controlled by the API. The 15 s watchdog only looks at the worker's activity, which keeps sending heartbeats, so waiting for the agent does not count as a hang.
+- **No answer within `ACLOPI_FAST_DECISION_TIMEOUT_S` (90 s):**
+  - the run ends with `run_state: "failed"` and `reason: "agent_unavailable"`; it does **not** continue with rule 3;
+  - the WebSocket sends `run_state` with that reason;
+  - `/ui` shows "Agent not available: the run stopped".
 
-## Registro y métricas
+## Record and metrics
 
-- **Registro por decisión aplicada o tardía**, por sesión y en memoria: tick, tick de la petición, producto, seq, estrategia, nivel, máquina, motivo, latencia (de `/decide` a `next-machine`) y si llegó tarde.
-- **`Decision.Source` de cada asignación del modelo** (`agent`, `rule3-fallback`, `single-option`): sale del `decision-log` que el worker lee después de cada bloque.
+- **Record per applied or late decision**, per session and in memory: tick, request tick, product, seq, strategy, level, machine, reason, latency (from `/decide` to `next-machine`) and whether it was late. How to read it: `docs/records/decisions.md`.
+- **`Decision.Source` of each assignment of the model** (`agent`, `rule3-fallback`, `single-option`): it comes from the `decision-log` the worker reads after each block.
 - **`GET /sessions/{id}/metrics` → `decisions`:**
-  - aplicadas, tarde y sin respuesta;
-  - conteo y % por nivel;
+  - applied, late and unanswered;
+  - count and % per level;
   - `sources`;
-  - `rule3_fallback_pct`, solo sobre las asignaciones con varias máquinas (`agent` + `rule3-fallback`);
+  - `rule3_fallback_pct`, only over the assignments with several machines (`agent` + `rule3-fallback`);
   - `single_option`;
-  - latencia media, p95 y máxima;
+  - mean, p95 and maximum latency;
   - `log`.
-- **WebSocket:** mensaje `decision`, ver `docs/websocket.md`.
+- **WebSocket:** `decision` message, see `docs/websocket.md`.
 
-## Agente simulado (`python -m aclopi.agent_mock`, puerto 8100)
+## Mock agent (`python -m aclopi.agent_mock`, port 8100)
 
-| Estrategia | Comportamiento |
+| Strategy | Behaviour |
 |---|---|
-| `b1` / `b1b` | Responde enseguida con la mejor candidata por `finish`. `b1b` usa `finish_plus_next` si viene, si no `finish`. Nivel `heuristic` |
-| `agent` | Nivel sorteado con pesos configurables (`ACLOPI_MOCK_FRACTIONS`; por defecto `code-obvious` 0,5, `llm` 0,3, `llm-what-if` 0,15, `code-fallback` 0,05) |
+| `b1` / `b1b` | Answers at once with the best candidate by `finish`. `b1b` uses `finish_plus_next` if present, `finish` otherwise. Level `heuristic` |
+| `agent` | Level drawn with configurable weights (`ACLOPI_MOCK_FRACTIONS`; by default `code-obvious` 0.5, `llm` 0.3, `llm-what-if` 0.15, `code-fallback` 0.05) |
 
-Niveles de `agent`:
+Levels of `agent`:
 
-| Nivel | Qué hace |
+| Level | What it does |
 |---|---|
-| `code-obvious` | Inmediato |
-| `llm` | Espera 3–4 s (`ACLOPI_MOCK_LLM_DELAY_S`) |
-| `llm-what-if` | Espera ~3 s, pide un what-if con las 2 mejores por `finish` (`budget_ms` 10000 en vivo y 15000 en rápido), espera ~1,5 s y elige la de menor `op_end_time`. En vivo, si `own_remaining` en segundos menos 2 s no alcanza para ~12 s, decide como `llm`. Si el what-if responde `skipped` o `timeout`, decide sin él |
-| `code-fallback` | La mejor por `finish` |
+| `code-obvious` | Immediate |
+| `llm` | Waits 3–4 s (`ACLOPI_MOCK_LLM_DELAY_S`) |
+| `llm-what-if` | Waits ~3 s, asks for a what-if with the 2 best by `finish` (`budget_ms` 10000 live and 15000 fast), waits ~1.5 s and picks the one with the lowest `op_end_time`. Live, if `own_remaining` in seconds minus 2 s does not reach ~12 s, it decides as `llm`. If the what-if answers `skipped` or `timeout`, it decides without it |
+| `code-fallback` | The best by `finish` |
 
-Otras opciones: `ACLOPI_MOCK_DOWN=decide|health|all` para que esos endpoints no respondan, y `ACLOPI_MOCK_SEED` para que sus sorteos sean reproducibles.
+Other options: `ACLOPI_MOCK_DOWN=decide|health|all` so that those endpoints do not answer, and `ACLOPI_MOCK_SEED` to make its draws reproducible.
 
 ## Variables
 
-| Variable | Por defecto | |
+| Variable | Default | |
 |---|---|---|
-| `ACLOPI_AGENT_URL` | – | URL del agente; sin ella, las estrategias con decisor no tienen a quién llamar |
-| `ACLOPI_AGENT_TOKEN` | – | Token compartido |
-| `ACLOPI_AGENT_DECIDE_TIMEOUT_S` | 2 | Tiempo máximo de `/decide` y `/health` |
-| `ACLOPI_AGENT_HEALTH_INTERVAL_S` | 30 | Cada cuánto se consulta `/health` |
-| `ACLOPI_FAST_DECISION_TIMEOUT_S` | 90 | Espera máxima de una corrida rápida por sus decisiones |
+| `ACLOPI_AGENT_URL` | – | URL of the agent; without it, the strategies with a decider have nobody to call |
+| `ACLOPI_AGENT_TOKEN` | – | Shared token |
+| `ACLOPI_AGENT_DECIDE_TIMEOUT_S` | 2 | Maximum time of `/decide` and `/health` |
+| `ACLOPI_AGENT_HEALTH_INTERVAL_S` | 30 | How often `/health` is checked |
+| `ACLOPI_FAST_DECISION_TIMEOUT_S` | 90 | Maximum wait of a fast run for its decisions |

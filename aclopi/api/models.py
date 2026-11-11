@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator, model_serializer, model_validator
 
 from aclopi.contracts.agent import NextMachineRequest, NextMachineResponse, Strategy  # noqa: F401 (re-exported)
 # GET /sessions/{id}/candidates answers Línea A's schema as is (no copy in the API).
@@ -20,18 +20,71 @@ ProductType = Literal["A", "I", "P", "B", "E", "L", "T"]
 
 
 class ProductItem(BaseModel):
+    """One product of an order list. PO, Item ID and # together identify the product (`id`); they and
+    the due date are platform data: the NetLogo model only receives the type and the priority."""
+
     model_config = ConfigDict(extra="forbid")
 
+    po: str | None = Field(None, max_length=100, description="Product Order (PO)")
+    item_id: str | None = Field(None, max_length=100, description="Item ID")
+    number: str | None = Field(None, max_length=100, description='"#" column of the order')
     type: ProductType = Field(description="One of the model's product types (case-insensitive on input)")
-    priority: int = Field(80, ge=60, le=100)
+    priority: int = Field(80, ge=60, le=100, description="Stored on the product; no rule nor the agent uses it today")
+    due_date: float | None = Field(None, ge=0, description="Due date in simulated time units (u.t.); stored and "
+                                                           "shown, not used by the simulation")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _drop_derived(cls, value: Any) -> Any:
+        if isinstance(value, dict) and "id" in value:  # the derived id may come back (e.g. a saved run repeated)
+            value = {k: v for k, v in value.items() if k != "id"}
+        return value
 
     @field_validator("type", mode="before")
     @classmethod
     def _upper(cls, value: Any) -> Any:
         return value.strip().upper() if isinstance(value, str) else value
 
+    @field_validator("po", "item_id", "number", mode="before")
+    @classmethod
+    def _text(cls, value: Any) -> Any:
+        if value is None:
+            return None
+        text = str(value).strip()
+        return text or None
 
-ProductList = Annotated[list[ProductItem], Field(min_length=1, max_length=1000)]
+    @computed_field(description='"PO-Item ID-#" when the three are given: the product\'s id (stored with it)')
+    @property
+    def id(self) -> str | None:
+        return product_id(self.po, self.item_id, self.number)
+
+    @model_serializer(mode="wrap")
+    def _no_nulls(self, handler: Any) -> dict[str, Any]:
+        return {k: v for k, v in handler(self).items() if v is not None}  # missing optional fields are left out
+
+
+def product_id(po: Any, item_id: Any, number: Any) -> str | None:
+    """The product's id: PO, Item ID and # joined with "-" (None unless the three are given)."""
+    parts = [str(x).strip() if x is not None else "" for x in (po, item_id, number)]
+    return "-".join(parts) if all(parts) else None
+
+
+def unique_ids(products: list[Any]) -> list[Any]:
+    """Raises ValueError if two products share an id (PO-Item ID-#). Accepts ProductItem or dicts."""
+    seen: dict[str, int] = {}
+    for n, p in enumerate(products, start=1):
+        pid = p.id if isinstance(p, ProductItem) else product_id(p.get("po"), p.get("item_id"), p.get("number"))
+        if pid is not None:
+            if pid in seen:
+                raise ValueError(f"product {n}: the id {pid} (PO-Item ID-#) repeats product {seen[pid]}")
+            seen[pid] = n
+    return products
+
+
+# The platform runs at most 30 products per list (the size of Línea A's experiments); SimulationSession
+# itself accepts up to MAX_PRODUCT_LIST (1000) for in-process experiments.
+MAX_PLATFORM_PRODUCTS = 30
+ProductList = Annotated[list[ProductItem], Field(min_length=1, max_length=MAX_PLATFORM_PRODUCTS)]
 
 
 class ScenarioChoice(BaseModel):
@@ -71,6 +124,11 @@ class SessionCreate(BaseModel):
     scenario: ScenarioChoice | None = Field(
         None, description="Scenarios are not available on the platform (docs/scenarios.md): it is accepted only "
                           "as S0 without params (the original plant); any other: 422 scenarios_unavailable")
+
+    @field_validator("products")
+    @classmethod
+    def _ids(cls, value: list[ProductItem] | None) -> list[ProductItem] | None:
+        return unique_ids(value) if value else value
 
     @model_validator(mode="after")
     def _strategy_needs_rule4(self) -> "SessionCreate":
@@ -290,6 +348,11 @@ class ProductSetIn(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     products: ProductList
 
+    @field_validator("products")
+    @classmethod
+    def _ids(cls, value: list[ProductItem]) -> list[ProductItem]:
+        return unique_ids(value)
+
 
 class ProductSetSummary(BaseModel):
     id: str
@@ -317,7 +380,7 @@ class GenerateRequest(BaseModel):
 
     seed: int | None = Field(None, ge=NETLOGO_SEED_MIN, le=NETLOGO_SEED_MAX,
                              description="Optional; without it a random seed is drawn and returned")
-    count: int = Field(ge=1, le=1000)
+    count: int = Field(ge=1, le=MAX_PLATFORM_PRODUCTS)
 
 
 class GeneratedProducts(BaseModel):

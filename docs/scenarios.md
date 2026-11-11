@@ -1,143 +1,143 @@
-# Escenarios: lado plataforma
+# Scenarios: platform side
 
-> **Los escenarios no están disponibles en la plataforma** (decisión del 9 de noviembre de 2026). La plataforma simula la planta original, solo en modo Stochastic, sin escenarios: sin tiempos cambiados, sin degradación y sin fallas.
+> **Scenarios are not available on the platform** (decision of 9 November 2026). The platform simulates the original plant, only in Stochastic mode, without scenarios: no changed times, no degradation and no failures.
 >
-> - `POST /sessions` responde `422 scenarios_unavailable` ("los escenarios no están disponibles") a cualquier escenario distinto de S0. `GET /scenarios` ya no existe.
-> - La página no tiene selector ni avisos de escenario. Las corridas guardadas antes con un escenario se siguen mostrando (la regla lleva `[S2]`, por ejemplo), y "Repetir" las repite sin escenario.
-> - El código queda **solo para experimentos** de la Línea A: `aclopi/sim/scenarios.py` y el mecanismo del worker (`ScenarioSchedule`, cortes de bloque) siguen en el repositorio, con sus tests (`tests/test_scenarios_repro.py`, `tests/test_scenarios_model.py`, `tests/test_scenarios.py`). El registro de la API rechaza crear una sesión con un escenario distinto de S0, así que ninguna sesión de la plataforma puede activarlo.
+> - `POST /sessions` answers `422 scenarios_unavailable` ("scenarios are not available") to any scenario other than S0. `GET /scenarios` no longer exists.
+> - The page has no scenario selector or notices. Runs saved earlier with a scenario are still shown (the rule carries `[S2]`, for example), and "Repeat" repeats them without the scenario.
+> - The code is kept **only for Línea A's experiments**: `aclopi/sim/scenarios.py` and the worker mechanism (`ScenarioSchedule`, block cuts) remain in the repository, with their tests (`tests/test_scenarios_repro.py`, `tests/test_scenarios_model.py`, `tests/test_scenarios.py`). The API registry refuses to create a session with a scenario other than S0, so no platform session can turn one on.
 >
-> El resto de este documento describe cómo funcionaba en la plataforma y cómo sigue funcionando el mecanismo dentro del worker.
+> The rest of this document describes how it worked on the platform (historical: API, WebSocket and page) and how the mechanism still works inside the worker.
 
-Un escenario cambia la planta durante la corrida, desde Python y sin tocar el modelo. Son lo más importante de la demo: ver al agente reaccionar a una falla.
+A scenario changes the plant during the run, from Python and without touching the model. They were meant to be the highlight of the demo: watching the agent react to a failure.
 
-**Reparto del trabajo.**
-- La **Línea A** escribe la lógica en `aclopi/sim/scenarios.py`: qué escenarios hay, sus parámetros, el calendario de eventos y cómo se aplica cada evento al modelo.
-- La **plataforma** decide cuándo se aplica cada evento, lo registra, lo transmite, lo guarda y lo muestra.
-- Mientras la Línea A no entregue su versión, el módulo es un stub con las mismas firmas. El stub **no cambia el modelo**: todos los eventos salen aplicados, con `before`/`after` en `null`.
+**Division of work.**
+- **Línea A** writes the logic in `aclopi/sim/scenarios.py`: which scenarios exist, their parameters, the calendar of events and how each event is applied to the model.
+- The **platform** decides when each event is applied, records it, streams it, stores it and shows it.
+- Until Línea A delivered its version, the module was a stub with the same signatures. The stub **did not change the model**: every event came out applied, with `before`/`after` set to `null`.
 
-## Interfaz que usa la plataforma (`aclopi/sim/scenarios.py`)
+## Interface the platform uses (`aclopi/sim/scenarios.py`)
 
-| Función | Qué hace |
+| Function | What it does |
 |---|---|
-| `list_scenarios()` | Lista de `ScenarioSpec(id, name, description, params)`. `params` es una lista de `ParamSpec(name, type, default, min, max, description)` |
-| `validate_params(id, params)` | Devuelve los parámetros con los valores por defecto ya puestos. Si algo es inválido, lanza `ValueError` con el motivo |
-| `scenario_events(id, params, seed, start, end)` | Eventos `ScenarioEvent(tick, kind, machine, value, label)` del rango `[start, end)`, ordenados por tick. Es pura y determinista: S3 sortea con `random.Random(seed)` de Python, no con el azar del modelo, así que el calendario es el mismo para cualquier estrategia |
-| `apply_events(session, events)` | Aplica los eventos con el modelo en su tick. Devuelve un `AppliedEvent(event, applied, skip_reason, before, after)` por evento |
+| `list_scenarios()` | List of `ScenarioSpec(id, name, description, params)`. `params` is a list of `ParamSpec(name, type, default, min, max, description)` |
+| `validate_params(id, params)` | Returns the parameters with the defaults filled in. If something is invalid, it raises `ValueError` with the reason |
+| `scenario_events(id, params, seed, start, end)` | Events `ScenarioEvent(tick, kind, machine, value, label)` of the range `[start, end)`, sorted by tick. It is pure and deterministic: S3 draws with Python's `random.Random(seed)`, not with the model's randomness, so the calendar is the same for every strategy |
+| `apply_events(session, events)` | Applies the events with the model at their tick. Returns one `AppliedEvent(event, applied, skip_reason, before, after)` per event |
 
-`kind` puede ser:
+`kind` can be:
 - `set_times` (S1);
 - `scale_times` (S2);
 - `repair` (S3).
 
-El único motivo de salto es `skip_reason = "machine-idle"`: una falla en una máquina libre. Esa condición se evalúa dentro de `apply_events`, en el mismo momento en que se aplica.
+The only skip reason is `skip_reason = "machine-idle"`: a failure on an idle machine. That condition is evaluated inside `apply_events`, at the moment it is applied.
 
-Variable solo para tests: con `ACLOPI_SCENARIO_STUB_SKIP=1`, el stub devuelve los `repair` como saltados.
+Test-only variable: with `ACLOPI_SCENARIO_STUB_SKIP=1`, the stub returns the `repair` events as skipped.
 
-### Escenarios del stub
+### The scenarios
 
-| Id | Nombre | Parámetros (valor por defecto, rango) | Eventos |
+| Id | Name | Parameters (default, range) | Events |
 |---|---|---|---|
-| S0 | Base | — | ninguno |
-| S1 | Máquinas heterogéneas | `times`: M2 160, M3 180, M4 200, M5 220, M6 240, M7 260 (cada uno 50–1000 u.t.) | Un `set_times` en el tick 0 por cada máquina indicada |
-| S2 | Degradación | `machine` M7 (M2–M7); `factor` 1,75 (1,0–5,0); `start_tick` 10.000 (0–1.000.000) | Un `scale_times` en `start_tick` |
-| S3 | Fallas | `interval_ticks` 5000 (500–1.000.000); `repair_ut` 300 (10–2000); `machines` M2–M7 (al menos una) | Una falla en cada múltiplo de `interval_ticks` (la primera en `interval_ticks`), en una máquina sorteada de la lista. Label: "Falla en Mx: +N u.t." |
+| S0 | Base | — | none |
+| S1 | Heterogeneous machines | `times`: M2 160, M3 180, M4 200, M5 220, M6 240, M7 260 (each 50–1000 u.t.) | One `set_times` at tick 0 per machine given |
+| S2 | Degradation | `machine` M7 (M2–M7); `factor` 1.75 (1.0–5.0); `start_tick` 10,000 (0–1,000,000) | One `scale_times` at `start_tick` |
+| S3 | Failures | `interval_ticks` 5000 (500–1,000,000); `repair_ut` 300 (10–2000); `machines` M2–M7 (at least one) | One failure at each multiple of `interval_ticks` (the first at `interval_ticks`), on a machine drawn from the list. Label (written by `scenarios.py`, in Spanish): "Falla en Mx: +N u.t." |
 
-Detalles de S1:
-- Se pueden dar tiempos solo para algunas máquinas: las demás conservan el tiempo que tenga el modelo.
-- `times: {}` es válido y equivale a S0.
-- En la página, un campo vacío significa "sin cambio".
+S1 details:
+- Times can be given for only some machines: the others keep the time the model has.
+- `times: {}` is valid and equivalent to S0.
+- On the page (historical), an empty field meant "no change".
 
-**Qué afecta cada evento en el modelo:**
-- `scale_times` (S2) y `set_times` (S1) solo cambian las operaciones que **empiecen después** del evento. Una operación en curso termina con su tiempo de antes.
-- El único evento que alarga una operación en curso es **`repair` (S3)**.
+**What each event affects in the model:**
+- `scale_times` (S2) and `set_times` (S1) only change the operations that **start after** the event. An operation in progress ends with its previous time.
+- The only event that lengthens an operation in progress is **`repair` (S3)**.
 
-## API
+## API (historical)
 
-- **`GET /scenarios`:** devuelve `list_scenarios()`. La página arma el formulario con esa lista.
+- **`GET /scenarios`:** returned `list_scenarios()`. The page built the form from that list.
 - **`POST /sessions`:**
-  - acepta `scenario: {id, params}`. Es opcional; por defecto, S0;
-  - valida con `validate_params`. Si recibe un `ValueError`, responde `422` con `code: "invalid_scenario"` y el mensaje en `detail`, por ejemplo `"factor: must be between 1 and 5 (got 9)"`;
-  - la validación ocurre antes de pedir un worker.
-- **`SessionInfo`:** incluye `scenario: {id, params}`, con los parámetros ya completados, y `scenario_summary: {applied, skipped}` de la corrida actual.
-- **`GET /runs?scenario=S3`:** filtra las corridas por escenario.
+  - accepted `scenario: {id, params}`. Optional; S0 by default;
+  - validated with `validate_params`. On a `ValueError`, it answered `422` with `code: "invalid_scenario"` and the message in `detail`, for example `"factor: must be between 1 and 5 (got 9)"`;
+  - the validation happened before asking for a worker.
+- **`SessionInfo`:** includes `scenario: {id, params}`, with the parameters filled in, and `scenario_summary: {applied, skipped}` of the current run.
+- **`GET /runs?scenario=S3`:** filters runs by scenario (still available, useful only for old runs).
 
-## Regla del tick
+## Tick rule
 
-**Un evento del tick T se aplica cuando el modelo está en el tick T, antes de avanzar.** Esto vale en todos los casos:
+**An event of tick T is applied when the model is at tick T, before advancing.** This holds in every case:
 
-| Caso | Cuándo se aplica |
+| Case | When it is applied |
 |---|---|
-| Setup | Los eventos del tick 0 se aplican después del `setup` del modelo, antes del primer avance |
-| Reset | Los eventos se recalculan con la misma semilla y salen idénticos. Los del tick 0 se aplican otra vez |
-| En vivo | Al final del bloque que llega a T |
-| Rápido | Igual que en vivo |
-| Rápido con decisiones (`run-until-decision`) | Igual que en vivo |
-| Step manual | Durante el step: se parte en tramos que paran en cada evento, se aplica y se sigue hasta completar los n ticks |
+| Setup | The events of tick 0 are applied after the model's `setup`, before the first advance |
+| Reset | The events are recomputed with the same seed and come out identical. Those of tick 0 are applied again |
+| Live | At the end of the block that reaches T |
+| Fast | Same as live |
+| Fast with decisions (`run-until-decision`) | Same as live |
+| Manual step | During the step: it is split into pieces that stop at each event, the event is applied and it goes on until the n ticks are done |
 
-**Cortes de bloque.** Ningún avance pasa por encima del tick de un evento: el tamaño del bloque se recorta para que pare justo en T.
-- **En rápido**, el bloque se detiene en lo primero que ocurra: el siguiente evento, la siguiente decisión o el fin del bloque.
-- **En vivo**, un bloque recortado es más corto. El siguiente bloque se programa según los ticks que realmente avanzó, así que el ritmo no cambia.
+**Block cuts.** No advance goes past the tick of an event: the size of the block is trimmed so that it stops exactly at T.
+- **In fast mode**, the block stops at whatever comes first: the next event, the next decision or the end of the block.
+- **In live mode**, a trimmed block is shorter. The next block is scheduled according to the ticks it really advanced, so the pace does not change.
 
-Los eventos se calculan una sola vez, para `[0, horizonte)`, en el setup y en cada reset. El worker guarda cuáles ya aplicó.
+The events are computed once, for `[0, horizon)`, at setup and at each reset. The worker keeps track of which ones it already applied.
 
-## Orden: evento, decisión y foto del what-if
+## Order: event, decision and what-if snapshot
 
-Cuando un bloque termina en un tick T que tiene eventos, el orden es:
+When a block ends at a tick T that has events, the order is:
 
-1. Se aplican los eventos de T (`apply_events`).
-2. Se leen las peticiones de decisión del bloque (`pending_decisions`) y su contexto. En el registro de la API:
-   - primero se registra y se publica cada `scenario_event`;
-   - después se envía `POST /decide` al agente.
+1. The events of T are applied (`apply_events`).
+2. The decision requests of the block (`pending_decisions`) and their context are read. In the API registry:
+   - first each `scenario_event` is recorded and published;
+   - then `POST /decide` is sent to the agent.
 
-   Si un evento coincide con una decisión pendiente, el agente decide con la planta ya cambiada.
-3. Solo después, entre bloques, el worker atiende otros pedidos: candidates, la foto del what-if, el estado.
+   If an event coincides with a pending decision, the agent decides with the plant already changed.
+3. Only afterwards, between blocks, the worker serves other requests: candidates, the what-if snapshot, the state.
 
-   Por eso, si llega un pedido de what-if en un tick con eventos, la foto se toma **después** de aplicarlos.
+   That is why, if a what-if request arrives at a tick with events, the snapshot is taken **after** applying them.
 
-## What-if sin eventos futuros
+## What-if without future events
 
-Las copias del what-if **no aplican eventos de escenario**: el worker de what-if borra el calendario al importar la foto. El agente no debe conocer el futuro.
+What-if copies **do not apply scenario events**: the what-if worker clears the calendar when it imports the snapshot. The agent must not know the future.
 
-Lo que ya ocurrió (un tiempo cambiado, una degradación, una reparación en curso) forma parte del estado de la planta. La foto lo lleva y la copia lo respeta.
+What already happened (a changed time, a degradation, a repair in progress) is part of the state of the plant. The snapshot carries it and the copy respects it.
 
-## Lo que se transmite y se guarda
+## What is streamed and stored (historical)
 
-**Registro de eventos.** Cada `AppliedEvent` se añade al registro de eventos de la sesión (`recent_events` del snapshot y lista de la página) como un evento de tipo `scenario`:
+**Event log.** Each `AppliedEvent` was added to the session's event log (`recent_events` of the snapshot and the page's list) as an event of type `scenario`:
 
 ```json
 {"type": "scenario", "tick": 5000, "kind": "repair", "machine": "M4", "value": 300.0,
  "label": "Falla en M4: +300 u.t.", "applied": true, "skip_reason": null, "before": null, "after": null}
 ```
 
-**WebSocket.** Se envía un mensaje `scenario_event` por cada evento aplicado o saltado:
+**WebSocket.** A `scenario_event` message was sent for each applied or skipped event:
 
 ```json
-{"type": "scenario_event", "seq": 812, "tick": 5000, "event": { ...el registro de arriba... }}
+{"type": "scenario_event", "seq": 812, "tick": 5000, "event": { ...the record above... }}
 ```
 
-Se publica antes que el `tick`/`progress` del bloque que termina en ese tick. Los eventos del tick 0 (setup y reset) no generan mensaje: llegan en el snapshot.
+It was published before the `tick`/`progress` of the block ending at that tick. The events of tick 0 (setup and reset) did not produce a message: they arrived in the snapshot.
 
-**Snapshot.** Trae `scenario: {id, params}` y `scenario_events`, con todos los eventos ya ocurridos en la corrida. Un cliente que se conecta tarde puede marcar las máquinas afectadas.
+**Snapshot.** It carries `scenario: {id, params}` and `scenario_events`, with every event already happened in the run. A client connecting late could mark the affected machines.
 
-**Corrida guardada** (`GET /runs`, `GET /runs/{id}`):
+**Saved run** (`GET /runs`, `GET /runs/{id}`):
 - `scenario_id`;
 - `scenario: {id, params}`;
-- `scenario_events`: la lista completa;
+- `scenario_events`: the full list;
 - `scenario_summary: {applied, skipped}`.
 
-## Página (`/ui`)
+## Page (`/ui`, historical)
 
-**Pestaña Sesión:**
-- selector de escenario, con su nombre y su descripción;
-- sección plegable "Parámetros del escenario", armada desde `ParamSpec` y con los valores por defecto ya puestos. Los errores aparecen junto a cada campo; el servidor valida igual.
+**Session tab:**
+- scenario selector, with its name and description;
+- foldable "Scenario parameters" section, built from `ParamSpec` with the defaults filled in. Errors appeared next to each field; the server validated as well.
 
-**Vista en vivo:**
-- cada evento aparece como aviso durante 5 s y queda en la lista de eventos;
-- en una falla, la máquina parpadea 5 s;
-- en una degradación o un tiempo cambiado, la máquina queda con un marco y el valor;
-- un evento saltado se ve atenuado: "Falla saltada: M4 libre".
+**Live view:**
+- each event appeared as a notice for 5 s and stayed in the event list;
+- on a failure, the machine flashed for 5 s;
+- on a degradation or a changed time, the machine kept a frame and the value;
+- a skipped event looked dimmed: "Falla saltada: M4 libre".
 
-**Pestaña Corridas:**
-- columnas Escenario y Fallas (aplicadas / saltadas), y filtro por escenario;
-- "Repetir" copia el escenario con sus parámetros;
-- la comparación agrupa por escenario (con parámetros), semilla y set de productos.
+**Runs tab:**
+- columns Scenario and Failures (applied / skipped), and a scenario filter;
+- "Repeat" copied the scenario with its parameters;
+- the comparison grouped by scenario (with parameters), seed and product set.

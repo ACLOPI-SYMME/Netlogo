@@ -35,7 +35,7 @@ from aclopi.api.instance_lock import InstanceLock
 from aclopi.api.models import (
     STEP_N_DESCRIPTION, CandidatesResult, Event, Health, Kpis, PlantLayout, PlantState, Probe, RunRequest,
     GeneratedProducts, GenerateRequest, NextMachineRequest, NextMachineResponse, ParsedCsv, ProductSet, ProductSetIn,
-    ProductSetSummary, RunPage, RunRecord, SessionCreate, SessionInfo, SessionMetrics, StepResult, WhatIfRequest,
+    ProductItem, ProductSetSummary, RunPage, RunRecord, SessionCreate, SessionInfo, SessionMetrics, StepResult, WhatIfRequest,
     WhatIfResponse,
 )
 from aclopi.workers.protocol import NoFreeWorker
@@ -304,7 +304,7 @@ def create_app(
     async def create_session(body: SessionCreate, request: Request) -> dict[str, Any]:
         # Scenarios are not available on the platform (docs/scenarios.md): only S0, the original plant.
         if body.scenario is not None and (body.scenario.id != "S0" or body.scenario.params):
-            raise ScenariosUnavailable("los escenarios no están disponibles")
+            raise ScenariosUnavailable("scenarios are not available")
         scenario = {"id": "S0", "params": {}}
         registry = runtime.require_ready()
         seed, seed_source = (body.seed, "user") if body.seed is not None else (random_seed(), "random")
@@ -353,7 +353,7 @@ def create_app(
     # ----- product sets (L5.6) -----
 
     @app.post("/product-sets", response_model=ProductSet, status_code=201, tags=["product-sets"],
-              summary="Save a product set (name and products in entry order, 1-1000)")
+              summary="Save a product set (name and products in entry order, 1-30)")
     async def create_product_set(body: ProductSetIn) -> Any:
         return runtime.product_sets.create(body.name, [p.model_dump() for p in body.products])
 
@@ -363,14 +363,15 @@ def create_app(
         return runtime.product_sets.list()
 
     @app.post("/product-sets/parse-csv", response_model=ParsedCsv, tags=["product-sets"],
-              summary="Turn a CSV (type, priority; , or ;; UTF-8, BOM allowed) into a validated list (not saved)",
+              summary="Turn a CSV (PO, Item ID, #, Type, Priority, DueDate; , or ;; UTF-8, BOM allowed) into a validated list "
+                      "(not saved)",
               responses={422: {"description": "Errors by line: {code: csv_invalid, errors: [{line, error}]}"}})
     async def parse_product_csv(file: UploadFile = File(...)) -> Any:
         products, problems = parse_csv(await file.read())
         if problems:
             return JSONResponse({"code": "csv_invalid", "detail": f"{len(problems)} error(s) in the CSV",
                                  "errors": problems}, status_code=422)
-        return {"products": products, **summary(products)}
+        return {"products": [ProductItem(**p).model_dump() for p in products], **summary(products)}
 
     @app.post("/product-sets/generate", response_model=GeneratedProducts, tags=["product-sets"],
               summary="The products the model generates from a seed (fixed sequence); seed optional",
@@ -413,7 +414,7 @@ def create_app(
         return Response(status_code=204)
 
     @app.get("/product-sets/{set_id}/csv", tags=["product-sets"], response_class=PlainTextResponse,
-             summary="Export a set as CSV (type,priority)", responses=errors.responses(404))
+             summary="Export a set as CSV (PO, Item ID, #, Type, Priority, DueDate)", responses=errors.responses(404))
     async def export_product_set(set_id: str) -> Response:
         found = runtime.product_sets.get(set_id)
         if found is None:
