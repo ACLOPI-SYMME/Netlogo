@@ -48,6 +48,8 @@ How much the AI reasons is configured in the agent itself, not in the platform's
 
 The old modes `quick` and `full` were removed on 12 Nov. An old client that still sends `mode` is not refused: the field is ignored.
 
+On the page the rounds are not shown: the AI's orders are "AI option 1, 2, 3, 4", numbered in the order they were simulated.
+
 Rules of the rounds:
 
 - **Validation.** Each order of the AI must be a complete permutation of `0..n−1`. If it is not, it is discarded as `invalid`. If it equals an order already evaluated, or another one of the same answer, it is discarded as `same_as` and marked with that order's name ("same as Largest first"). It is not simulated again. If the heuristic equals the original, it is listed as "same as Original".

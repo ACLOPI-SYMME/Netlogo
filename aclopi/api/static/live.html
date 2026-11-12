@@ -734,7 +734,7 @@ function syncWaitClock(o) {
 function showProgressText() {
   const o = optState;
   if (!o || !optActive()) return;
-  const head = `Round ${o.round} of ${o.rounds} · `;
+  const head = "";  // the AI's rounds are not shown: only what is being done
   const seconds = waitClock ? Math.floor((performance.now() - waitClock.t0) / 1000) : 0;
   let body;
   if (o.status === "waiting_ai") body = `<span class="spinner" aria-hidden="true"></span>The AI is thinking… ${seconds} s`;
@@ -807,7 +807,7 @@ function renderOptimize() {
   });
   let whyText = "";
   if (best && !active) {
-    whyText = best.origin === "ai" ? `<b>Why (AI):</b> ${esc(best.reasoning || "–")}${best.analysis ? `<br><span class="muted">Analysis of round ${best.round}: ${esc(best.analysis)}</span>` : ""}`
+    whyText = best.origin === "ai" ? `<b>Why (AI):</b> ${esc(best.reasoning || "–")}${best.analysis ? `<br><span class="muted">AI analysis: ${esc(best.analysis)}</span>` : ""}`
       : `<b>Why:</b> ${esc(ORIGIN_WHY[best.origin])}`;
   }
   if (o.warning) whyText += `${whyText ? "<br>" : ""}<span class="err">${esc(o.warning)}</span>`;
