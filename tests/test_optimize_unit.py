@@ -182,3 +182,21 @@ def test_old_runs_with_a_mode_still_read() -> None:
     assert run["optimization"]["mode"] == "quick" and run["optimization"]["order"] == [1, 0]
     new = {**old, "optimization": {"optimized": True, "order": [1, 0], "origin": "heuristic"}}
     assert "mode" not in RunRecord(**new).model_dump()["optimization"]
+
+
+def test_agent_kind_from_the_url_and_compose_stops_everything() -> None:
+    """The kind shown in /health comes from the configured URL; the real agent never restarts on its own and
+    the down scripts include every profile (docs/deploy-local.md, "The profile trap")."""
+    import yaml
+
+    from aclopi.api.agent import AgentClient, agent_kind
+
+    assert [agent_kind(u) for u in ("http://agent-mock:8100", "http://agent:8100/", "http://127.0.0.1:8100", None)] == \
+        ["mock", "real", "other", None]
+    info = AgentClient("http://agent:8100", "secret").info()
+    assert info["kind"] == "real" and info["url"] == "http://agent:8100" and "secret" not in str(info)
+    root = Path(__file__).resolve().parents[1]
+    compose = yaml.safe_load((root / "docker-compose.yml").read_text(encoding="utf-8"))
+    assert compose["services"]["agent"]["profiles"] == ["agent"] and compose["services"]["agent"]["restart"] == "no"
+    for script in ("down.ps1", "down.sh"):
+        assert '--profile "*" down' in (root / "docker" / script).read_text(encoding="utf-8"), script

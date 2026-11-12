@@ -13,7 +13,9 @@ services:
     ports:
       - "8000:8000"
     environment:
-      ACLOPI_AGENT_URL: ${ACLOPI_AGENT_URL:-http://agent-mock:8100}  # http://agent:8100 with --profile agent
+      # Set by docker/up.ps1 / up.sh for the agent started (mock: agent-mock, real: agent). Do not put it in .env:
+      # it would point the platform at the real agent even when only the mock runs (docs/deploy-local.md).
+      ACLOPI_AGENT_URL: ${ACLOPI_AGENT_URL:-http://agent-mock:8100}
       ACLOPI_AGENT_TOKEN: ${ACLOPI_AGENT_TOKEN:-}
       ACLOPI_DYNAMODB_ENDPOINT: http://dynamodb-local:8000
       ACLOPI_CREATE_TABLES: "1"
@@ -55,8 +57,9 @@ services:
       retries: 3
     networks: [internal]
 
-  # Línea A's agent. Off by default (the mock stays the default):
-  #   ACLOPI_AGENT_URL=http://agent:8100 docker compose --profile agent up --build
+  # Linea A's agent. Off by default (the mock stays the default). Start it with docker/up.ps1 -Agent real
+  # (or docker/up.sh --agent real); stop everything with docker/down.ps1 / down.sh (down --profile "*":
+  # a plain `docker compose down` ignores this profile and leaves the agent running).
   # LLM and triage settings come from .env.agent (not in git; see .env.agent.example; without it: fake LLM).
   # Only the internal values are fixed here: environment wins over env_file.
   agent:
@@ -74,7 +77,7 @@ services:
       ACLOPI_AGENT_LOG: /app/results/agent/decisions.jsonl
     volumes:
       - ./results:/app/results
-    restart: unless-stopped
+    restart: "no"  # unless-stopped brought an old agent back with every Docker start
     healthcheck:
       test: ["CMD", "python", "-c", "import sys, urllib.request; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8100/health', timeout=4).status == 200 else 1)"]
       interval: 15s

@@ -14,10 +14,22 @@ import asyncio
 import logging
 import time
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 
 logger = logging.getLogger(__name__)
+
+# Which agent a URL points at, by its host in Docker Compose (docs/deploy-local.md). The kind comes from the
+# configured URL; if Línea A adds "kind" to its /health, it could be read from there instead.
+AGENT_KINDS = {"agent-mock": "mock", "agent": "real"}
+
+
+def agent_kind(url: str | None) -> str | None:
+    """"mock" (host agent-mock), "real" (host agent), "other" (any other host) or None (no agent configured)."""
+    if not url:
+        return None
+    return AGENT_KINDS.get(urlparse(url).hostname or "", "other")
 
 
 class AgentClient:
@@ -50,7 +62,7 @@ class AgentClient:
             await self._client.aclose()
 
     def info(self) -> dict[str, Any]:
-        return {"configured": self.url is not None, "status": self.status, "last_check": self.last_check,
+        return {"configured": self.url is not None, "kind": agent_kind(self.url), "url": self.url, "status": self.status, "last_check": self.last_check,
                 "last_ok": self.last_ok, "last_error": self.last_error, "decide_sent": self.decide_sent,
                 "decide_failed": self.decide_failed}
 

@@ -34,6 +34,8 @@ Fields of `agent`:
 | Field | Meaning | Values |
 |---|---|---|
 | `configured` | Whether an agent is configured (`ACLOPI_AGENT_URL`) | `true`, `false` |
+| `kind` | Which agent: deduced from the host of the configured URL (`agent-mock` → `mock`, `agent` → `real`, any other → `other`; `docs/deploy-local.md`) | `mock`, `real`, `other`, `null` without agent |
+| `url` | The agent's URL (`ACLOPI_AGENT_URL`) | text, or `null` |
 | `status` | Whether it answers | `ok`, `down`, `unknown` (not tested yet), `not_configured` |
 | `last_check`, `last_ok` | Last check and last time it answered well | Unix time (s) |
 | `last_error` | Last error | text or `null` |
