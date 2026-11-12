@@ -64,3 +64,6 @@
    propio worktree. Nunca lee ni escribe archivos en la carpeta de otro worktree, aunque
    comparta el repositorio, y nunca usa git checkout/restore sobre archivos de otro worktree.
    Antes de escribir, comprueba que la ruta está dentro de su carpeta.
+8. Rama main (vale para las dos líneas): nadie deja main abierta en su carpeta. Para fusionar:
+   git switch main → merge → tests → git switch a una rama de trabajo propia (Línea B:
+   platform/dev; Línea A: la suya). Así la otra línea siempre puede fusionar.
