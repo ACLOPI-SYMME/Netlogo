@@ -531,9 +531,9 @@ def create_app(
                           "session is not idle at tick 0, has no product list, or live agent sessions run (provisional "
                           "rule); 422 with more than ACLOPI_OPTIMIZE_MAX_PRODUCTS products; 503 fast_run_limit.",
               responses=errors.responses(404, 409, 410, 503))
-    async def optimize_order(body: OptimizeRequest, session_id: str = session_id_path) -> Any:
+    async def optimize_order(body: OptimizeRequest | None = None, session_id: str = session_id_path) -> Any:
         registry = runtime.require_ready()
-        optimizer = await registry.start_optimize(session_id, body.mode, settings)
+        optimizer = await registry.start_optimize(session_id, settings)
         return optimizer.public()
 
     @app.get("/sessions/{session_id}/optimize-order", response_model=Optimization, tags=["optimize-order"],

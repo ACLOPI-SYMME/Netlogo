@@ -4,9 +4,9 @@ Rounds, all on the session's own worker (simulate_list, aclopi.sim.sequencing) a
 (POST /sequence/propose, docs/sequencing.md):
 
 - round 0: the original order and the heuristic (largest_first), simulated; no call to the AI;
-- rounds 1..N: the AI gets the products and every order evaluated so far (order, makespan_ticks,
-  details) and proposes up to 2 new orders; the valid, new ones are simulated and added.
-  "quick" = reasoning "none" and 1 round; "full" = reasoning "medium" and ACLOPI_OPTIMIZE_ROUNDS_FULL rounds.
+- rounds 1..N (N = ACLOPI_OPTIMIZE_ROUNDS, 2): the AI gets the products and every order evaluated so far
+  (order, makespan_ticks, details) and proposes up to 2 new orders; the valid, new ones are simulated and
+  added. There is a single mode; the AI's reasoning effort is the agent's own configuration.
 
 Every simulation uses the session's seed, the strategy of its rule (rules 1-3 -> rule1-rule3; rule 4 ->
 b1b, or b1 when the session uses b1), mode Deterministic and the session's horizon as max_ticks. The
@@ -44,8 +44,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-MODES = ("quick", "full")
-REASONING = {"quick": "none", "full": "medium"}
 SIM_MODE = "Deterministic"
 TERMINAL = ("done", "cancelled", "failed")
 AI_DOWN = "the AI is not available; only the original and the heuristic were compared"
@@ -124,12 +122,10 @@ class OptimizeBusy(Exception):
 class OrderOptimization:
     """One optimization of one session: its state (GET), its rounds (run) and its end (restore or apply)."""
 
-    def __init__(self, registry: "SessionRegistry", record: "SessionRecord", settings: "Settings", mode: str) -> None:
+    def __init__(self, registry: "SessionRegistry", record: "SessionRecord", settings: "Settings") -> None:
         self.registry, self.record, self.settings = registry, record, settings
         self.id = uuid.uuid4().hex
-        self.mode = mode
-        self.reasoning = REASONING[mode]
-        self.rounds = 1 if mode == "quick" else max(1, int(settings.optimize_rounds_full))
+        self.rounds = max(1, int(settings.optimize_rounds))
         self.round = 0
         self.status = "running"  # running | waiting_turn | waiting_ai | done | cancelled | failed
         self.active = True  # until the session's setup is made again (restore or apply)
@@ -181,8 +177,8 @@ class OrderOptimization:
     def public(self) -> dict[str, Any]:
         best = self.best()
         return {
-            "optimization_id": self.id, "session_id": self.record.session_id, "status": self.status, "mode": self.mode,
-            "reasoning_effort": self.reasoning, "round": self.round, "rounds": self.rounds,
+            "optimization_id": self.id, "session_id": self.record.session_id, "status": self.status,
+            "round": self.round, "rounds": self.rounds,
             "progress_pct": self.progress_pct(), "current": self.current,
             "ai_elapsed_s": round(time.monotonic() - self.ai_started, 1) if self.ai_started else None,
             "waited_s": round(self.waited_s, 1),
@@ -345,7 +341,7 @@ class OrderOptimization:
         body = {"products": [{"type": p["type"], "priority": int(p.get("priority") or 80)} for p in self.products],
                 "evaluated": [{"order": c["order"], "makespan_ticks": c["makespan_ticks"], "details": c["details"]}
                               for c in self.evaluated],
-                "strategy": self.strategy, "mode": SIM_MODE, "reasoning": self.reasoning}
+                "strategy": self.strategy, "mode": SIM_MODE}
         timeout = float(self.settings.optimize_ai_timeout_s)
         async with httpx.AsyncClient(timeout=timeout) as http:
             while True:
@@ -434,7 +430,7 @@ class OrderOptimization:
         c = self.evaluated[index]
         self.applied = index
         self.record.optimization = {
-            "optimized": True, "mode": self.mode, "order": list(c["order"]), "origin": c["origin"],
+            "optimized": True, "order": list(c["order"]), "origin": c["origin"],
             "label": c["label"], "round": c["round"], "estimated_makespan_ticks": c["makespan_ticks"],
             "estimated_makespan_time": c["makespan_time"], "estimated_saving_time": c["saving_time"],
             "estimated_saving_pct": c["saving_pct"], "estimate_strategy": self.strategy,

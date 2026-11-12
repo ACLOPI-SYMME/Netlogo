@@ -60,7 +60,7 @@ If the startup fails, the JSON log says which worker failed and why. Then the po
 | `POST /sessions/{id}/what-if` | Tests 2 assignments of a decision in copies of the simulation, within `budget_ms` (10 s by default, 2 to 15 s; the agent computes it from its decision deadline: from M2–M7 ~10 s fits, from M1 it does not fit together with the LLM calls). Rule 4 only; `docs/whatif.md` |
 | `GET /sessions/{id}/metrics` | Session metrics: what-if (`whatif`) and decisions (`decisions`, L5.5) |
 | `POST /sessions/{id}/next-machine` | The agent's decision for a pending request (rule 4; `docs/agent-api.md`) |
-| `POST /sessions/{id}/optimize-order` | "Optimize order": `{"mode": "quick" \| "full"}`, 202. Simulates the original order, the heuristic and the AI's proposals, on the session's worker (`docs/optimize-order.md`) |
+| `POST /sessions/{id}/optimize-order` | "Optimize order": no body (a `mode` sent by old clients is ignored), 202. Simulates the original order, the heuristic and the AI's proposals, on the session's worker (`docs/optimize-order.md`) |
 | `GET /sessions/{id}/optimize-order` | State, progress and results of the last optimization |
 | `POST /sessions/{id}/optimize-order/cancel` | Stops it; the session stays as it was |
 | `POST /sessions/{id}/apply-order` | `{"candidate": i}`: stops the rounds left and sets the session up again with that order |
@@ -206,7 +206,7 @@ A session with a request in progress never closes.
 | `ACLOPI_FAST_BLOCK_TICKS` | `1000` | Ticks per fast-mode block |
 | `ACLOPI_FAST_YIELD` | `0` | Pause between fast blocks, as a fraction of the block's time |
 | `ACLOPI_WS_QUEUE` | `32` | Queued messages per WebSocket client before resynchronising it |
-| `ACLOPI_OPTIMIZE_ROUNDS_FULL` | `2` | Optimize order: rounds with the AI in `full` (`quick`: 1) |
+| `ACLOPI_OPTIMIZE_ROUNDS` | `2` | Optimize order: rounds with the AI (replaces `ACLOPI_OPTIMIZE_ROUNDS_FULL`) |
 | `ACLOPI_OPTIMIZE_MAX_PRODUCTS` | `50` | Optimize order: longest list (422 above) |
 | `ACLOPI_OPTIMIZE_BLOCK_WHEN_LIVE_AGENT` | `1` | Optimize order: provisional rule, refused while live agent sessions run (`0` removes it) |
 | `ACLOPI_OPTIMIZE_MAX_WAIT_S` | `300` | Optimize order: total wait for a turn at the AI (429) before failing |

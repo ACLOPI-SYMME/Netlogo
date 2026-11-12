@@ -67,8 +67,8 @@ def _session(c: httpx.Client, rule: int = 3, seed: int = 42, horizon: int = 2000
     return r.json()["session_id"]
 
 
-def _optimize(c: httpx.Client, sid: str, mode: str) -> dict[str, Any]:
-    r = c.post(f"/sessions/{sid}/optimize-order", json={"mode": mode})
+def _optimize(c: httpx.Client, sid: str, body: dict[str, Any] | None = None) -> dict[str, Any]:
+    r = c.post(f"/sessions/{sid}/optimize-order", json=body if body is not None else {})
     assert r.status_code == 202, r.text
     return r.json()
 
@@ -117,21 +117,21 @@ class Collector:
         self._cm.__exit__(None, None, None)
 
 
-def test_quick_round0_without_ai_then_one_round(stack: Any, client: httpx.Client) -> None:
+def test_round0_without_ai_then_the_rounds(stack: Any, client: httpx.Client) -> None:
     api, mock = stack
     sid = _session(client)
-    o = _optimize(client, sid, "quick")
-    assert o["status"] == "running" and o["rounds"] == 1 and o["strategy"] == "rule3" and o["reasoning_effort"] == "none"
+    o = _optimize(client, sid, {"mode": "quick"})  # an old client's mode is ignored: one mode only
+    assert o["status"] == "running" and o["rounds"] == 2 and o["strategy"] == "rule3" and "mode" not in o
     o = _wait_opt(client, sid)
     assert o["status"] == "done" and o["warning"] is None, o
-    # round 0 had no AI call: the only call came with the original and the heuristic already simulated
+    # round 0 had no AI call: the first call came with the original and the heuristic already simulated
     reqs = mock.app.state.sequence_requests
-    assert len(reqs) == 1 and [e["order"] for e in reqs[0]["evaluated"]] == [[0, 1, 2, 3], [1, 3, 2, 0]]
-    assert reqs[0]["reasoning"] == "none" and reqs[0]["strategy"] == "rule3" and reqs[0]["mode"] == "Deterministic"
+    assert len(reqs) == 2 and [e["order"] for e in reqs[0]["evaluated"]] == [[0, 1, 2, 3], [1, 3, 2, 0]]
+    assert reqs[0]["strategy"] == "rule3" and reqs[0]["mode"] == "Deterministic" and "reasoning" not in reqs[0]
     assert all(e["details"] is not None for e in reqs[0]["evaluated"])
     labels = [e["label"] for e in o["evaluated"]]
-    assert labels == ["Original", "Heuristic", "AI round 1 · 1", "AI round 1 · 2"]
-    assert [e["origin"] for e in o["evaluated"]] == ["original", "heuristic", "ai", "ai"]
+    assert labels == ["Original", "Heuristic", "AI round 1 · 1", "AI round 1 · 2", "AI round 2 · 1", "AI round 2 · 2"]
+    assert [e["origin"] for e in o["evaluated"]] == ["original", "heuristic", "ai", "ai", "ai", "ai"]
     assert all(e["all_done"] and e["makespan_ticks"] for e in o["evaluated"])
     assert o["evaluated"][0]["saving_time"] == 0.0 and o["evaluated"][2]["analysis"].startswith("mock analysis")
     best = min(o["evaluated"], key=lambda e: (e["makespan_ticks"], e["index"]))
@@ -141,19 +141,19 @@ def test_quick_round0_without_ai_then_one_round(stack: Any, client: httpx.Client
     client.delete(f"/sessions/{sid}")
 
 
-def test_full_two_rounds_rule4_with_websocket(stack: Any, client: httpx.Client) -> None:
+def test_two_rounds_rule4_with_websocket(stack: Any, client: httpx.Client) -> None:
     api, mock = stack
     sid = _session(client, rule=4)
     ws = Collector(api, sid)
-    o = _optimize(client, sid, "full")
-    assert o["rounds"] == 2 and o["strategy"] == "b1b" and o["reasoning_effort"] == "medium"
+    o = _optimize(client, sid)
+    assert o["rounds"] == 2 and o["strategy"] == "b1b"
     # while it optimizes, the session refuses other operations
     assert client.post(f"/sessions/{sid}/run", json={"mode": "fast"}).status_code == 409
     o = _wait_opt(client, sid)
     assert o["status"] == "done", o
     assert [r["round"] for r in o["rounds_info"]] == [1, 2] and len(o["evaluated"]) == 6
     reqs = mock.app.state.sequence_requests
-    assert [len(r["evaluated"]) for r in reqs] == [2, 4] and all(r["reasoning"] == "medium" for r in reqs)
+    assert [len(r["evaluated"]) for r in reqs] == [2, 4] and all("reasoning" not in r for r in reqs)
     assert len({tuple(e["order"]) for e in o["evaluated"]}) == 6
     deadline = time.monotonic() + 10
     while "optimize_result" not in ws.types():
@@ -173,7 +173,7 @@ def test_use_this_midway_cuts_and_applies(stack: Any, client: httpx.Client) -> N
     api, mock = stack
     mock.config.sequence_delay_s = 2.5
     sid = _session(client)
-    _optimize(client, sid, "full")
+    _optimize(client, sid)
     o = _wait_opt(client, sid, until=lambda o: o["status"] == "waiting_ai")
     assert len(o["evaluated"]) == 2
     r = client.post(f"/sessions/{sid}/apply-order", json={"candidate": 1})
@@ -183,7 +183,7 @@ def test_use_this_midway_cuts_and_applies(stack: Any, client: httpx.Client) -> N
     assert o["status"] == "done" and o["applied"] == 1 and o["stopped_early"] and len(o["evaluated"]) == 2
     assert [p["type"] for p in body["products"]] == list("ABEI")  # the heuristic's order
     applied = body["session"]["optimization"]
-    assert applied["optimized"] and applied["mode"] == "full" and applied["origin"] == "heuristic"
+    assert applied["optimized"] and "mode" not in applied and applied["origin"] == "heuristic"
     assert applied["order"] == [1, 3, 2, 0] and applied["estimated_makespan_ticks"] == o["evaluated"][1]["makespan_ticks"]
     assert body["session"]["ticks"] == 0 and body["session"]["run_state"] == "idle"
     assert mock.app.state.sequence_calls <= 1
@@ -209,10 +209,10 @@ def test_429_waits_its_turn_and_goes_on(stack: Any, client: httpx.Client) -> Non
     api, mock = stack
     mock.config.sequence_busy, mock.config.sequence_retry_after_s = 1, 2
     sid = _session(client)
-    _optimize(client, sid, "quick")
+    _optimize(client, sid)
     o = _wait_opt(client, sid)
     assert o["status"] == "done" and "waiting_turn" in o["seen"], o
-    assert o["waited_s"] >= 1.5 and len(o["evaluated"]) == 4 and mock.app.state.sequence_calls == 2
+    assert o["waited_s"] >= 1.5 and len(o["evaluated"]) == 6 and mock.app.state.sequence_calls == 3
     client.delete(f"/sessions/{sid}")
 
 
@@ -220,7 +220,7 @@ def test_ai_timeout_ends_with_what_was_evaluated(stack: Any, client: httpx.Clien
     api, mock = stack
     mock.config.sequence_delay_s = AI_TIMEOUT_S + 3
     sid = _session(client)
-    _optimize(client, sid, "full")
+    _optimize(client, sid)
     o = _wait_opt(client, sid)
     assert o["status"] == "done" and len(o["evaluated"]) == 2 and "did not answer" in o["warning"], o
     client.delete(f"/sessions/{sid}")
@@ -231,7 +231,7 @@ def test_agent_down_compares_original_and_heuristic(stack: Any, client: httpx.Cl
     mock.config.down = "health"
     _wait_agent(api, "down")
     sid = _session(client)
-    _optimize(client, sid, "quick")
+    _optimize(client, sid)
     o = _wait_opt(client, sid)
     assert o["status"] == "done" and o["warning"] == AI_DOWN and [e["label"] for e in o["evaluated"]] == ["Original", "Heuristic"]
     assert mock.app.state.sequence_calls == 0
@@ -246,7 +246,7 @@ def test_session_identical_after_optimizing_without_applying(stack: Any, client:
         sid = _session(client, seed=7, horizon=3000)
         if action != "none":
             mock.config.sequence_delay_s = 30.0 if action == "cancel" else 0.0
-            _optimize(client, sid, "quick")
+            _optimize(client, sid)
             if action == "cancel":
                 _wait_opt(client, sid, until=lambda o: o["status"] == "waiting_ai")
                 t0 = time.monotonic()
@@ -265,7 +265,7 @@ def test_session_identical_after_optimizing_without_applying(stack: Any, client:
 def test_cancel_during_a_simulation(stack: Any, client: httpx.Client) -> None:
     api, mock = stack
     sid = _session(client, rule=4)
-    _optimize(client, sid, "quick")
+    _optimize(client, sid)
     _wait_opt(client, sid, until=lambda o: o["current"] is not None and o["current"]["ticks"] > 0)
     t0 = time.monotonic()
     r = client.post(f"/sessions/{sid}/optimize-order/cancel")

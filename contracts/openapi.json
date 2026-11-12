@@ -149,10 +149,6 @@
             ],
             "title": "Label"
           },
-          "mode": {
-            "title": "Mode",
-            "type": "string"
-          },
           "optimization_id": {
             "anyOf": [
               {
@@ -193,7 +189,6 @@
         },
         "required": [
           "optimized",
-          "mode",
           "order",
           "origin"
         ],
@@ -1204,14 +1199,6 @@
             "title": "Max Ticks",
             "type": "integer"
           },
-          "mode": {
-            "enum": [
-              "quick",
-              "full"
-            ],
-            "title": "Mode",
-            "type": "string"
-          },
           "optimization_id": {
             "title": "Optimization Id",
             "type": "string"
@@ -1227,10 +1214,6 @@
           "progress_pct": {
             "title": "Progress Pct",
             "type": "number"
-          },
-          "reasoning_effort": {
-            "title": "Reasoning Effort",
-            "type": "string"
           },
           "round": {
             "description": "round in progress or last one (0: original and heuristic)",
@@ -1307,8 +1290,6 @@
           "optimization_id",
           "session_id",
           "status",
-          "mode",
-          "reasoning_effort",
           "round",
           "rounds",
           "progress_pct",
@@ -1530,21 +1511,8 @@
         "type": "object"
       },
       "OptimizeRequest": {
-        "additionalProperties": false,
-        "properties": {
-          "mode": {
-            "description": "quick: reasoning \"none\", 1 round with the AI (~1 min); full: reasoning \"medium\", ACLOPI_OPTIMIZE_ROUNDS_FULL rounds (~3 min)",
-            "enum": [
-              "quick",
-              "full"
-            ],
-            "title": "Mode",
-            "type": "string"
-          }
-        },
-        "required": [
-          "mode"
-        ],
+        "description": "No fields: a single mode (ACLOPI_OPTIMIZE_ROUNDS rounds with the AI). The body may be empty; fields sent by\nolder clients (e.g. \"mode\") are ignored.",
+        "properties": {},
         "title": "OptimizeRequest",
         "type": "object"
       },
@@ -4999,11 +4967,18 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/OptimizeRequest"
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/OptimizeRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
               }
             }
-          },
-          "required": true
+          }
         },
         "responses": {
           "202": {

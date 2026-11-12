@@ -485,10 +485,10 @@ OptimizeStatus = Literal["running", "waiting_turn", "waiting_ai", "done", "cance
 
 
 class OptimizeRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    """No fields: a single mode (ACLOPI_OPTIMIZE_ROUNDS rounds with the AI). The body may be empty; fields sent by
+    older clients (e.g. "mode") are ignored."""
 
-    mode: Literal["quick", "full"] = Field(description='quick: reasoning "none", 1 round with the AI (~1 min); '
-                                                      'full: reasoning "medium", ACLOPI_OPTIMIZE_ROUNDS_FULL rounds (~3 min)')
+    model_config = ConfigDict(extra="ignore")
 
 
 class ApplyOrderRequest(BaseModel):
@@ -537,8 +537,6 @@ class Optimization(BaseModel):
     optimization_id: str
     session_id: str
     status: OptimizeStatus
-    mode: Literal["quick", "full"]
-    reasoning_effort: str
     round: int = Field(description="round in progress or last one (0: original and heuristic)")
     rounds: int = Field(description="rounds with the AI planned")
     progress_pct: float
@@ -568,7 +566,6 @@ class AppliedOptimization(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     optimized: bool
-    mode: str
     order: list[int]
     origin: str
     label: str | None = None

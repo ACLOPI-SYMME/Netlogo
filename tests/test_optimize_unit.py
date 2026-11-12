@@ -143,11 +143,11 @@ def test_503_when_the_fast_quota_is_full() -> None:
 
 def test_settings_from_env() -> None:
     s = Settings.from_env({})
-    assert (s.optimize_rounds_full, s.optimize_max_products, s.optimize_block_when_live_agent,
+    assert (s.optimize_rounds, s.optimize_max_products, s.optimize_block_when_live_agent,
             s.optimize_max_wait_s, s.optimize_ai_timeout_s) == (2, 50, True, 300.0, 90.0)
-    s = Settings.from_env({"ACLOPI_OPTIMIZE_ROUNDS_FULL": "3", "ACLOPI_OPTIMIZE_MAX_PRODUCTS": "20",
+    s = Settings.from_env({"ACLOPI_OPTIMIZE_ROUNDS": "3", "ACLOPI_OPTIMIZE_MAX_PRODUCTS": "20",
                            "ACLOPI_OPTIMIZE_BLOCK_WHEN_LIVE_AGENT": "0", "ACLOPI_OPTIMIZE_MAX_WAIT_S": "60"})
-    assert (s.optimize_rounds_full, s.optimize_max_products, s.optimize_block_when_live_agent,
+    assert (s.optimize_rounds, s.optimize_max_products, s.optimize_block_when_live_agent,
             s.optimize_max_wait_s) == (3, 20, False, 60.0)
 
 
@@ -165,6 +165,20 @@ def http(tmp_path: Path) -> Any:
 
 
 def test_request_validation(http: TestClient) -> None:
-    assert http.post("/sessions/x/optimize-order", json={"mode": "slow"}).status_code == 422
-    assert http.post("/sessions/x/optimize-order", json={}).status_code == 422
+    # a single mode: no body, an empty one, or an old client's "mode" are all accepted (here the platform is
+    # not started, so they get 503, never 422)
+    for kwargs in ({}, {"json": {}}, {"json": {"mode": "quick"}}, {"json": {"mode": "anything"}}):
+        assert http.post("/sessions/x/optimize-order", **kwargs).status_code == 503, kwargs
     assert http.post("/sessions/x/apply-order", json={"candidate": -1}).status_code == 422
+
+
+def test_old_runs_with_a_mode_still_read() -> None:
+    from aclopi.api.models import RunRecord
+
+    old = {"run_id": "r", "session_id": "s", "created_at": 0.0, "finished_at": 1.0, "status": "finished", "rule": 3,
+           "seed": 1, "seed_source": "user", "horizon_ticks": 100, "kpis": {},
+           "optimization": {"optimized": True, "mode": "quick", "order": [1, 0], "origin": "heuristic"}}
+    run = RunRecord(**old).model_dump()
+    assert run["optimization"]["mode"] == "quick" and run["optimization"]["order"] == [1, 0]
+    new = {**old, "optimization": {"optimized": True, "order": [1, 0], "origin": "heuristic"}}
+    assert "mode" not in RunRecord(**new).model_dump()["optimization"]
