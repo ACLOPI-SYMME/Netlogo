@@ -271,8 +271,9 @@ def test_ui_decision_panel_shows_the_agents_decisions(stack: Any, client: httpx.
             page.select_option("#rule", "4")
             page.fill("#horizon", "10000")
             page.click("#create")
-            page.wait_for_function("document.querySelector('#sid').textContent !== ''")
-            sid = page.inner_text("#sid")
+            # the header shows "–" until a session exists, then the first 8 characters (the full id in its title)
+            page.wait_for_function("document.querySelector('#sid').title.length === 32")
+            sid = page.get_attribute("#sid", "title")
             assert client.get(f"/sessions/{sid}").json()["strategy"] == "agent"
             page.select_option("#speed", "4")
             page.click("#live")
