@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Any, Literal, Mapping, Sequence
+from typing import Any, Mapping, Sequence
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -33,10 +33,7 @@ REASONING_MAX = 300
 HEURISTIC_REASONING = "Longest first"
 TIMEOUT_S = 90.0
 EFFORT = "medium"
-EFFORTS = ("none", "low", "medium")
 MIN_TOKENS = 8000  # room for the reasoning tokens (reasoning_effort) and the answer
-FAST_TIMEOUT_S = 30.0  # reasoning "none": no reasoning tokens, a short answer
-FAST_MIN_TOKENS = 1000
 TOKENS_PER_PRODUCT = 6  # the 2 orders: ~2 tokens per index each, plus margin
 PROMPT_BUDGET = 30_000  # tokens (characters / 4) before the details are cut to the best FULL_DETAILS_KEPT
 FULL_DETAILS_KEPT = 3
@@ -255,18 +252,14 @@ def valid_orders(data: Any, n: int, evaluated: Sequence[Sequence[int]] = ()) -> 
 
 async def propose(llm: LLMClient, products: Sequence[Any], evaluated: Sequence[Mapping[str, Any]] = (),
                   strategy: str = "b1b", mode: str = "Deterministic", timeout_s: float = TIMEOUT_S,
-                  effort: str | None = EFFORT, min_tokens: int | None = None,
-                  budget: int | None = PROMPT_BUDGET) -> dict[str, Any]:
-    """min_tokens: max_tokens of the call, plus TOKENS_PER_PRODUCT per product (default: MIN_TOKENS, or
-    FAST_MIN_TOKENS with effort "none")."""
+                  effort: str | None = EFFORT, budget: int | None = PROMPT_BUDGET) -> dict[str, Any]:
+    """max_tokens of the call: MIN_TOKENS plus TOKENS_PER_PRODUCT per product."""
     start = time.perf_counter()
     n = len(products)
     plant = load_plant()
     heuristic = {"order": largest_first(products, plant), "reasoning": HEURISTIC_REASONING}
     messages = build_messages(products, evaluated, strategy, mode, plant, budget)
-    if min_tokens is None:
-        min_tokens = FAST_MIN_TOKENS if effort == "none" else MIN_TOKENS
-    with call_options(min_tokens=min_tokens + TOKENS_PER_PRODUCT * n, reasoning_effort=effort, timeout_s=timeout_s):
+    with call_options(min_tokens=MIN_TOKENS + TOKENS_PER_PRODUCT * n, reasoning_effort=effort, timeout_s=timeout_s):
         data, _ = await llm.complete_json(messages, answer_schema(n), timeout_s)
     analysis = None
     if isinstance(data, LLMError):
@@ -310,7 +303,6 @@ class SequenceRequest(BaseModel):
     evaluated: list[Evaluated] = Field(default_factory=list, max_length=50)
     strategy: str = "b1b"
     mode: str = "Deterministic"
-    reasoning: Literal["none", "low", "medium"] | None = None  # None: ACLOPI_SEQUENCE_REASONING
 
     @model_validator(mode="after")
     def _check(self) -> "SequenceRequest":

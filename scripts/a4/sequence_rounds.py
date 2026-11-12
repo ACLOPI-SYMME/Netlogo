@@ -6,9 +6,9 @@ new orders. b1b, Deterministic, seed 42 by default. The LLM comes from .env.agen
 printed). Writes results/sequencing/rounds_<list>.json (with the prompt of every round) and prints a
 table per list. Progress at least every 30 s.
 
-    python scripts/a4/sequence_rounds.py [--rounds 3] [--lists grouped interleaved] [--reasoning none]
---reasoning (none | low | medium; default ACLOPI_SEQUENCE_REASONING) as the request's "reasoning": "none"
-uses the fast timeout and max_tokens. Other than medium, the files are rounds_<list>_<reasoning>.json.
+    python scripts/a4/sequence_rounds.py [--rounds 3] [--lists grouped interleaved]
+The reasoning effort is ACLOPI_SEQUENCE_REASONING, as in the service; other than medium, the files are
+rounds_<list>_<reasoning>.json.
 """
 
 from __future__ import annotations
@@ -46,10 +46,10 @@ class Clock:
 
 
 async def ask(llm: Any, products: list[dict[str, Any]], evaluated: list[dict[str, Any]], clock: Clock,
-              effort: str, timeout_s: float, min_tokens: int | None) -> dict[str, Any]:
+              effort: str, timeout_s: float) -> dict[str, Any]:
     from aclopi.agent.sequencing import propose
 
-    task = asyncio.ensure_future(propose(llm, products, evaluated, "b1b", "Deterministic", timeout_s, effort, min_tokens))
+    task = asyncio.ensure_future(propose(llm, products, evaluated, "b1b", "Deterministic", timeout_s, effort))
     while not task.done():
         await asyncio.sleep(1)
         clock.tick()
@@ -61,7 +61,6 @@ def main() -> int:
     parser.add_argument("--rounds", type=int, default=3)
     parser.add_argument("--lists", nargs="+", default=list(LISTS), choices=list(LISTS))
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--reasoning", choices=("none", "low", "medium"))
     parser.add_argument("--out", default=str(REPO_ROOT / "results" / "sequencing"))
     args = parser.parse_args()
     logging.basicConfig(level=logging.WARNING)
@@ -75,10 +74,7 @@ def main() -> int:
 
     settings = AgentSettings.from_env()
     llm = client_from_env()
-    effort = args.reasoning or settings.sequence_reasoning
-    fast = effort == "none"
-    timeout_s = settings.sequence_fast_timeout_s if fast else settings.sequence_timeout_s
-    min_tokens = settings.sequence_fast_max_tokens if fast else None
+    effort, timeout_s = settings.sequence_reasoning, settings.sequence_timeout_s
     suffix = "" if effort == "medium" else f"_{effort}"
     print(f"LLM: {llm!r}, reasoning {effort!r}, timeout {timeout_s} s", flush=True)
     out_dir = Path(args.out)
@@ -113,7 +109,7 @@ def main() -> int:
             for rnd in range(1, args.rounds + 1):
                 evaluated = [{"order": x["order"], "makespan_ticks": x["makespan_ticks"], "details": x["details"]} for x in rows]
                 clock.tick(f"{name} round {rnd} LLM")
-                answer = asyncio.run(ask(llm, products, evaluated, clock, effort, timeout_s, min_tokens))
+                answer = asyncio.run(ask(llm, products, evaluated, clock, effort, timeout_s))
                 calls.append({"round": rnd, "latency_s": round(answer["latency_ms"] / 1000, 1), "error": answer["error"],
                               "kept": len(answer["orders"]), "analysis": answer["analysis"],
                               "prompt": build_messages(products, evaluated, "b1b", "Deterministic")})
