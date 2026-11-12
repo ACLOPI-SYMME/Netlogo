@@ -1,16 +1,15 @@
 """Smoke test of the Docker Compose stack (docker-compose.yml; docs/deploy-local.md).
 
-With the stack up (docker/up.ps1), or starting it with --up:
+With the stack up (docker compose up -d --build), or starting it with --up:
 1. upload a CSV of 8 products, save it as a set, run rule 4 / b1 in fast mode with that set and no
    seed; check all_products_done, makespan, decisions, the random seed kept, and the run in
    DynamoDB Local (GET /runs);
 2. run rule 4 / agent live for 30 s; check decisions over WebSocket and a pace of ~32 ticks/s;
-3. check that /health shows the agent, its kind (mock / real, from the URL) and its URL;
+3. check that /health shows Línea A's agent (kind real, http://agent:8100) answering;
 4. "Optimize order" with a list of 8 varied products (rule 3): at least one round of the AI;
-5. with --down: stop the whole stack (docker/down) and check that no container of the project is left
-   (docker compose ps -a empty, every profile included).
+5. with --down: stop the whole stack (docker compose down) and check that no container of the project is left.
 
-    python scripts/l5/smoke_compose.py [--url http://localhost:8000] [--up mock|real] [--down]
+    python scripts/l5/smoke_compose.py [--url http://localhost:8000] [--up] [--down]
 The token is ACLOPI_AGENT_TOKEN from the environment or from .env. Prints one line per check.
 """
 
@@ -63,24 +62,19 @@ def wait_ready(c: httpx.Client, timeout_s: float = 300) -> None:
     check(False, "platform ready")
 
 
-def stack(action: str, agent: str = "mock") -> None:
-    """docker/up or docker/down (the .ps1 on Windows, the .sh elsewhere)."""
-    if sys.platform == "win32":
-        cmd = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(REPO_ROOT / "docker" / f"{action}.ps1")]
-        if action == "up":
-            cmd += ["-Agent", agent]
-    else:
-        cmd = ["sh", str(REPO_ROOT / "docker" / f"{action}.sh")] + (["--agent", agent] if action == "up" else [])
+def stack(action: str) -> None:
+    """docker compose up -d --build / docker compose down --remove-orphans."""
+    cmd = ["docker", "compose", "up", "-d", "--build"] if action == "up" else ["docker", "compose", "down", "--remove-orphans"]
     t0 = time.monotonic()
     done = subprocess.run(cmd, cwd=REPO_ROOT, capture_output=True, text=True)
-    check(done.returncode == 0, f"docker/{action} ({agent if action == 'up' else 'every profile'})",
+    check(done.returncode == 0, f"docker compose {action}",
           f"{time.monotonic() - t0:.0f} s" + ("" if done.returncode == 0 else f": {done.stderr[-500:]}"))
 
 
 def project_containers() -> list[str]:
     out = subprocess.run(["docker", "ps", "-a", "--filter", "label=com.docker.compose.project=aclopi",
                           "--format", "{{.Names}}"], capture_output=True, text=True, check=True).stdout
-    listed = subprocess.run(["docker", "compose", "--profile", "*", "ps", "-a", "-q"], cwd=REPO_ROOT,
+    listed = subprocess.run(["docker", "compose", "ps", "-a", "-q"], cwd=REPO_ROOT,
                             capture_output=True, text=True, check=True).stdout
     return sorted(set(out.split()) | set(listed.split()))
 
@@ -141,11 +135,11 @@ async def watch_live(ws_url: str, seconds: float) -> tuple[list[tuple[float, int
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--url", default="http://localhost:8000")
-    parser.add_argument("--up", choices=("mock", "real"), help="start the stack with docker/up first")
+    parser.add_argument("--up", action="store_true", help="start the stack with docker compose up -d --build first")
     parser.add_argument("--down", action="store_true", help="stop the whole stack at the end and check that nothing is left")
     args = parser.parse_args()
     if args.up:
-        stack("up", args.up)
+        stack("up")
     t = token()
     headers = {"Authorization": f"Bearer {t}"} if t else {}
     with httpx.Client(base_url=args.url, timeout=60, headers=headers) as c:
@@ -198,9 +192,8 @@ def main() -> int:
         # 3. agent in /health: which one (kind, from the URL) and where
         agent = c.get("/health").json()["agent"]
         check(agent["configured"] and agent["status"] == "ok", "agent in /health", agent["status"])
-        expected = args.up or agent["kind"]
-        check(agent["kind"] == expected and agent["url"] == f"http://{'agent-mock' if expected == 'mock' else 'agent'}:8100",
-              "agent kind and URL in /health", f"{agent['kind']} at {agent['url']}")
+        check(agent["kind"] == "real" and agent["url"] == "http://agent:8100", "Línea A's agent in /health",
+              f"{agent['kind']} at {agent['url']}")
 
         # 4. optimize order: at least one round of the AI (POST /sequence/propose answers)
         optimize_order(c)

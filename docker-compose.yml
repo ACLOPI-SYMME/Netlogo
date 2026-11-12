@@ -1,7 +1,8 @@
-# ACLOPI local stack (L5.7): platform API + DynamoDB Local + Linea A's real agent (profile "agent", the default of
-# docker/up) or the mock agent (profile "mock", only for automatic tests). docs/deploy-local.md.
+# ACLOPI local stack (L5.7): platform API + Línea A's agent + DynamoDB Local. docs/deploy-local.md.
+#   docker compose up -d --build     starts everything (the agent's image is rebuilt with the current code)
+#   docker compose down              stops and removes everything, the agent included
 # Only the platform publishes a port (8000); the other services live on the internal network.
-# ACLOPI_AGENT_TOKEN comes from .env (not in git; see .env.example).
+# ACLOPI_AGENT_TOKEN comes from .env (not in git; see .env.example); the agent's LLM settings from .env.agent.
 name: aclopi
 
 services:
@@ -14,9 +15,7 @@ services:
     ports:
       - "8000:8000"
     environment:
-      # Set by docker/up.ps1 / up.sh for the agent started (real: agent, the default; mock: agent-mock). Do not put
-      # it in .env: it would apply to every start whatever agent runs (docs/deploy-local.md).
-      ACLOPI_AGENT_URL: ${ACLOPI_AGENT_URL:-http://agent:8100}
+      ACLOPI_AGENT_URL: http://agent:8100
       ACLOPI_AGENT_TOKEN: ${ACLOPI_AGENT_TOKEN:-}
       ACLOPI_DYNAMODB_ENDPOINT: http://dynamodb-local:8000
       ACLOPI_CREATE_TABLES: "1"
@@ -41,32 +40,10 @@ services:
       retries: 3
     networks: [internal]
 
-  # Mock agent: only for automatic tests (docker/up.ps1 -Agent mock, scripts/l5/smoke_compose.py --up mock).
-  agent-mock:
-    profiles: [mock]
-    image: aclopi-sim
-    command: ["python", "-m", "aclopi.agent_mock"]
-    environment:
-      ACLOPI_PLATFORM_URL: http://platform:8000
-      ACLOPI_AGENT_TOKEN: ${ACLOPI_AGENT_TOKEN:-}
-      ACLOPI_MOCK_PORT: "8100"
-      ACLOPI_MOCK_SEED: "1"
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "python", "-c", "import sys, urllib.request; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8100/health', timeout=4).status == 200 else 1)"]
-      interval: 15s
-      timeout: 5s
-      start_period: 20s
-      retries: 3
-    networks: [internal]
-
-  # Linea A's agent: the platform's agent. Start the stack with docker/up.ps1 (or docker/up.sh), which turns this
-  # profile on; stop everything with docker/down.ps1 / down.sh (down --profile "*": a plain
-  # `docker compose down` ignores the profiles and leaves the agents running).
+  # Línea A's agent: the platform's agent. Part of the stack (no profile), so a plain up / down starts and stops it.
   # LLM and triage settings come from .env.agent (not in git; see .env.agent.example; without it: fake LLM).
   # Only the internal values are fixed here: environment wins over env_file.
   agent:
-    profiles: [agent]
     build:
       context: .
       dockerfile: docker/agent.Dockerfile
@@ -80,7 +57,7 @@ services:
       ACLOPI_AGENT_LOG: /app/results/agent/decisions.jsonl
     volumes:
       - ./results:/app/results
-    restart: "no"  # unless-stopped brought an old agent back with every Docker start
+    restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import sys, urllib.request; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8100/health', timeout=4).status == 200 else 1)"]
       interval: 15s
