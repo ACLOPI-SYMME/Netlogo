@@ -198,5 +198,9 @@ def test_agent_kind_from_the_url_and_compose_stops_everything() -> None:
     root = Path(__file__).resolve().parents[1]
     compose = yaml.safe_load((root / "docker-compose.yml").read_text(encoding="utf-8"))
     assert compose["services"]["agent"]["profiles"] == ["agent"] and compose["services"]["agent"]["restart"] == "no"
+    # the real agent is the platform's default; the mock only starts with its own profile (automatic tests)
+    assert compose["services"]["agent-mock"]["profiles"] == ["mock"]
+    assert "agent:8100" in compose["services"]["platform"]["environment"]["ACLOPI_AGENT_URL"]
+    assert '[string]$Agent = "real"' in (root / "docker" / "up.ps1").read_text(encoding="utf-8")
     for script in ("down.ps1", "down.sh"):
         assert '--profile "*" down' in (root / "docker" / script).read_text(encoding="utf-8"), script
