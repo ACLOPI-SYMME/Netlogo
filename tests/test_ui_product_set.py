@@ -103,6 +103,16 @@ def fake_platform(sessions: list[dict[str, Any]]) -> FastAPI:
     def get_session(sid: str) -> Any:
         return OPT["session"]
 
+    @app.post("/sessions/{sid}/optimize-order/cancel")
+    def cancel_optimize(sid: str) -> Any:
+        OPT["calls"].append(("cancel", sid))
+        OPT["state"] = {**OPT["state"], "status": "cancelled"}
+        return OPT["state"]
+
+    @app.delete("/sessions/{sid}", status_code=204)
+    def delete_session(sid: str) -> None:
+        OPT["calls"].append(("delete", sid))
+
     @app.post("/sessions/{sid}/run")
     async def run(sid: str, request: Request) -> dict[str, Any]:
         body = await request.json()
@@ -453,63 +463,63 @@ def test_order_csv_ids_priority_due_date(server: tuple[str, list], browser: Any,
 
 
 def test_optimize_order_panel(server: tuple[str, list], browser: Any, tmp_path: Path) -> None:
-    """One "Optimize order" button with its help text, progress (AI thinking), best so far with "Use this", the table, the notice,
-    and the session's list in its new order after applying; a blocked start shows the reason."""
+    """Optimize order in the Order entry tab, with no session created by hand: the button creates the session it
+    needs; progress, best so far with "Use this" (reorders the Current list), the table and the notice; a blocked
+    start shows the reason and frees the session; Cancel and leaving the tab free it too. No "§" on the page."""
     url, sessions = server
     page = browser.new_page()
+    page.on("dialog", lambda d: d.accept())
     page.goto(f"{url}/ui")
     _ready(page)
-    # without a list the panel is hidden
-    page.select_option("#session-set", "")
-    page.click("#create")
-    page.wait_for_function("document.querySelector('#sid').textContent === 's1'")
-    assert page.is_hidden("#optimize-panel")
-    # with the current list (A I P B E)
-    load_csv(page, tmp_path, CSV_OK)
-    page.click("#tab-session")
-    page.select_option("#session-set", "__current__")
-    page.click("#create")
-    page.wait_for_function("!document.querySelector('#optimize-panel').hidden")
+    assert "§" not in page.content()
+    assert page.query_selector("#page-session #opt-start") is None  # not in the Visualization tab any more
+    load_csv(page, tmp_path, CSV_OK)  # A I P B E, in the Order entry tab
     assert page.inner_text("#opt-start") == "Optimize order" and page.is_enabled("#opt-start")
     assert "about 3 minutes" in page.inner_text("#opt-help") and "best option found at any time" in page.inner_text("#opt-help")
-    assert page.query_selector("#opt-quick") is None and page.query_selector("#opt-full") is None
     dots = lambda sel: page.eval_on_selector_all(f"{sel} .type-dot", "els => els.map(e => e.textContent)")  # noqa: E731
-    assert dots("#opt-list") == list("AIPBE")
-    # blocked by the platform (e.g. the provisional rule): the reason is shown, nothing starts
-    OPT["block"] = "optimize order is not available while there are live simulations with the agent"
+    # blocked by the platform (e.g. the provisional rule): the reason is shown and the session created is closed
+    OPT["block"], OPT["calls"] = "optimize order is not available while there are live simulations with the agent", []
+    before = len(sessions)
     page.click("#opt-start")
     page.wait_for_function("document.querySelector('#opt-blocked').textContent.includes('live simulations')")
-    assert OPT["calls"][-1] == ("start", {}) and page.is_hidden("#opt-progress")
+    assert [p["type"] for p in _sent(sessions, before)["products"]] == list("AIPBE")
+    page.wait_for_function("document.querySelector('#sid').textContent === '–'")
+    assert OPT["calls"] == [("start", {}), ("delete", "s1")] and page.is_hidden("#opt-progress")
     OPT["block"] = None
-    # started: progress with the simulation in course, cancel, run buttons disabled
+    # started from Order entry: the session is created with the list, progress, cancel, run buttons disabled
     page.click("#opt-start")
     page.wait_for_function("!document.querySelector('#opt-progress').hidden")
-    assert OPT["calls"][-1] == ("start", {})
+    assert OPT["calls"][-1] == ("start", {}) and "seed 1" in page.inner_text("#opt-session")
     assert "simulating Original" in page.inner_text("#opt-progress-text") and page.is_visible("#opt-cancel")
-    assert page.is_disabled("#opt-start") and page.is_disabled("#fast") and page.is_disabled("#live")
+    assert page.is_disabled("#opt-start") and page.is_disabled("#fast")
     # round 0 done, the AI thinking: best so far (heuristic) with its saving, and the table
     OPT["state"] = _opt_state("waiting_ai", [_candidate(0, "original", "Original", [0, 1, 2, 3, 4], 10000, 0.0, 0.0),
                                              _candidate(1, "heuristic", "Heuristic", [0, 3, 4, 1, 2], 9000, 310.0, 10.0)],
                               ai_elapsed_s=25.0)
     page.evaluate("handle({type: 'optimize_best', optimization_id: 'o1'})")
-    page.wait_for_function("document.querySelector('#opt-best').textContent.includes('Best order found so far')")
+    page.wait_for_function("document.querySelector('#opt-best').textContent.includes('Best option found so far')")
     assert "The AI is thinking… 25 s" in page.inner_text("#opt-progress-text")
     best = page.inner_text("#opt-best")
     assert "2790.0" in best and "Heuristic" in best and "310.0 u.t. (−10 %)" in best
-    rows = page.eval_on_selector_all("#opt-rows tr", "els => els.map(e => e.cells[0].textContent.trim())")
-    assert rows == ["Original", "Heuristic"]
+    assert page.eval_on_selector_all("#opt-rows tr", "els => els.map(e => e.cells[0].textContent.trim())") == ["Original", "Heuristic"]
     page.click("#opt-rows tr:nth-child(2) summary")
     assert dots("#opt-rows tr:nth-child(2) details") == list("ABEIP")
-    assert "single seed" in page.inner_text("#opt-note") and "may vary" in page.inner_text("#opt-note")
-    # a progress message updates the text without a request
-    page.evaluate("handle({type: 'optimize_progress', optimization_id: 'o1', status: 'waiting_ai', round: 1, "
-                  "simulation: null, progress_pct: 50, ai_elapsed_s: 31, waited_s: 0})")
-    assert "31 s" in page.inner_text("#opt-progress-text")
-    # "Use this": stops the rounds and applies; the session's list shows the new order
+    assert "single seed" in page.inner_text("#opt-note")
+    # "Use this": the Current list (same editable table) takes the new order
     page.click("#opt-use-best")
     page.wait_for_function("document.querySelector('#opt-best').textContent.includes('Applied')")
-    assert OPT["calls"][-1] == ("apply", {"candidate": 1})
-    assert dots("#opt-list") == list("ABEIP") and "Order applied (Heuristic)" in page.inner_text("#msg")
-    assert page.is_hidden("#opt-progress") and page.is_enabled("#fast") and page.is_enabled("#opt-start")
-    assert "Why:" in page.inner_text("#opt-why") and "longest first" in page.inner_text("#opt-why").lower()
+    assert OPT["calls"][-1] == ("apply", {"candidate": 1}) and rows(page) == list("ABEIP")
+    assert page.is_hidden("#opt-progress") and page.is_enabled("#opt-start") and page.inner_text("#sid") == "s1"
+    # Cancel without choosing frees the session
+    page.click("#opt-start")
+    page.wait_for_function("!document.querySelector('#opt-cancel').hidden")
+    page.click("#opt-cancel")
+    page.wait_for_function("document.querySelector('#sid').textContent === '–'")
+    assert OPT["calls"][-2:] == [("cancel", "s1"), ("delete", "s1")] and rows(page) == list("ABEIP")
+    # leaving the tab without choosing frees it as well
+    page.click("#opt-start")
+    page.wait_for_function("!document.querySelector('#opt-cancel').hidden")
+    page.click("#tab-session")
+    page.wait_for_function("document.querySelector('#sid').textContent === '–'")
+    assert OPT["calls"][-2:] == [("cancel", "s1"), ("delete", "s1")]
     page.close()

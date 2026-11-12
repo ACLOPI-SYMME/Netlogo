@@ -9,13 +9,28 @@ This document covers the platform: flow, endpoints, states, messages, limits and
 
 How to read each field: [records/optimize-order.md](records/optimize-order.md).
 
-## Flow on the page (Visualization tab)
+## Flow on the page (Order entry tab)
 
-1. Create the session with a list (Product set: "Current list" or a saved set).
-2. "Optimize order": a single button, with the help text "It can take about 3 minutes; you can use the best option found at any time". Progress shows with a "Cancel" button.
-3. The comparison updates after every simulation: the best order so far ("Use this") and a table with every order evaluated ("Use this order").
-4. When the user chooses an order, the platform cuts the rounds that are left and sets the session up again with that order.
-5. Run (live or fast). The estimate and the real result are both kept, so they can be compared.
+1. Build the Current list. No session has to be created by hand.
+2. Press "Optimize order", next to the Current list. Its help text says: "It can take about 3 minutes; you can use the best option found at any time".
+   - **The session it needs.** The page creates it (`POST /sessions`) with:
+     - the Current list;
+     - the rule and horizon chosen in the Visualization tab;
+     - the seed of this tab's "Set a seed" checkbox, or a random one, which is shown.
+
+     Then it starts the optimization.
+   - **If the session open in Visualization is a different one**, the page asks first and then closes it.
+   - **If there is no free place** (no free worker, another optimization in progress, the provisional rule…), the reason is shown and the session that was created is closed.
+3. Progress shows in the same tab, with a "Cancel" button. The comparison updates after every simulation:
+   - the best option so far, with "Use this";
+   - a table with every order evaluated ("Use this order");
+   - the notice that it is an estimate.
+4. "Use this" or "Use this order":
+   - the platform cuts the rounds that are left and sets the session up again with that order;
+   - the Current list shows the new order in the same editable table, so it can still be adjusted or saved.
+5. Run from Visualization, with the session already set up. If the list was edited after "Use this", running creates a new session with the edited list, with the same rule, horizon and seed. The estimate and the real result are both kept, so they can be compared.
+
+**Without choosing an order**, the page closes the session it created and frees its place. This happens with "Cancel", with leaving the Order entry tab, and with closing the page.
 
 ## Rounds
 

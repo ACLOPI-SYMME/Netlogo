@@ -22,7 +22,7 @@ The full responses were saved in `results/docs_examples/`, which is not in git. 
 | [candidates-and-whatif.md](candidates-and-whatif.md) | Candidates and what-if responses | `GET /sessions/{id}/candidates`, `POST /sessions/{id}/what-if`, diagnostic files |
 | [sessions-and-state.md](sessions-and-state.md) | The session and the plant snapshot | `GET /sessions`, `GET /sessions/{id}`, `/state`, `/layout` |
 | [product-sets.md](product-sets.md) | Saved product lists | `/product-sets`, table `aclopi_product_sets`, CSV of a set |
-| [optimize-order.md](optimize-order.md) | "Optimize order": the entry orders simulated and the one applied | `GET /sessions/{id}/optimize-order`, WebSocket `optimize_*`, `optimization` of sessions and runs, panel "§1b Optimize order" |
+| [optimize-order.md](optimize-order.md) | "Optimize order": the entry orders simulated and the one applied | `GET /sessions/{id}/optimize-order`, WebSocket `optimize_*`, `optimization` of sessions and runs, "Optimize order" in the Order entry tab |
 | [health.md](health.md) | Platform status | `/health`, `/health/ready`, `/health/live` |
 | [logs.md](logs.md) | Process logs | `docker compose logs`, one JSON line per message |
 | [model-csv.md](model-csv.md) | CSV written by the model itself | `Results/Data` and `Results/Events` |
@@ -34,8 +34,8 @@ For the design of each part, see also `docs/api.md`, `docs/websocket.md`, `docs/
 
 | Tab | What it is for |
 |---|---|
-| **Order entry** | Build the list of products (type and order, at most 30), generate it from a seed, upload or download it as CSV, save it |
-| **Visualization** | Create a session, optimize the entry order of its list (before running), run it live or fast, watch the plant, the indicators, the agent's decisions and the model events |
+| **Order entry** | Build the list of products (type and order, at most 30), generate it from a seed, upload or download it as CSV, save it, and optimize its entry order |
+| **Visualization** | Create a session, run it live or fast, watch the plant, the indicators, the agent's decisions and the model events |
 | **History Logs** | Saved runs: filter, compare, see their decisions, repeat them, download them as CSV |
 
 ## Glossary
