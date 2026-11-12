@@ -1,97 +1,96 @@
-# Regla 4 – AI Agent: gancho de decisión
+# Rule 4 – AI Agent: decision hook
 
-Interfaz para que Python decida a qué máquina va cada producto. Todo lo que aquí se describe
-existe en `model/Paper.nlogo` (sección "Rule 4 - AI Agent" y "Rule 4 decision hook") y en
-`aclopi/sim/decisions.py`. No hace falta leer el código del modelo para usarlo.
+Interface for Python to decide which machine each product goes to. Everything described here
+exists in `model/Paper.nlogo` (sections "Rule 4 - AI Agent" and "Rule 4 decision hook") and in
+`aclopi/sim/decisions.py`. There is no need to read the model's code to use it.
 
-## Mecanismo
+## Mechanism
 
-1. Con `Reactivity.rule = "Rule 4 - AI Agent"`, cuando un producto **entra** a una máquina para
-   la operación de índice `k` (índice en `ProductOperations`), el modelo agrega una **petición**
-   a la cola global `decision-queue` para la operación `k+1`.
-2. Python lee la petición y responde con `platform-set-next-machine` mientras el producto está
-   en proceso (~645 ticks en M2–M7, ~323 en M1).
-3. Cuando la operación **termina** (`Cheking.Machine.Completion`), el modelo asigna
+1. With `Reactivity.rule = "Rule 4 - AI Agent"`, when a product **enters** a machine for the
+   operation with index `k` (index in `ProductOperations`), the model adds a **request** to the
+   global queue `decision-queue` for operation `k+1`.
+2. Python reads the request and answers with `platform-set-next-machine` while the product is
+   being processed (~645 ticks on M2–M7, ~323 on M1).
+3. When the operation **finishes** (`Cheking.Machine.Completion`), the model assigns
    `Heading.Workstation`:
-   - la máquina elegida por Python, si hay una respuesta para esa operación y la máquina sigue
-     siendo viable → `Decision.Source = "agent"`;
-   - si no, la regla 3 (Potential Fields) con el mismo código y el mismo consumo de azar →
-     `Decision.Source = "rule3-fallback"` si la operación tiene varias máquinas capaces (no hubo
-     respuesta válida del decisor), o `Decision.Source = "single-option"` si solo una máquina
-     puede hacerla (no había nada que decidir; hoy, el paso a O9).
-   En todos los casos se limpia la respuesta guardada y se agrega una línea a `decision-log`.
-   El producto nunca se queda sin destino.
+   - the machine chosen by Python, if there is an answer for that operation and the machine is
+     still viable → `Decision.Source = "agent"`;
+   - otherwise, rule 3 (Potential Fields) with the same code and the same consumption of random
+     numbers → `Decision.Source = "rule3-fallback"` if the operation has several capable machines
+     (there was no valid answer from the decider), or `Decision.Source = "single-option"` if only
+     one machine can do it (there was nothing to decide; today, the step to O9).
+   In every case the stored answer is cleared and a line is added to `decision-log`.
+   The product is never left without a destination.
 
-"Viable" hoy significa "capaz de la operación". El reporter `machine-available? [nombre]`
-devuelve siempre `true`; es el punto donde se conectarán los escenarios de falla.
+"Viable" today means "capable of the operation". The reporter `machine-available? [name]`
+always returns `true`; it is the point where failure scenarios would plug in.
 
-### Cuándo se crea una petición y cuándo no
+### When a request is created and when not
 
-Se crea una petición al entrar a máquina si y solo si:
-- la regla activa es la 4;
-- existe la operación `k+1` (el producto no está en su última operación);
-- la operación `k+1` puede hacerla **más de una** máquina.
+A request is created on entering a machine if and only if:
+- the active rule is 4;
+- operation `k+1` exists (the product is not on its last operation);
+- operation `k+1` can be done by **more than one** machine.
 
-Tabla de máquinas capaces (`Set.operations`):
+Table of capable machines (`Set.operations`):
 
-| Operación | Máquinas | ¿Petición? |
+| Operation | Machines | Request? |
 |---|---|---|
-| O1 | M2 M3 M5 M7 | sí |
-| O2 | M2 M3 M6 M7 | sí |
-| O3 | M4 M5 M6 M7 | sí |
-| O4 | M2 M4 M6 M7 | sí |
-| O5 | M3 M4 M5 M7 | sí |
+| O1 | M2 M3 M5 M7 | yes |
+| O2 | M2 M3 M6 M7 | yes |
+| O3 | M4 M5 M6 M7 | yes |
+| O4 | M2 M4 M6 M7 | yes |
+| O5 | M3 M4 M5 M7 | yes |
 | O6 | M5 | no |
 | O7 | M6 | no |
 | O8 | M1 | no |
 | O9 | M1 | no |
 
-Consecuencias:
-- La primera operación (O8 en M1) no se decide: el producto nace con destino M1.
-- El paso a O9 (M1, última operación) no genera petición; la regla 3 elige M1 y queda en el
-  registro como `single-option` (uno por producto). Con un decisor que responde a tiempo, todas
-  las asignaciones a operaciones con varias máquinas son `agent` y no hay ningún
-  `rule3-fallback`.
-- Si Python responde de todos modos para una operación de una sola máquina (se acepta, porque la
-  máquina es capaz), la asignación queda como `agent`.
-- Con las reglas 1–3 no se crea ninguna petición ni se escribe en el registro.
+Consequences:
+- The first operation (O8 on M1) is not decided: the product is born with destination M1.
+- The step to O9 (M1, last operation) produces no request; rule 3 picks M1 and it is recorded as
+  `single-option` (one per product). With a decider that answers in time, every assignment to
+  an operation with several machines is `agent` and there is no `rule3-fallback`.
+- If Python answers anyway for a single-machine operation (accepted, because the machine is
+  capable), the assignment is recorded as `agent`.
+- With rules 1–3 no request is created and nothing is written to the log.
 
-## Variables de producto
+## Product variables
 
-| Variable | Valor por defecto | Significado |
+| Variable | Default | Meaning |
 |---|---|---|
-| `AI.Next.Machine` | `""` | máquina elegida por Python para la próxima operación |
-| `AI.Decision.Seq` | `-1` | índice en `ProductOperations` de la operación para la que se eligió |
-| `Decision.Source` | `""` | quién hizo la última asignación: `"agent"`, `"rule3-fallback"` o `"single-option"` |
+| `AI.Next.Machine` | `""` | machine chosen by Python for the next operation |
+| `AI.Decision.Seq` | `-1` | index in `ProductOperations` of the operation it was chosen for |
+| `Decision.Source` | `""` | who made the last assignment: `"agent"`, `"rule3-fallback"` or `"single-option"` |
 
-Aparecen en `platform-state` (cada producto vivo) como `ai_next_machine`, `ai_decision_seq` y
+They appear in `platform-state` (each live product) as `ai_next_machine`, `ai_decision_seq` and
 `decision_source`.
 
-## Reporters y comandos de NetLogo
+## NetLogo reporters and commands
 
-Todos los que devuelven estructuras devuelven **texto JSON**. Ninguno consume el generador
-aleatorio del modelo.
+All those returning structures return **JSON text**. None of them consumes the model's random
+generator.
 
 ### `platform-run-until-decision [max-ticks]` (reporter)
 
-Avanza con `go` hasta que ocurra lo primero de:
-- hay al menos una petición en la cola;
-- se avanzaron `max-ticks` ticks;
-- terminó la corrida (al llegar a `horizon-ticks` hace la llamada extra a `go` que ejecuta
-  `ExportData`, igual que `platform-step`).
+Advances with `go` until the first of:
+- there is at least one request in the queue;
+- `max-ticks` ticks were advanced;
+- the run ended (on reaching `horizon-ticks` it makes the extra call to `go` that runs
+  `ExportData`, like `platform-step`).
 
-Devuelve una lista NetLogo de 4 números: `[ticks avanzados terminó n_peticiones]`, con
-`terminó` = 1 o 0.
+Returns a NetLogo list of 4 numbers: `[ticks advanced finished n_requests]`, with
+`finished` = 1 or 0.
 
-**Importante:** si al llamarlo ya hay peticiones en la cola, no avanza (devuelve
-`avanzados = 0`). Después de leer las peticiones hay que llamar a `platform-clear-decisions`.
+**Important:** if there are already requests in the queue when it is called, it does not advance
+(it returns `advanced = 0`). After reading the requests, call `platform-clear-decisions`.
 
-Las peticiones se crean durante un `go`; cuando la llamada vuelve con `n_peticiones > 0`, el
-producto acaba de entrar a la máquina, así que hay todo el tiempo de proceso para responder.
+Requests are created during a `go`; when the call returns with `n_requests > 0`, the product has
+just entered the machine, so there is the whole processing time to answer.
 
 ### `platform-pending-decisions` (reporter, JSON)
 
-No vacía la cola.
+Does not empty the queue.
 
 ```json
 {
@@ -102,51 +101,51 @@ No vacía la cola.
 }
 ```
 
-- `who`: id del producto.
-- `seq`: índice en `ProductOperations` de la operación a decidir (`k+1`).
-- `operation`: nombre de esa operación (`"O1"`..`"O9"`).
-- `origin`: máquina en la que está el producto (la que hace la operación `k`).
-- `tick`: tick en que entró a la máquina.
-- `candidates`: máquinas capaces de la operación (calculado al leer, a partir de la tabla de
-  operaciones; en la cola interna se guardan solo los 5 primeros campos).
+- `who`: product id.
+- `seq`: index in `ProductOperations` of the operation to decide (`k+1`).
+- `operation`: name of that operation (`"O1"`..`"O9"`).
+- `origin`: machine the product is in (the one doing operation `k`).
+- `tick`: tick at which it entered the machine.
+- `candidates`: machines capable of the operation (computed when reading, from the operations
+  table; the internal queue only stores the first 5 fields).
 
-### `platform-clear-decisions` (comando)
+### `platform-clear-decisions` (command)
 
-Vacía la cola de peticiones.
+Empties the request queue.
 
 ### `platform-set-next-machine [who machine seq]` (reporter)
 
-Guarda la elección de Python. Argumentos: `who` (número), `machine` (texto, p. ej. `"M3"`),
-`seq` (número). Devuelve `"ok"` o el motivo del rechazo. Si rechaza, no cambia nada.
+Stores Python's choice. Arguments: `who` (number), `machine` (text, e.g. `"M3"`), `seq`
+(number). Returns `"ok"` or the reason for the rejection. If it rejects, nothing changes.
 
-Validaciones, en este orden (se devuelve el primer motivo que aplica):
+Validations, in this order (the first reason that applies is returned):
 
-| Motivo | Cuándo |
+| Reason | When |
 |---|---|
-| `rule4-not-active` | la regla activa no es la 4 |
-| `invalid-arguments` | `who` o `seq` no son números, o `machine` no es texto |
-| `unknown-product` | no existe un producto con ese `who` (incluye ids de nodos, máquinas, etc.) |
-| `product-finished` | el producto ya terminó (estado `"death"`) |
-| `invalid-seq` | `seq` < 0, `seq` ≥ número de operaciones del producto, o no entero |
-| `stale-seq` | `seq` ≤ `CurrentSequenceOrder`: la operación ya empezó o ya tiene máquina (respuesta vieja) |
-| `not-in-machine` | el producto no está en proceso en una máquina (va en camino) |
-| `seq-mismatch` | `seq` ≠ `CurrentSequenceOrder + 1` (no es la operación pendiente) |
-| `unknown-machine` | `machine` no es M1..M7 |
-| `machine-not-capable` | la máquina no puede hacer la operación `seq` |
+| `rule4-not-active` | the active rule is not 4 |
+| `invalid-arguments` | `who` or `seq` are not numbers, or `machine` is not text |
+| `unknown-product` | no product with that `who` exists (includes ids of nodes, machines, etc.) |
+| `product-finished` | the product has already finished (state `"death"`) |
+| `invalid-seq` | `seq` < 0, `seq` ≥ number of operations of the product, or not an integer |
+| `stale-seq` | `seq` ≤ `CurrentSequenceOrder`: the operation already started or already has a machine (old answer) |
+| `not-in-machine` | the product is not being processed in a machine (it is on its way) |
+| `seq-mismatch` | `seq` ≠ `CurrentSequenceOrder + 1` (it is not the pending operation) |
+| `unknown-machine` | `machine` is not M1..M7 |
+| `machine-not-capable` | the machine cannot do operation `seq` |
 
-"En máquina" = la última operación empezada aún no terminó
-(`length ProductRealStart > length ProductRealCompletion`). No se usa `Product.State`, porque
-el modelo lo cambia entre "Waiting" y "Movement" mientras el producto está en proceso.
+"In a machine" = the last operation started has not finished yet
+(`length ProductRealStart > length ProductRealCompletion`). `Product.State` is not used, because
+the model switches it between "Waiting" and "Movement" while the product is being processed.
 
-Una respuesta que llega después de que la operación terminó se rechaza como `stale-seq` (el
-producto ya avanzó `CurrentSequenceOrder` a `seq`), o `product-finished` si ya terminó.
+An answer that arrives after the operation finished is rejected as `stale-seq` (the product
+already advanced `CurrentSequenceOrder` to `seq`), or `product-finished` if it has finished.
 
-Se puede llamar varias veces para la misma operación mientras el producto está en proceso;
-vale la última respuesta aceptada.
+It can be called several times for the same operation while the product is being processed;
+the last accepted answer counts.
 
 ### `platform-decision-log` (reporter, JSON)
 
-Todas las asignaciones hechas por la regla 4 desde el último vaciado (con y sin petición).
+Every assignment made by rule 4 since the last clearing (with and without a request).
 
 ```json
 {
@@ -157,51 +156,51 @@ Todas las asignaciones hechas por la regla 4 desde el último vaciado (con y sin
 }
 ```
 
-- `tick`: tick en que terminó la operación anterior y se asignó la máquina.
-- `seq`, `operation`: operación asignada.
-- `origin`: máquina que terminó la operación anterior.
-- `chosen`: máquina asignada (`Heading.Workstation`).
-- `source`: `"agent"`, `"rule3-fallback"` o `"single-option"` (ver Mecanismo).
+- `tick`: tick at which the previous operation finished and the machine was assigned.
+- `seq`, `operation`: operation assigned.
+- `origin`: machine that finished the previous operation.
+- `chosen`: machine assigned (`Heading.Workstation`).
+- `source`: `"agent"`, `"rule3-fallback"` or `"single-option"` (see Mechanism).
 
-### `platform-clear-decision-log` (comando)
+### `platform-clear-decision-log` (command)
 
-Vacía el registro.
+Empties the log.
 
 ## Python: `aclopi/sim/decisions.py`
 
-Todas las funciones reciben una `SimulationSession` (con `setup(..., rule=4)`) y usan su lock.
+Every function takes a `SimulationSession` (with `setup(..., rule=4)`) and uses its lock.
 
-| Función | Devuelve |
+| Function | Returns |
 |---|---|
 | `run_until_decision(session, max_ticks)` | `DecisionStepResult(ticks, advanced, finished, pending)` |
 | `pending_decisions(session)` | `list[DecisionRequest(who, seq, operation, origin, tick, candidates)]` |
 | `clear_decisions(session)` | `None` |
-| `set_next_machine(session, who, machine, seq)` | `"ok"` o el motivo |
+| `set_next_machine(session, who, machine, seq)` | `"ok"` or the reason |
 | `decision_log(session, clear=False)` | `list[DecisionRecord(tick, who, seq, operation, origin, chosen, source)]` |
 | `clear_decision_log(session)` | `None` |
 
-`SimulationSession.setup` acepta `rule=4`. Bucle típico ("modo rápido": se responde en el
-mismo tick en que se crea la petición):
+`SimulationSession.setup` accepts `rule=4`. Typical loop ("fast mode": the answer is given in the
+same tick the request is created):
 
 ```python
 session.setup(seed=42, rule=4, horizon_ticks=100000)
 while True:
     result = run_until_decision(session, max_ticks=100000)
     for request in pending_decisions(session):
-        set_next_machine(session, request.who, elegir(request), request.seq)
+        set_next_machine(session, request.who, choose(request), request.seq)
     clear_decisions(session)
     if result.finished:
         break
 ```
 
-## Garantías
+## Guarantees
 
-- Con regla 4 y **sin respuestas** de Python, la simulación es idéntica a la regla 3 con la
-  misma semilla (KPIs, CSV de eventos y CSV de datos salvo la columna 2, que es el nombre de la
-  regla). Lo verifican `tests/test_decisions.py` (10.000 ticks; 100.000 con `-m slow`) y
+- With rule 4 and **no answers** from Python, the simulation is identical to rule 3 with the
+  same seed (KPIs, events CSV and data CSV except column 2, which is the name of the rule).
+  Verified by `tests/test_decisions.py` (10,000 ticks; 100,000 with `-m slow`) and
   `scripts/rule4_checks.py`.
-- Leer peticiones o el registro, vaciarlos y llamar a `platform-set-next-machine` no consume el
-  generador aleatorio del modelo.
-- Con regla 4, `ExportData` escribe `Data_100_Sto_R 4_0.csv` y `Event_100_Sto_R 4_0.csv`.
-- La misma semilla **no** garantiza las mismas condiciones para todas las estrategias una vez
-  que el agente elige algo distinto de la regla 3: ver la medición en el informe de la tarea A1.
+- Reading requests or the log, clearing them and calling `platform-set-next-machine` does not
+  consume the model's random generator.
+- With rule 4, `ExportData` writes `Data_100_Sto_R 4_0.csv` and `Event_100_Sto_R 4_0.csv`.
+- The same seed does **not** guarantee the same conditions for every strategy once the agent
+  chooses something different from rule 3: see the measurement in the report of task A1.

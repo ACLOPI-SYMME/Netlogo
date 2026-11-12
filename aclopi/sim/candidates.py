@@ -95,7 +95,7 @@ def estimate_start(state: dict[str, Any], product: int, machine: str, operation:
       start      = max(arrival, now + queue_time);  finish = start + processing time here
     own_remaining: what is left of its operation if it is in a machine (origin = that machine);
     otherwise `origin` (its last machine) and `left_time` (when it left) give the travel left.
-    The travel ignores gates and products ahead (docs/whatif.md, "Estimación de la entrada").
+    The travel ignores gates and products ahead (docs/whatif.md, "Entry estimate").
     The what-if snapshot uses Línea A's candidates `start` (compute_candidates) and keeps this one as
     the fallback (product not in a machine, e.g. a copy that stopped before it entered).
     """

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator, model_serializer, model_validator
 
 from aclopi.contracts.agent import NextMachineRequest, NextMachineResponse, Strategy  # noqa: F401 (re-exported)
 # GET /sessions/{id}/candidates answers Línea A's schema as is (no copy in the API).
@@ -20,18 +20,71 @@ ProductType = Literal["A", "I", "P", "B", "E", "L", "T"]
 
 
 class ProductItem(BaseModel):
+    """One product of an order list. PO, Item ID and # together identify the product (`id`); they and
+    the due date are platform data: the NetLogo model only receives the type and the priority."""
+
     model_config = ConfigDict(extra="forbid")
 
+    po: str | None = Field(None, max_length=100, description="Product Order (PO)")
+    item_id: str | None = Field(None, max_length=100, description="Item ID")
+    number: str | None = Field(None, max_length=100, description='"#" column of the order')
     type: ProductType = Field(description="One of the model's product types (case-insensitive on input)")
-    priority: int = Field(80, ge=60, le=100)
+    priority: int = Field(80, ge=60, le=100, description="Stored on the product; no rule nor the agent uses it today")
+    due_date: float | None = Field(None, ge=0, description="Due date in simulated time units (u.t.); stored and "
+                                                           "shown, not used by the simulation")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _drop_derived(cls, value: Any) -> Any:
+        if isinstance(value, dict) and "id" in value:  # the derived id may come back (e.g. a saved run repeated)
+            value = {k: v for k, v in value.items() if k != "id"}
+        return value
 
     @field_validator("type", mode="before")
     @classmethod
     def _upper(cls, value: Any) -> Any:
         return value.strip().upper() if isinstance(value, str) else value
 
+    @field_validator("po", "item_id", "number", mode="before")
+    @classmethod
+    def _text(cls, value: Any) -> Any:
+        if value is None:
+            return None
+        text = str(value).strip()
+        return text or None
 
-ProductList = Annotated[list[ProductItem], Field(min_length=1, max_length=1000)]
+    @computed_field(description='"PO-Item ID-#" when the three are given: the product\'s id (stored with it)')
+    @property
+    def id(self) -> str | None:
+        return product_id(self.po, self.item_id, self.number)
+
+    @model_serializer(mode="wrap")
+    def _no_nulls(self, handler: Any) -> dict[str, Any]:
+        return {k: v for k, v in handler(self).items() if v is not None}  # missing optional fields are left out
+
+
+def product_id(po: Any, item_id: Any, number: Any) -> str | None:
+    """The product's id: PO, Item ID and # joined with "-" (None unless the three are given)."""
+    parts = [str(x).strip() if x is not None else "" for x in (po, item_id, number)]
+    return "-".join(parts) if all(parts) else None
+
+
+def unique_ids(products: list[Any]) -> list[Any]:
+    """Raises ValueError if two products share an id (PO-Item ID-#). Accepts ProductItem or dicts."""
+    seen: dict[str, int] = {}
+    for n, p in enumerate(products, start=1):
+        pid = p.id if isinstance(p, ProductItem) else product_id(p.get("po"), p.get("item_id"), p.get("number"))
+        if pid is not None:
+            if pid in seen:
+                raise ValueError(f"product {n}: the id {pid} (PO-Item ID-#) repeats product {seen[pid]}")
+            seen[pid] = n
+    return products
+
+
+# The platform runs at most 30 products per list (the size of Línea A's experiments); SimulationSession
+# itself accepts up to MAX_PRODUCT_LIST (1000) for in-process experiments.
+MAX_PLATFORM_PRODUCTS = 30
+ProductList = Annotated[list[ProductItem], Field(min_length=1, max_length=MAX_PLATFORM_PRODUCTS)]
 
 
 class ScenarioChoice(BaseModel):
@@ -71,6 +124,11 @@ class SessionCreate(BaseModel):
     scenario: ScenarioChoice | None = Field(
         None, description="Scenarios are not available on the platform (docs/scenarios.md): it is accepted only "
                           "as S0 without params (the original plant); any other: 422 scenarios_unavailable")
+
+    @field_validator("products")
+    @classmethod
+    def _ids(cls, value: list[ProductItem] | None) -> list[ProductItem] | None:
+        return unique_ids(value) if value else value
 
     @model_validator(mode="after")
     def _strategy_needs_rule4(self) -> "SessionCreate":
@@ -117,10 +175,14 @@ class SessionInfo(BaseModel):
     products_total: int | None = Field(None, description="Length of the session's product list (None: generated "
                                                          "from the seed, as before)")
     products_hash: str | None = Field(None, description="sha256 of the session's product list")
+    products: list[ProductItem] | None = Field(None, description="The session's own copy of the list, in entry order "
+                                                                 "(apply-order changes it; the saved set does not change)")
     scenario: ScenarioRef = Field(default_factory=lambda: ScenarioRef(id="S0", params={}))
     scenario_summary: ScenarioSummary = Field(default_factory=ScenarioSummary,
                                               description="Scenario events of this run: applied and skipped")
     last_run_id: str | None = Field(None, description="Last run of this session saved to the results store")
+    optimize_status: str | None = Field(None, description="Status of the session's last optimize order, if any")
+    optimization: "AppliedOptimization | None" = Field(None, description="The order applied by optimize order")
     mode: Literal["live", "fast"] | None = Field(description="Mode of the current or paused run")
     speed: float | None = Field(description="Live speed factor of the current or paused run")
     watchers: int = Field(description="WebSocket clients connected to /ws/sessions/{id}")
@@ -290,6 +352,11 @@ class ProductSetIn(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     products: ProductList
 
+    @field_validator("products")
+    @classmethod
+    def _ids(cls, value: list[ProductItem]) -> list[ProductItem]:
+        return unique_ids(value)
+
 
 class ProductSetSummary(BaseModel):
     id: str
@@ -317,7 +384,7 @@ class GenerateRequest(BaseModel):
 
     seed: int | None = Field(None, ge=NETLOGO_SEED_MIN, le=NETLOGO_SEED_MAX,
                              description="Optional; without it a random seed is drawn and returned")
-    count: int = Field(ge=1, le=1000)
+    count: int = Field(ge=1, le=MAX_PLATFORM_PRODUCTS)
 
 
 class GeneratedProducts(BaseModel):
@@ -358,6 +425,8 @@ class RunRecord(BaseModel):
     kpis: dict[str, Any]
     decisions_summary: dict[str, Any] | None = None
     whatif_summary: dict[str, Any] | None = None
+    optimization: AppliedOptimization | None = Field(None, description="Optimize order applied before the run: "
+                                                                       "estimated makespan and saving")
 
 
 class RunPage(BaseModel):
@@ -409,5 +478,118 @@ class ErrorBody(BaseModel):
     detail: str
     session_id: str | None = None
 
+
+# ----- optimize order (docs/optimize-order.md) -----
+
+OptimizeStatus = Literal["running", "waiting_turn", "waiting_ai", "done", "cancelled", "failed"]
+
+
+class OptimizeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    mode: Literal["quick", "full"] = Field(description='quick: reasoning "none", 1 round with the AI (~1 min); '
+                                                      'full: reasoning "medium", ACLOPI_OPTIMIZE_ROUNDS_FULL rounds (~3 min)')
+
+
+class ApplyOrderRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    candidate: int = Field(ge=0, description="index of an evaluated order (GET .../optimize-order: evaluated[].index)")
+
+
+class OptimizeCandidate(BaseModel):
+    index: int
+    origin: Literal["original", "heuristic", "ai"]
+    round: int = Field(description="0: original and heuristic; 1..N: the AI's rounds")
+    label: str = Field(description='"Original", "Heuristic" or "AI round k · i"')
+    order: list[int] = Field(description="permutation of the positions of the session's list at the start")
+    types: str = Field(description="product types in that order, e.g. ABIE")
+    makespan_ticks: int | None = None
+    makespan_time: float | None = Field(None, description="u.t.")
+    all_done: bool
+    saving_time: float | None = Field(None, description="u.t. saved against the original (negative: worse)")
+    saving_pct: float | None = None
+    reasoning: str | None = None
+    analysis: str | None = Field(None, description="the AI's analysis of its round")
+    wall_s: float | None = None
+
+
+class OptimizeDiscarded(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    origin: str
+    round: int
+    label: str
+    order: list[Any] | None = None
+    reason: Literal["invalid", "same_as"]
+    same_as: str | None = None
+    reasoning: str | None = None
+
+
+class OptimizeRound(BaseModel):
+    round: int
+    analysis: str | None = None
+    latency_ms: float | None = None
+    error: str | None = None
+
+
+class Optimization(BaseModel):
+    optimization_id: str
+    session_id: str
+    status: OptimizeStatus
+    mode: Literal["quick", "full"]
+    reasoning_effort: str
+    round: int = Field(description="round in progress or last one (0: original and heuristic)")
+    rounds: int = Field(description="rounds with the AI planned")
+    progress_pct: float
+    current: dict[str, Any] | None = Field(None, description="simulation in progress: label, ticks, done, total")
+    ai_elapsed_s: float | None = Field(None, description="seconds the AI has been thinking (waiting_ai)")
+    waited_s: float = Field(description="seconds waited for a turn at the AI (429)")
+    strategy: str = Field(description="simulate_list strategy: rule1-rule3, b1 or b1b")
+    simulation_mode: str
+    seed: int
+    max_ticks: int
+    products: list[ProductItem] = Field(description="the session's list at the start (the orders index it)")
+    evaluated: list[OptimizeCandidate]
+    discarded: list[OptimizeDiscarded]
+    rounds_info: list[OptimizeRound]
+    best: int | None = Field(None, description="index of the order with the lowest makespan")
+    warning: str | None = None
+    error: str | None = None
+    applied: int | None = Field(None, description="index of the order applied (apply-order)")
+    stopped_early: bool
+    started_at: float
+    finished_at: float | None = None
+
+
+class AppliedOptimization(BaseModel):
+    """Saved in the session and in its runs when an order is applied: the estimate next to the real run."""
+
+    model_config = ConfigDict(extra="allow")
+
+    optimized: bool
+    mode: str
+    order: list[int]
+    origin: str
+    label: str | None = None
+    round: int | None = None
+    estimated_makespan_ticks: int | None = None
+    estimated_makespan_time: float | None = None
+    estimated_saving_time: float | None = None
+    estimated_saving_pct: float | None = None
+    estimate_strategy: str | None = None
+    estimate_mode: str | None = None
+    optimization_id: str | None = None
+
+
+class ApplyOrderResponse(BaseModel):
+    session: SessionInfo
+    products: list[ProductItem] = Field(description="the session's list in its new entry order")
+    optimization: Optimization
+
+
+SessionInfo.model_rebuild()
+RunRecord.model_rebuild()
+ApplyOrderResponse.model_rebuild()
 
 STEP_N_DESCRIPTION = f"Ticks to advance, 1..{MAX_STEP_TICKS}"

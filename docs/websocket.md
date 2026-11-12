@@ -1,47 +1,46 @@
-# WebSocket de sesión (L5.3)
+# Session WebSocket (L5.3)
 
-`ws://<host>:<puerto>/ws/sessions/{session_id}`
+`ws://<host>:<port>/ws/sessions/{session_id}`
 
-Transmite en tiempo real lo que pasa en una sesión. Es lo que consume la interfaz web.
+Streams in real time what happens in a session. It is what the web interface consumes.
 
-- **Control por HTTP.** El cliente **no envía nada**: crear, correr, pausar o reiniciar la sesión se hace con la API HTTP (`docs/api.md`). Si envía algo, se ignora.
-- **Varios clientes.** Pueden mirar la misma sesión a la vez y reciben exactamente los mismos mensajes.
-- **Desconexión.** Desconectarse no afecta la corrida.
+- **Control over HTTP.** The client **sends nothing**: creating, running, pausing or resetting the session is done with the HTTP API (`docs/api.md`). Anything it sends is ignored.
+- **Several clients.** They can watch the same session at the same time and receive exactly the same messages.
+- **Disconnecting.** Disconnecting does not affect the run.
 
-La página de prueba `GET /ui` usa todo lo que se describe aquí.
+The test page `GET /ui` uses everything described here. How to read each field: `docs/records/websocket.md`.
 
-## Orden de los mensajes
+## Order of the messages
 
-1. **Primero, siempre `snapshot`:** una foto completa de la sesión.
-2. **Después, las actualizaciones** (`tick`, `progress`, `decision`, `run_state`, `finished`, `run_error`), todas posteriores a la foto.
-3. **Si el cliente se atrasa** (ver "Cliente lento"): `resync` y luego un `snapshot` nuevo.
-4. **Si no hubo nada que enviar durante 5 s:** `heartbeat`.
-5. **Al cerrarse la sesión:** `closed` con el motivo, y el servidor cierra la conexión.
+1. **First, always `snapshot`:** a full picture of the session.
+2. **Then the updates** (`tick`, `progress`, `decision`, `run_state`, `finished`, `run_error`, and the `optimize_*` messages of "Optimize order"), all after the picture.
+3. **If the client falls behind** (see "Slow client"): `resync` and then a new `snapshot`.
+4. **If there was nothing to send for 5 s:** `heartbeat`.
+5. **When the session closes:** `closed` with the reason, and the server closes the connection.
 
-Todos los mensajes son objetos JSON con `type`. Los que publica la sesión (`tick`, `progress`, `decision`, `run_state`, `finished`, `run_error`) llevan además `seq`, correlativo por sesión e igual para todos los clientes. Un salto en `seq` significa que el cliente perdió mensajes, cosa que solo ocurre antes de un `resync`. `snapshot.seq` es el último `seq` que la foto ya incluye.
+Every message is a JSON object with `type`. Those published by the session (`tick`, `progress`, `decision`, `run_state`, `finished`, `run_error`, `optimize_*`) also carry `seq`, increasing per session and the same for every client. A jump in `seq` means the client lost messages, which only happens before a `resync`. `snapshot.seq` is the last `seq` the picture already includes.
 
-## Mensajes
+## Messages
 
 ### `snapshot`
 
 ```json
 {"type": "snapshot", "seq": 41, "tick": 1290, "state_tick": 1290,
- "session": { ...SessionInfo, igual que GET /sessions/{id}... },
- "layout": { ...platform-layout, igual que GET /sessions/{id}/layout... },
- "state": { ...platform-state, igual que GET /sessions/{id}/state... },
- "kpis": { ...igual que GET /sessions/{id}/kpis... },
+ "session": { ...SessionInfo, same as GET /sessions/{id}... },
+ "layout": { ...platform-layout, same as GET /sessions/{id}/layout... },
+ "state": { ...platform-state, same as GET /sessions/{id}/state... },
+ "kpis": { ...same as GET /sessions/{id}/kpis... },
  "recent_events": [ {"tick": 1288, "event": "...", "who": 230, ...}, ... ],
  "scenario": {"id": "S0", "params": {}},
  "scenario_events": []}
 ```
 
-- **`scenario` y `scenario_events`:** los escenarios no están disponibles en la plataforma (`docs/scenarios.md`): siempre valen S0 y `[]`. Se mantienen por compatibilidad.
+- **`scenario` and `scenario_events`:** scenarios are not available on the platform (`docs/scenarios.md`): they are always S0 and `[]`. They are kept for compatibility.
+- **`recent_events`:** the session's last 500 events (since the last `reset`). The client replaces its list with these.
+- **`state` and `state_tick`:** they only come if a state is known. In fast mode the state is not always streamed, so they can be missing or older than `tick`.
+- **`kpis`:** the last ones computed (at most ~1 s old during a run).
 
-- **`recent_events`:** los últimos 500 eventos de la sesión (desde el último `reset`). El cliente reemplaza su lista con estos.
-- **`state` y `state_tick`:** solo vienen si hay un estado conocido. En modo rápido no se transmite el estado, así que pueden faltar o ser anteriores a `tick`.
-- **`kpis`:** son los últimos calculados (como mucho ~1 s de antigüedad durante una corrida).
-
-### `tick`: bloque del modo en vivo, o step manual con clientes mirando
+### `tick`: live-mode block, or manual step with clients watching
 
 ```json
 {"type": "tick", "seq": 42, "source": "run", "tick": 1293, "advanced": 3, "speed": 1.0,
@@ -51,88 +50,105 @@ Todos los mensajes son objetos JSON con `type`. Los que publica la sesión (`tic
  "state": { ...platform-state... }}
 ```
 
-- **Cadencia:** en vivo hay un `tick` cada ~100 ms, con `advanced` ticks (velocidad 1×: 3 ticks cada 94 ms).
-- **`source`:** vale `"run"` en una corrida y `"step"` en un `POST /step` manual. El step manual no trae `rate`, `lag_ms`, `speed` ni `kpis`, y su `events` va vacío: los eventos de un step manual llegan en el siguiente bloque de corrida, o por `GET /events`.
-- **`rate`:** ticks/s medidos en el último segundo, para comparar con 32 × velocidad.
-- **`lag_ms`:** cuánto se atrasó este bloque respecto de su hora prevista. Si el worker se atrasa más de 1 s, retoma el ritmo desde ese momento en lugar de acelerar para ponerse al día.
-- **`events`:** son los eventos **nuevos** del bloque (event-buffer), sin repetidos.
-- **`kpis`:** viene aproximadamente una vez por segundo, y siempre en el último bloque.
+- **Cadence:** live there is a `tick` every ~100 ms, with `advanced` ticks (speed 1×: 3 ticks every 94 ms).
+- **`source`:** `"run"` in a run and `"step"` in a manual `POST /step`. The manual step carries no `rate`, `lag_ms`, `speed` nor `kpis`, and its `events` is empty: the events of a manual step arrive in the next run block, or through `GET /events`.
+- **`rate`:** ticks/s measured over the last second, to compare with 32 × speed.
+- **`lag_ms`:** how late this block was compared with its planned time. If the worker falls more than 1 s behind, it resumes the pace from that moment instead of speeding up to catch up.
+- **`events`:** the **new** events of the block (event-buffer), without repeats.
+- **`kpis`:** comes about once per second, and always in the last block.
 
-Formato de un evento:
+Format of an event:
 
 ```json
 {"tick": 1291, "event": "...", "who": 230, "product_type": "...", "location": "...",
  "operation": "...", "next_operation": "...", "destination": "...", "time": 400.21}
 ```
 
-### `progress`: bloque del modo rápido
+### `progress`: fast-mode block
 
 ```json
 {"type": "progress", "seq": 90, "tick": 23000, "advanced": 1000, "finished_products": 12,
  "ticks_per_s": 2150.4, "block_ms": 465.0,
- "events": [ ...los eventos del bloque... ],
+ "events": [ ...the block's events... ],
  "kpis": { ... }}
 ```
 
-- **Cadencia:** un mensaje por bloque de `ACLOPI_FAST_BLOCK_TICKS` ticks (1000 por defecto).
-- **`state` como mucho una vez por segundo** (L5.4), y siempre en el último bloque. Con eso el canvas de `/ui` muestra la corrida rápida como un video acelerado. Si un bloque tarda más de 1 s, todos los bloques traen `state`.
-- **`events`:** llegan **todos**, en lote (~18 eventos por cada 1000 ticks). La API además los conserva para la persistencia de L5.6.
-- **`kpis`:** viene aproximadamente una vez por segundo.
+- **Cadence:** one message per block of `ACLOPI_FAST_BLOCK_TICKS` ticks (1000 by default).
+- **`state` at most once per second** (L5.4), and always in the last block. With it the `/ui` canvas shows the fast run as a sped-up video. If a block takes more than 1 s, every block carries `state`.
+- **`events`:** **all** of them arrive, in a batch (~18 events per 1000 ticks). The API also keeps them for the L5.6 persistence.
+- **`kpis`:** comes about once per second.
 
-### `scenario_event`: ya no se envía
+### `scenario_event`: no longer sent
 
-Los escenarios no están disponibles en la plataforma (`docs/scenarios.md`), así que ninguna sesión publica este mensaje. El formato queda descrito en `docs/scenarios.md` para los experimentos.
+Scenarios are not available on the platform (`docs/scenarios.md`), so no session publishes this message. Its format remains described in `docs/scenarios.md` for the experiments.
 
-### `run_state`: cambio de estado de la corrida
+### `run_state`: change of the run's state
 
 ```json
 {"type": "run_state", "seq": 43, "run_state": "paused", "mode": "live", "speed": 1.0, "tick": 1293}
 ```
 
-- **Estados:** `run_state` vale `idle`, `running_live`, `running_fast`, `waiting_decision` (rápido con decisor, esperando al agente), `paused`, `finished` o `failed`.
-- **`reason`:** por qué terminó, por ejemplo `agent_unavailable` en `failed`. `pending_decisions` dice cuántas decisiones se esperan.
-- **`mode` y `speed`:** son los de la corrida en curso o pausada, y valen `null` en `idle` y `finished`.
+- **States:** `run_state` is `idle`, `running_live`, `running_fast`, `waiting_decision` (fast with a decider, waiting for the agent), `paused`, `finished` or `failed`.
+- **`reason`:** why it ended, for example `agent_unavailable` in `failed`. `pending_decisions` says how many decisions are awaited.
+- **`mode` and `speed`:** those of the current or paused run, and `null` in `idle` and `finished`. A live run's speed can be changed while it runs (`POST /run` with the new speed); a new `run_state` reports it.
 
-### `decision`: se aplicó (o llegó tarde) una decisión del agente (L5.5)
+### `decision`: an agent decision was applied (or arrived late) (L5.5)
 
 ```json
 {"type": "decision", "seq": 61, "product": 201, "product_type": "A", "seq_op": 1, "operation": "O2",
- "machine": "M3", "level": "llm", "reason": "M3 termina antes que M5", "late": false, "latency_ms": 3412.0,
+ "machine": "M3", "level": "llm", "reason": "M3 finishes before M5", "late": false, "latency_ms": 3412.0,
  "tick": 1113}
 ```
 
-- `product_type` y `operation` (la operación decidida) vienen de la petición enviada al agente; `reason` es la razón que dio el agente (puede ser `null`).
-- La página lo usa para el panel "Últimas decisiones" (las 50 más nuevas arriba, con filtro por nivel).
-- Las métricas agregadas están en `GET /sessions/{id}/metrics` (`decisions`). Nota: el campo `seq` del mensaje es el número de mensaje del WebSocket, y el `seq` de la operación decidida va en **`seq_op`**.
+- `product_type` and `operation` (the operation decided) come from the request sent to the agent; `reason` is the reason the agent gave (it can be `null`).
+- The page uses it for the "Latest decisions" panel (the 50 newest on top, with a level filter).
+- The aggregated metrics are in `GET /sessions/{id}/metrics` (`decisions`). Note: the message's `seq` field is the WebSocket message number, and the `seq` of the decided operation goes in **`seq_op`**.
 
-### `finished`: la corrida llegó al horizonte
+### `finished`: the run reached the horizon
 
 ```json
-{"type": "finished", "seq": 120, "tick": 10000, "reason": "horizon", "kpis": { ...KPIs finales... }}
+{"type": "finished", "seq": 120, "tick": 10000, "reason": "horizon", "kpis": { ...final KPIs... }}
 ```
 
-`reason` vale `horizon`, o `all_products_done` con un set de productos (L5.6). Le sigue un `run_state` con `finished` y el mismo `reason`.
+`reason` is `horizon`, or `all_products_done` with a product set (L5.6). A `run_state` with `finished` and the same `reason` follows.
 
-### `run_error`: un bloque falló dentro de NetLogo
+### `run_error`: a block failed inside NetLogo
 
 ```json
 {"type": "run_error", "seq": 77, "error": "NetLogoException: ..."}
 ```
 
-La corrida se detiene (`run_state` pasa a `idle`) y el worker sigue vivo.
+The run stops (`run_state` goes to `idle`) and the worker stays alive.
 
-### `resync`: el cliente perdió mensajes
+### `optimize_progress`, `optimize_best`, `optimize_result`, `optimize_failed`: optimize order
+
+The session's "Optimize order" (`docs/optimize-order.md`). Every one carries `optimization_id`.
+
+```json
+{"type": "optimize_progress", "seq": 38, "optimization_id": "d0b7…", "status": "waiting_ai", "phase": "waiting_ai",
+ "round": 1, "rounds": 1, "simulation": null, "progress_pct": 50.0, "ai_elapsed_s": 4.0, "waited_s": 0.0}
+{"type": "optimize_best", "seq": 17, "optimization_id": "d0b7…", "evaluated": {…}, "best": {…}}
+{"type": "optimize_result", "seq": 75, "optimization_id": "d0b7…", "result": {…}}
+{"type": "optimize_failed", "seq": 75, "optimization_id": "d0b7…", "error": "optimization busy: …", "result": {…}}
+```
+
+- **`optimize_progress`** arrives at the start of each simulation and after each piece of it (≤ 1,000 ticks, about 1 s). While waiting it arrives every second: for the AI it carries `phase: waiting_ai` with `ai_elapsed_s`; for a turn after a 429 it carries `phase: waiting_turn` with `waited_s`.
+- **`optimize_best`** arrives after each simulation: the order just simulated and the best so far.
+- **`optimize_result` / `optimize_failed`** close it. `result` is the same as `GET /sessions/{id}/optimize-order`. `optimize_result` is also sent when an order is applied after the optimization ended.
+- **No resync at the end.** At the end the session is set up again (its order or the applied one), but no `resync` is sent: at tick 0 the plant shows the same. The list in its new order is in `GET /sessions/{id}` (`products`).
+
+### `resync`: the client lost messages
 
 ```json
 {"type": "resync", "reason": "client_too_slow", "dropped": 33}
 ```
 
-Le sigue **inmediatamente** un `snapshot`, y el cliente debe reemplazar su estado y su lista de eventos.
+A `snapshot` follows **immediately**, and the client must replace its state and its list of events.
 
-| `reason` | Cuándo ocurre |
+| `reason` | When it happens |
 |---|---|
-| `client_too_slow` | La cola del cliente se llenó (ver abajo) |
-| `reset` | La sesión se reinició con `POST /reset` y vuelve al tick 0 |
+| `client_too_slow` | The client's queue filled up (see below) |
+| `reset` | The session was reset with `POST /reset` and goes back to tick 0 |
 
 ### `heartbeat`
 
@@ -140,45 +156,45 @@ Le sigue **inmediatamente** un `snapshot`, y el cliente debe reemplazar su estad
 {"type": "heartbeat", "server_time": 1793098812.123}
 ```
 
-Se envía si no hubo otro mensaje en 5 s, por ejemplo con la sesión en `idle` o `paused`. Si un cliente no recibe nada durante ~15 s, debe considerar perdida la conexión y reconectarse. El navegador no ve los pings del protocolo; el servidor sí los usa para detectar clientes caídos (cada 10 s, con 10 s de espera).
+Sent if there was no other message in 5 s, for example with the session `idle` or `paused`. If a client receives nothing for ~15 s, it should consider the connection lost and reconnect. The browser does not see protocol pings; the server uses them to detect dead clients (every 10 s, with a 10 s timeout).
 
-### `closed`: la sesión terminó para este cliente
+### `closed`: the session ended for this client
 
 ```json
 {"type": "closed", "code": "session_lost", "reason": "worker process exited unexpectedly (exit code 1)"}
 ```
 
-Después el servidor cierra la conexión con este código:
+Then the server closes the connection with this code:
 
-| `code` | Código de cierre | Cuándo |
+| `code` | Close code | When |
 |---|---|---|
-| `session_lost` | 4410 | El worker se cayó o se colgó. `GET /sessions/{id}` muestra el motivo y los demás endpoints responden 410 |
-| `session_expired` | 4410 | La sesión se cerró por inactividad |
-| `session_deleted` | 4404 | Se borró con `DELETE /sessions/{id}` |
-| `session_not_found` | 4404 | El id no existe, por ejemplo al conectarse |
-| `platform_starting` | 4503 | La plataforma todavía está arrancando |
-| `server_shutdown` | 1001 | La API se está apagando |
+| `session_lost` | 4410 | The worker crashed or hung. `GET /sessions/{id}` shows the reason and the other endpoints answer 410 |
+| `session_expired` | 4410 | The session was closed for inactivity |
+| `session_deleted` | 4404 | Deleted with `DELETE /sessions/{id}` |
+| `session_not_found` | 4404 | The id does not exist, for example when connecting |
+| `platform_starting` | 4503 | The platform is still starting |
+| `server_shutdown` | 1001 | The API is shutting down |
 
-Al conectarse a una sesión que ya está perdida, expirada o que no existe, el cliente recibe solo el `closed`.
+When connecting to a session that is already lost, expired or does not exist, the client only receives the `closed`.
 
-## Cliente lento
+## Slow client
 
-- **Colas separadas.** Cada cliente tiene su propia cola de `ACLOPI_WS_QUEUE` mensajes (32 por defecto) y su propia tarea de envío. El worker y los demás clientes nunca esperan a un cliente.
-- **Si la cola se llena:** se descartan los mensajes encolados, que son estados intermedios y no hacen falta, y el cliente recibe `resync` y un `snapshot` con el estado más reciente y los últimos 500 eventos. Así recupera los eventos que no llegó a recibir.
-- **Si un envío no se completa en 10 s:** se cierra la conexión de ese cliente.
+- **Separate queues.** Each client has its own queue of `ACLOPI_WS_QUEUE` messages (32 by default) and its own sending task. The worker and the other clients never wait for a client.
+- **If the queue fills up:** the queued messages are dropped, since they are intermediate states and not needed, and the client receives `resync` and a `snapshot` with the latest state and the last 500 events. That way it recovers the events it did not receive.
+- **If a send does not complete in 10 s:** that client's connection is closed.
 
-## Tamaños y ancho de banda (medidos)
+## Sizes and bandwidth (measured)
 
-Ver `results/l5/bench_live.json`:
+See `results/l5/bench_live.json`:
 
-Medidos en el contenedor, con regla 3, Stochastic y 60 s a 1×:
+Measured in the container, with rule 3, Stochastic and 60 s at 1×:
 
-| Mensaje | Tamaño medio |
+| Message | Mean size |
 |---|---|
-| `tick` | ~2,8 KB |
-| `snapshot` | ~15,8 KB (con el layout) |
-| `progress` | ~3,3 KB (con eventos y KPIs) |
+| `tick` | ~2.8 KB |
+| `snapshot` | ~15.8 KB (with the layout) |
+| `progress` | ~3.3 KB (with events and KPIs) |
 | `run_state` | ~90 B |
 | `finished` | ~370 B |
 
-Una sesión en vivo a 1× usa **~27–28 KB/s por cliente**, unos 10,7 mensajes por segundo. Una corrida rápida usa ~5 KB/s.
+A live session at 1× uses **~27–28 KB/s per client**, about 10.7 messages per second. A fast run uses ~5 KB/s.

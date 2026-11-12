@@ -37,7 +37,10 @@ class ApiServer:
         self.ws_url = f"ws://127.0.0.1:{settings.port}"
         config = uvicorn.Config(self.app, host="127.0.0.1", port=settings.port, log_config=None,
                                 access_log=False, lifespan="on", ws="websockets-sansio",
-                                ws_ping_interval=10.0, ws_ping_timeout=10.0)
+                                ws_ping_interval=10.0, ws_ping_timeout=10.0,
+                                # without it, an open connection (a browser's WebSocket, a keep-alive) makes the
+                                # shutdown wait for ever, and the lifespan never shuts the worker pool down
+                                timeout_graceful_shutdown=10)
         self.server = uvicorn.Server(config)
         self.thread = threading.Thread(target=self.server.run, name="api-server", daemon=True)
         self.startup: dict[str, Any] = {}
@@ -79,6 +82,11 @@ class ApiServer:
     def stop(self) -> None:
         self.server.should_exit = True
         self.thread.join(120)
+        pool = self.runtime.pool
+        if self.thread.is_alive() and pool is not None:
+            # The server did not stop: shut the pool down here. Its workers are not daemon processes, so a
+            # pool left running would keep this process from exiting (it joins them at exit).
+            pool.shutdown()
 
     @property
     def runtime(self) -> Any:

@@ -50,8 +50,64 @@ DECISIONS = [{"seq": i, "tick": 100 + 10 * i, "request_tick": 99 + 10 * i, "prod
               "latency_ms": 40.0 + i, "late": i % 10 == 9, "strategy": "agent", "result": "ok"} for i in range(120)]
 
 
+RUN_CALLS: list[dict[str, Any]] = []  # bodies of POST /sessions/{id}/run
+# Optimize order: the state the fake answers (the test changes it), the requests, and a 409 to answer
+OPT: dict[str, Any] = {"state": None, "calls": [], "block": None, "session": None}
+
+
+def _opt_state(status: str, evaluated: list[dict[str, Any]], **extra: Any) -> dict[str, Any]:
+    best = min((c for c in evaluated if c["all_done"]), key=lambda c: c["makespan_ticks"], default=None)
+    return {"optimization_id": "o1", "session_id": "s1", "status": status, "mode": "quick", "reasoning_effort": "none",
+            "round": 1 if status == "waiting_ai" else 0, "rounds": 1, "progress_pct": 50.0, "current": None,
+            "ai_elapsed_s": None, "waited_s": 0.0, "strategy": "rule3", "simulation_mode": "Deterministic", "seed": 1,
+            "max_ticks": 10000, "products": OPT["session"]["products"], "evaluated": evaluated, "discarded": [],
+            "rounds_info": [], "best": best["index"] if best else None, "warning": None, "error": None, "applied": None,
+            "stopped_early": False, "started_at": 0.0, "finished_at": None, **extra}
+
+
+def _candidate(index: int, origin: str, label: str, order: list[int], ticks: int, saving: float, pct: float) -> dict[str, Any]:
+    return {"index": index, "origin": origin, "round": 0, "label": label, "order": order, "types": "", "makespan_ticks": ticks,
+            "makespan_time": round(ticks * 0.31, 2), "all_done": True, "saving_time": saving, "saving_pct": pct,
+            "reasoning": None, "analysis": None, "wall_s": 1.0}
+
+
 def fake_platform(sessions: list[dict[str, Any]]) -> FastAPI:
     app = FastAPI()
+
+    @app.post("/sessions/{sid}/optimize-order", status_code=202)
+    async def optimize(sid: str, request: Request) -> Any:
+        OPT["calls"].append(("start", await request.json()))
+        if OPT["block"]:
+            return JSONResponse({"code": "optimize_not_allowed", "detail": OPT["block"], "session_id": sid}, status_code=409)
+        OPT["state"] = _opt_state("running", [], current={"label": "Original", "ticks": 1000, "done": 1, "total": 5})
+        return OPT["state"]
+
+    @app.get("/sessions/{sid}/optimize-order")
+    def get_optimize(sid: str) -> Any:
+        if OPT["state"] is None:
+            return JSONResponse({"code": "optimization_not_found", "detail": "none"}, status_code=404)
+        return OPT["state"]
+
+    @app.post("/sessions/{sid}/apply-order")
+    async def apply_order(sid: str, request: Request) -> Any:
+        body = await request.json()
+        OPT["calls"].append(("apply", body))
+        c = OPT["state"]["evaluated"][body["candidate"]]
+        products = [OPT["session"]["products"][i] for i in c["order"]]
+        OPT["session"] = {**OPT["session"], "products": products,
+                          "optimization": {"optimized": True, "mode": "quick", "order": c["order"], "origin": c["origin"]}}
+        OPT["state"] = {**OPT["state"], "status": "done", "applied": body["candidate"], "stopped_early": True}
+        return {"session": OPT["session"], "products": products, "optimization": OPT["state"]}
+
+    @app.get("/sessions/{sid}")
+    def get_session(sid: str) -> Any:
+        return OPT["session"]
+
+    @app.post("/sessions/{sid}/run")
+    async def run(sid: str, request: Request) -> dict[str, Any]:
+        body = await request.json()
+        RUN_CALLS.append(body)
+        return {"session_id": sid, "run_state": "running_" + body["mode"], "mode": body["mode"], "speed": body.get("speed")}
 
     @app.get("/ui")
     def ui() -> FileResponse:
@@ -82,9 +138,14 @@ def fake_platform(sessions: list[dict[str, Any]]) -> FastAPI:
 
     @app.post("/sessions")
     async def create(request: Request) -> dict[str, Any]:
-        sessions.append(await request.json())
-        return {"session_id": "s1", "parameters": {"seed": 1}, "seed_source": "random", "warnings": [],
-                "scenario": {"id": "S0", "params": {}}}
+        body = await request.json()
+        sessions.append(body)
+        products = [{"type": p["type"], "priority": p.get("priority", 80)} for p in body.get("products") or []] or None
+        OPT["session"] = {"session_id": "s1", "parameters": {"seed": 1, "rule": body.get("rule", 3)}, "seed_source": "random",
+                          "warnings": [], "scenario": {"id": "S0", "params": {}}, "run_state": "idle", "ticks": 0,
+                          "products_total": len(products) if products else None, "products": products}
+        OPT["state"] = None
+        return OPT["session"]
 
     return app
 
@@ -167,7 +228,7 @@ def test_csv_errors_keep_valid_rows(server: tuple[str, list], browser: Any, tmp_
     load_csv(page, tmp_path, CSV_WITH_ERRORS)
     assert rows(page) == ["A", "B", "E"]
     errors = page.inner_text("#set-errors")
-    assert "línea 3" in errors and "línea 4: fila vacía" in errors and "Se cargaron 3 filas" in errors
+    assert "line 3" in errors and "line 4: empty row" in errors and "Loaded 3 rows" in errors
     page.close()
 
 
@@ -191,7 +252,7 @@ def test_no_scenarios_and_live_decision_panel(server: tuple[str, list], browser:
     # No scenario selector, params, toast nor filter / columns in the runs tab; no scenario is sent.
     for sel in ("#scenario", "#scenario-params", "#toast", "#runs-scenario"):
         assert page.query_selector(sel) is None, sel
-    assert "Escenario" not in page.inner_text("body")
+    assert "scenario" not in page.inner_text("body").lower()
     before = len(sessions)
     page.click("#create")
     assert "scenario" not in _sent(sessions, before)
@@ -206,7 +267,7 @@ def test_no_scenarios_and_live_decision_panel(server: tuple[str, list], browser:
                 level: 'code-obvious', reason: 'única cercana', late: true, latency_ms: 95.0});
     }""", long_reason)
     rows = page.eval_on_selector_all("#dec-rows tr", "els => els.map(e => [...e.cells].map(c => c.textContent))")
-    assert rows[0] == ["340", "p202 (E)", "O5", "M6", "code-obvious", "única cercana", "95 ms", "⚠ tarde"]
+    assert rows[0] == ["340", "p202 (E)", "O5", "M6", "code-obvious", "única cercana", "95 ms", "⚠ late"]
     assert rows[1][:5] == ["300", "p201 (A)", "O2", "M3", "llm"] and rows[1][6:] == ["812 ms", ""]
     assert rows[1][5].endswith("…") and len(rows[1][5]) == 60
     assert page.eval_on_selector("#dec-rows tr:nth-child(2) td.reason", "e => e.title") == long_reason
@@ -229,14 +290,14 @@ def test_run_decisions_paged_filtered_and_csv(server: tuple[str, list], browser:
     page.wait_for_function("document.querySelectorAll('#runs-rows tr').length === 5")
     page.click('#runs-rows tr:nth-child(1) [data-a="decisions"]')
     page.wait_for_function("document.querySelectorAll('#rd-rows tr').length === 50")
-    assert "120 decisiones" in page.inner_text("#rd-title") and "página 1 de 3" in page.inner_text("#rd-page")
+    assert "120 decisions" in page.inner_text("#rd-title") and "page 1 of 3" in page.inner_text("#rd-page")
     first = page.eval_on_selector("#rd-rows tr:first-child", "e => [...e.cells].map(c => c.textContent)")
-    assert first == ["1290", "p200 (A)", "O8", "M7", "code-fallback", "obvia 119", "159 ms", "⚠ tarde"]  # newest on top
+    assert first == ["1290", "p200 (A)", "O8", "M7", "code-fallback", "obvia 119", "159 ms", "⚠ late"]  # newest on top
     page.click("#rd-next"); page.click("#rd-next")
     assert page.eval_on_selector_all("#rd-rows tr", "els => els.length") == 20
-    assert page.is_disabled("#rd-next") and "página 3 de 3" in page.inner_text("#rd-page")
+    assert page.is_disabled("#rd-next") and "page 3 of 3" in page.inner_text("#rd-page")
     page.select_option("#rd-level", "llm")  # 30 decisions: one page
-    assert page.eval_on_selector_all("#rd-rows tr", "els => els.length") == 30 and "página 1 de 1" in page.inner_text("#rd-page")
+    assert page.eval_on_selector_all("#rd-rows tr", "els => els.length") == 30 and "page 1 of 1" in page.inner_text("#rd-page")
     with page.expect_download() as info:
         page.click("#rd-csv")
     lines = Path(info.value.path()).read_text(encoding="utf-8").splitlines()
@@ -244,7 +305,7 @@ def test_run_decisions_paged_filtered_and_csv(server: tuple[str, list], browser:
     assert len(lines) == 121 and lines[1] == "100,200,A,O1,M2,code-obvious,obvia 0,40,false"  # all of them, in order
     assert lines[2].startswith('110,201,I,O2,M3,llm,"razón larga, ')
     # An old run with a scenario still shows (rule cell), and Repetir sends no scenario.
-    assert page.inner_text("#runs-rows tr:nth-child(5) td:nth-child(4)") == "Regla 3 [S2]"
+    assert page.inner_text("#runs-rows tr:nth-child(5) td:nth-child(4)") == "Rule 3 [S2]"
     page.close()
 
 
@@ -253,9 +314,9 @@ def test_rule_4_is_the_agent_and_runs_show_the_strategy(server: tuple[str, list]
     page = browser.new_page()
     page.goto(f"{url}/ui")
     _ready(page)
-    # No strategy selector; rule 4 is "Regla 4 — Agente IA" and always creates the session with agent.
+    # No strategy selector; rule 4 is "Rule 4 — AI agent" and always creates the session with agent.
     assert page.query_selector("#strategy") is None and page.query_selector("#strategy-box") is None
-    assert page.eval_on_selector("#rule option[value='4']", "e => e.textContent") == "Regla 4 — Agente IA"
+    assert page.eval_on_selector("#rule option[value='4']", "e => e.textContent") == "Rule 4 — AI agent"
     page.select_option("#rule", "4")
     before = len(sessions)
     page.click("#create")
@@ -265,17 +326,17 @@ def test_rule_4_is_the_agent_and_runs_show_the_strategy(server: tuple[str, list]
     before = len(sessions)
     page.click("#create")
     assert "strategy" not in _sent(sessions, before)
-    # Runs: "Regla 4 (agente)", "(B1)", "(B1b)"; a none run (tests) is just "Regla 4".
+    # Runs: "Rule 4 (agent)", "(B1)", "(B1b)"; a none run (tests) is just "Rule 4".
     page.click("#tab-runs")
     page.wait_for_function("document.querySelectorAll('#runs-rows tr').length === 5")
     rules = page.eval_on_selector_all("#runs-rows tr td:nth-child(4)", "els => els.map(e => e.textContent)")
-    assert rules == ["Regla 4 (agente)", "Regla 4 (B1)", "Regla 4 (B1b)", "Regla 4", "Regla 3 [S2]"]
+    assert rules == ["Rule 4 (agent)", "Rule 4 (B1)", "Rule 4 (B1b)", "Rule 4", "Rule 3 [S2]"]
     # The comparison uses the same names.
     for run_id in ("run-agent-0001", "run-b1-000001", "run-b1b-00001"):
         page.check(f'#runs-rows input[data-id="{run_id}"]')
     page.click("#runs-compare")
     heads = page.eval_on_selector_all("#runs-compare-box th", "els => els.map(e => e.textContent)")
-    assert heads[1:] == ["Regla 4 (agente) run-ag", "Regla 4 (B1) run-b1", "Regla 4 (B1b) run-b1"]
+    assert heads[1:] == ["Rule 4 (agent) run-ag", "Rule 4 (B1) run-b1", "Rule 4 (B1b) run-b1"]
     # "none" appears nowhere in the interface (visible text, options, values of the controls).
     texts = page.evaluate("""() => [document.body.innerText,
         ...[...document.querySelectorAll('option, input, select')].map(e => e.value + ' ' + e.textContent)].join(' ')""")
@@ -296,4 +357,158 @@ def test_rule_4_is_the_agent_and_runs_show_the_strategy(server: tuple[str, list]
     before = len(sessions)
     page.click('#runs-rows tr:nth-child(5) [data-a="repeat"]')
     assert "scenario" not in _sent(sessions, before)
+    page.close()
+
+
+def test_layout_tooltip_errors_speed_and_set_limits(server: tuple[str, list], browser: Any) -> None:
+    url, sessions = server
+    page = browser.new_page()
+    page.on("dialog", lambda d: d.accept())
+    page.goto(f"{url}/ui")
+    _ready(page)
+    # Tabs in workflow order; the session-set selector says what it is.
+    assert page.eval_on_selector_all("nav.tabs button", "els => els.map(e => e.id)") == ["tab-set", "tab-session", "tab-runs"]
+    assert page.eval_on_selector("label:has(#session-set) > span", "e => e.textContent") == "Product set"
+    # The seed tooltip says something and shows on keyboard focus.
+    page.focus("button[aria-describedby=seed-tip]")
+    assert page.eval_on_selector("#seed-tip", "e => getComputedStyle(e).visibility") == "visible"
+    assert "seed" in page.inner_text("#seed-tip").lower() and len(page.inner_text("#seed-tip")) > 40
+    # An error stays until an action succeeds: running without a session, then creating one.
+    page.click("#live")
+    page.wait_for_function("document.querySelector('#msg').className === 'err'")
+    assert "Create a session first" in page.inner_text("#msg")
+    before = len(sessions)
+    page.click("#create")
+    _sent(sessions, before)
+    page.wait_for_function("!document.querySelector('#msg').textContent.includes('Create a session first')")
+    # The live speed can be changed while the run goes on (POST /run with the new speed); a paused live
+    # run resumes at the speed selected.
+    RUN_CALLS.clear()
+    page.evaluate("handle({type: 'run_state', run_state: 'running_live', mode: 'live', speed: 1, tick: 30})")
+    page.select_option("#speed", "4")
+    page.wait_for_function("document.querySelector('#runstate').textContent.includes('4')")
+    assert RUN_CALLS == [{"mode": "live", "speed": 4}]
+    page.evaluate("handle({type: 'run_state', run_state: 'paused', mode: 'live', speed: 4, tick: 40})")
+    page.select_option("#speed", "0.5")
+    assert len(RUN_CALLS) == 1  # paused: nothing sent until Resume
+    page.click("#resume")
+    page.wait_for_function("document.querySelector('#runstate').dataset.state === 'running_live'")
+    assert RUN_CALLS[-1] == {"mode": "live", "speed": 0.5}
+    # Order entry tab: download disabled while empty, at most 30 products, errors shown.
+    page.click("#tab-set")
+    assert page.is_disabled("#csv-download")
+    for _ in range(30):  # one product per click
+        page.click("#add")
+    assert page.eval_on_selector_all("#set-rows tr", "els => els.length") == 30
+    assert not page.is_disabled("#csv-download") and page.is_disabled("#add")
+    page.click("#set-rows tr:nth-child(1) button[data-a=dup]")
+    assert "At most 30" in page.inner_text("#set-errors")
+    page.fill("#gen-count", "5")
+    page.click("#generate")  # the fake platform has no /product-sets/generate: the error is shown
+    page.wait_for_function("document.querySelector('#set-errors').textContent.includes('404')")
+    page.click("#clear")
+    assert page.is_disabled("#csv-download")
+    # Products are told apart by type: one colour and letter per type, with a legend.
+    assert page.eval_on_selector_all("#legend span", "els => els.length") == 9
+    page.close()
+
+
+CSV_ORDERS = ("Product Order (PO),Item ID,#,Type,Priority,DueDate\n"
+              "PO-17,IT-3,1,A,70,1500\nPO-17,IT-3,2,e,,\nPO-18,IT-9,1,B,90,2200.5\n")
+
+
+def test_order_csv_ids_priority_due_date(server: tuple[str, list], browser: Any, tmp_path: Path) -> None:
+    url, sessions = server
+    page = browser.new_page(accept_downloads=True)
+    page.on("dialog", lambda d: d.accept())
+    page.goto(f"{url}/ui")
+    load_csv(page, tmp_path, CSV_ORDERS)
+    cells = page.eval_on_selector_all("#set-rows tr", """els => els.map(tr => [
+        ...[...tr.querySelectorAll('input[data-f]')].map(i => i.dataset.f + '=' + i.value),
+        'type=' + tr.querySelector('select').value, 'id=' + tr.querySelector('td.pid').textContent])""")
+    assert cells[0] == ["po=PO-17", "item_id=IT-3", "number=1", "priority=70", "due_date=1500", "type=A", "id=PO-17-IT-3-1"]
+    assert cells[1] == ["po=PO-17", "item_id=IT-3", "number=2", "priority=80", "due_date=", "type=E", "id=PO-17-IT-3-2"]
+    # Add numbers # on from the last one of that PO and item; a repeated id is marked.
+    page.fill("#add-po", "PO-17"); page.fill("#add-item", "IT-3"); page.fill("#add-due", "900")
+    page.click("#add"); page.click("#add")
+    assert page.eval_on_selector_all("#set-rows td.pid", "els => els.map(e => e.textContent)")[3:] == ["PO-17-IT-3-3", "PO-17-IT-3-4"]
+    page.fill("#set-rows tr:nth-child(4) input[data-f=number]", "1")
+    page.press("#set-rows tr:nth-child(4) input[data-f=number]", "Enter")
+    assert page.eval_on_selector_all("#set-rows tr.dup", "els => els.length") == 2 and "PO-17-IT-3-1" in page.inner_text("#set-errors")
+    page.fill("#set-rows tr:nth-child(4) input[data-f=number]", "3")
+    page.press("#set-rows tr:nth-child(4) input[data-f=number]", "Enter")
+    assert page.eval_on_selector_all("#set-rows tr.dup", "els => els.length") == 0
+    # The CSV download has the six columns; the session gets PO, Item ID, #, priority and due date.
+    with page.expect_download() as info:
+        page.click("#csv-download")
+    lines = Path(info.value.path()).read_text(encoding="utf-8").splitlines()
+    assert lines[0] == "PO,Item ID,#,Type,Priority,DueDate" and lines[1] == "PO-17,IT-3,1,A,70,1500" and lines[2] == "PO-17,IT-3,2,E,80,"
+    page.click("#tab-session")
+    before = len(sessions)
+    page.click("#create")
+    sent = _sent(sessions, before)
+    assert sent["products"][0] == {"type": "A", "priority": 70, "po": "PO-17", "item_id": "IT-3", "number": "1", "due_date": 1500}
+    assert sent["products"][1] == {"type": "E", "priority": 80, "po": "PO-17", "item_id": "IT-3", "number": "2"}
+    page.close()
+
+
+def test_optimize_order_panel(server: tuple[str, list], browser: Any, tmp_path: Path) -> None:
+    """Quick / full options, progress (AI thinking), best so far with "Use this", the table, the notice,
+    and the session's list in its new order after applying; a blocked start shows the reason."""
+    url, sessions = server
+    page = browser.new_page()
+    page.goto(f"{url}/ui")
+    _ready(page)
+    # without a list the panel is hidden
+    page.select_option("#session-set", "")
+    page.click("#create")
+    page.wait_for_function("document.querySelector('#sid').textContent === 's1'")
+    assert page.is_hidden("#optimize-panel")
+    # with the current list (A I P B E)
+    load_csv(page, tmp_path, CSV_OK)
+    page.click("#tab-session")
+    page.select_option("#session-set", "__current__")
+    page.click("#create")
+    page.wait_for_function("!document.querySelector('#optimize-panel').hidden")
+    assert page.inner_text("#opt-quick") == "Quick (~1 min)" and page.inner_text("#opt-full") == "Full (~3 min)"
+    assert page.is_enabled("#opt-quick") and page.is_enabled("#opt-full")
+    dots = lambda sel: page.eval_on_selector_all(f"{sel} .type-dot", "els => els.map(e => e.textContent)")  # noqa: E731
+    assert dots("#opt-list") == list("AIPBE")
+    # blocked by the platform (e.g. the provisional rule): the reason is shown, nothing starts
+    OPT["block"] = "optimize order is not available while there are live simulations with the agent"
+    page.click("#opt-full")
+    page.wait_for_function("document.querySelector('#opt-blocked').textContent.includes('live simulations')")
+    assert OPT["calls"][-1] == ("start", {"mode": "full"}) and page.is_hidden("#opt-progress")
+    OPT["block"] = None
+    # quick: progress with the simulation in course, cancel, run buttons disabled
+    page.click("#opt-quick")
+    page.wait_for_function("!document.querySelector('#opt-progress').hidden")
+    assert OPT["calls"][-1] == ("start", {"mode": "quick"})
+    assert "simulating Original" in page.inner_text("#opt-progress-text") and page.is_visible("#opt-cancel")
+    assert page.is_disabled("#opt-quick") and page.is_disabled("#fast") and page.is_disabled("#live")
+    # round 0 done, the AI thinking: best so far (heuristic) with its saving, and the table
+    OPT["state"] = _opt_state("waiting_ai", [_candidate(0, "original", "Original", [0, 1, 2, 3, 4], 10000, 0.0, 0.0),
+                                             _candidate(1, "heuristic", "Heuristic", [0, 3, 4, 1, 2], 9000, 310.0, 10.0)],
+                              ai_elapsed_s=25.0)
+    page.evaluate("handle({type: 'optimize_best', optimization_id: 'o1'})")
+    page.wait_for_function("document.querySelector('#opt-best').textContent.includes('Best order found so far')")
+    assert "The AI is thinking… 25 s" in page.inner_text("#opt-progress-text")
+    best = page.inner_text("#opt-best")
+    assert "2790.0" in best and "Heuristic" in best and "310.0 u.t. (−10 %)" in best
+    rows = page.eval_on_selector_all("#opt-rows tr", "els => els.map(e => e.cells[0].textContent.trim())")
+    assert rows == ["Original", "Heuristic"]
+    page.click("#opt-rows tr:nth-child(2) summary")
+    assert dots("#opt-rows tr:nth-child(2) details") == list("ABEIP")
+    assert "single seed" in page.inner_text("#opt-note") and "may vary" in page.inner_text("#opt-note")
+    # a progress message updates the text without a request
+    page.evaluate("handle({type: 'optimize_progress', optimization_id: 'o1', status: 'waiting_ai', round: 1, "
+                  "simulation: null, progress_pct: 50, ai_elapsed_s: 31, waited_s: 0})")
+    assert "31 s" in page.inner_text("#opt-progress-text")
+    # "Use this": stops the rounds and applies; the session's list shows the new order
+    page.click("#opt-use-best")
+    page.wait_for_function("document.querySelector('#opt-best').textContent.includes('Applied')")
+    assert OPT["calls"][-1] == ("apply", {"candidate": 1})
+    assert dots("#opt-list") == list("ABEIP") and "Order applied (Heuristic)" in page.inner_text("#msg")
+    assert page.is_hidden("#opt-progress") and page.is_enabled("#fast") and page.is_enabled("#opt-quick")
+    assert "Why:" in page.inner_text("#opt-why") and "longest first" in page.inner_text("#opt-why").lower()
     page.close()

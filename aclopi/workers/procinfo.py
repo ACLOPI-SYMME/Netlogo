@@ -32,6 +32,22 @@ def lower_own_priority() -> str:
         return f"unchanged ({exc})"
 
 
+def set_own_priority(low: bool) -> str:
+    """Lower (low=True) or restore the priority of the current process (a session worker while it
+    simulates orders). Restoring needs no privileges on Windows; on Linux lowering the niceness back
+    needs CAP_SYS_NICE (root in the container), otherwise the worker stays at nice +10."""
+    try:
+        proc = psutil.Process()
+        if sys.platform == "win32":
+            proc.nice(psutil.BELOW_NORMAL_PRIORITY_CLASS if low else psutil.NORMAL_PRIORITY_CLASS)
+            return "BELOW_NORMAL_PRIORITY_CLASS" if low else "NORMAL_PRIORITY_CLASS"
+        proc.nice(10 if low else 0)
+        return f"nice {proc.nice()}"
+    except Exception as exc:  # noqa: BLE001 - priority is best effort
+        logger.warning("Could not %s process priority: %s", "lower" if low else "restore", exc)
+        return f"unchanged ({exc})"
+
+
 def process_priority(pid: int) -> int | None:
     try:
         return int(psutil.Process(pid).nice())

@@ -87,7 +87,7 @@ def http(tmp_path: Path) -> Any:
 def test_post_sessions_with_a_scenario_is_422(http: TestClient, scenario: dict[str, Any]) -> None:
     r = http.post("/sessions", json={"rule": 3, "scenario": scenario})
     assert r.status_code == 422, r.text
-    assert r.json()["code"] == "scenarios_unavailable" and r.json()["detail"] == "los escenarios no están disponibles"
+    assert r.json()["code"] == "scenarios_unavailable" and r.json()["detail"] == "scenarios are not available"
 
 
 def test_post_sessions_s0_or_no_scenario_passes(http: TestClient) -> None:

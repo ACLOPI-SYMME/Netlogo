@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import faulthandler
 import json
 import os
 import sys
@@ -16,9 +17,10 @@ sys.path.insert(0, str(REPO_ROOT / "scripts"))
 # Test groups (CLAUDE.md, rule 4; pytest.ini). A slow test of an API file is also api: it starts a whole pool
 # (or runs live), so it never goes with -n. Commands: -m "api and not slow"; -m "slow and not api" -n 4; -m "slow and api".
 UNIT_FILES = {"test_agent_core", "test_agent_llm", "test_agent_service", "test_agent_token", "test_agent_triage",
-              "test_candidates_unit", "test_decide_context", "test_hub", "test_scenarios_unit", "test_ui_product_set",
-              "test_whatif_estimate", "test_sequencing_unit"}
-API_FILES = {"test_whatif", "test_live", "test_agent_decisions", "test_workers", "test_api", "test_sequencing_platform"}
+              "test_candidates_unit", "test_decide_context", "test_hub", "test_product_limits_unit", "test_scenarios_unit",
+              "test_ui_product_set", "test_whatif_estimate", "test_sequencing_unit", "test_optimize_unit"}
+API_FILES = {"test_whatif", "test_live", "test_agent_decisions", "test_workers", "test_api", "test_sequencing_platform",
+             "test_optimize_order"}
 
 
 @pytest.hookimpl(tryfirst=True)
@@ -31,6 +33,32 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
             continue
         elif name in UNIT_FILES:
             item.add_marker(pytest.mark.unit)
+
+
+# Hang watchdog (no plugin needed): a test that runs longer than its limit, or a pytest process that does not
+# exit after the session, dumps the stack of every Python thread to stderr and ends the process (exit code 1),
+# so a hang is diagnosed instead of waiting for ever. Limits: ACLOPI_TEST_TIMEOUT_S (600 s per test; slow tests
+# 3600 s) and ACLOPI_EXIT_TIMEOUT_S (180 s from the end of the session to the process exit).
+TEST_TIMEOUT_S = float(os.environ.get("ACLOPI_TEST_TIMEOUT_S", "") or 600)
+SLOW_TEST_TIMEOUT_S = 3600.0
+EXIT_TIMEOUT_S = float(os.environ.get("ACLOPI_EXIT_TIMEOUT_S", "") or 180)
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_protocol(item: pytest.Item, nextitem: pytest.Item | None) -> Iterator[None]:
+    limit = SLOW_TEST_TIMEOUT_S if item.get_closest_marker("slow") else TEST_TIMEOUT_S
+    sys.stderr.write("")  # make sure stderr exists before arming
+    faulthandler.dump_traceback_later(limit, exit=True, file=sys.__stderr__)
+    try:
+        yield
+    finally:
+        faulthandler.cancel_dump_traceback_later()
+
+
+def pytest_unconfigure(config: pytest.Config) -> None:
+    # Armed until the interpreter exits: a process stuck at exit (e.g. joining worker processes whose pool was
+    # never shut down) is dumped and ended.
+    faulthandler.dump_traceback_later(EXIT_TIMEOUT_S, exit=True, file=sys.__stderr__)
 
 
 RULES = {

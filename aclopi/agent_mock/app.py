@@ -16,7 +16,12 @@ POST /sessions/{id}/next-machine:
                    timed-out what-if: decides without it (level llm).
     code-fallback  best by finish
 - The reason names the product (type and priority from /decide), e.g. "best finish (E, priority 80)".
-- "down" mode (ACLOPI_MOCK_DOWN = decide | health | all): those endpoints never answer.
+- POST /sequence/propose (optimize order, docs/sequencing.md): products, evaluated, strategy, mode and
+  reasoning; answers 2 new orders (from the best evaluated one: reversed, rotated, swapped; never one
+  already evaluated), the heuristic (largest_first) and an analysis. ACLOPI_MOCK_SEQUENCE_DELAY_S waits
+  before answering; ACLOPI_MOCK_SEQUENCE_BUSY=n answers 429 with Retry-After
+  (ACLOPI_MOCK_SEQUENCE_RETRY_AFTER_S, 1) to the first n calls.
+- "down" mode (ACLOPI_MOCK_DOWN = decide | health | sequence | all): those endpoints never answer.
 - Own seed (ACLOPI_MOCK_SEED): its draws are reproducible when decisions arrive in the same order.
 """
 
@@ -32,7 +37,10 @@ from typing import Any, Mapping
 
 import httpx
 from fastapi import FastAPI, Header, Response
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, ConfigDict, Field
 
+from aclopi.agent.sequencing import largest_first
 from aclopi.contracts.agent import DecideRequest, bearer_matches
 
 logger = logging.getLogger(__name__)
@@ -59,7 +67,10 @@ class MockConfig:
     whatif_pre_s: float = 3.0
     whatif_post_s: float = 1.5
     whatif_min_margin_s: float = 12.0
-    down: str = ""  # "", "decide", "health" or "all"
+    down: str = ""  # "", "decide", "health", "sequence" or "all"
+    sequence_delay_s: float = 0.0
+    sequence_busy: int = 0  # the first n calls of /sequence/propose answer 429
+    sequence_retry_after_s: int = 1
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> MockConfig:
@@ -75,7 +86,38 @@ class MockConfig:
         cfg.whatif_pre_s = float(env.get("ACLOPI_MOCK_WHATIF_PRE_S", "") or cfg.whatif_pre_s)
         cfg.whatif_post_s = float(env.get("ACLOPI_MOCK_WHATIF_POST_S", "") or cfg.whatif_post_s)
         cfg.down = env.get("ACLOPI_MOCK_DOWN", "").strip()
+        cfg.sequence_delay_s = float(env.get("ACLOPI_MOCK_SEQUENCE_DELAY_S", "") or cfg.sequence_delay_s)
+        cfg.sequence_busy = int(env.get("ACLOPI_MOCK_SEQUENCE_BUSY", "") or cfg.sequence_busy)
+        cfg.sequence_retry_after_s = int(env.get("ACLOPI_MOCK_SEQUENCE_RETRY_AFTER_S", "") or cfg.sequence_retry_after_s)
         return cfg
+
+
+class SequenceBody(BaseModel):
+    """POST /sequence/propose as the platform sends it (the real one: aclopi.agent.sequencing.SequenceRequest)."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    products: list[dict[str, Any]] = Field(min_length=1)
+    evaluated: list[dict[str, Any]] = Field(default_factory=list)
+    strategy: str = "b1b"
+    mode: str = "Deterministic"
+    reasoning: str | None = None
+
+
+def mock_orders(n: int, evaluated: list[dict[str, Any]]) -> list[list[int]]:
+    """Two new orders from the best evaluated one (lowest makespan): reversed, rotated, adjacent swaps."""
+    done = [e for e in evaluated if e.get("makespan_ticks") is not None] or evaluated
+    base = list(min(done, key=lambda e: e["makespan_ticks"] or 0)["order"]) if done else list(range(n))
+    seen = [list(e["order"]) for e in evaluated]
+    tries = [base[::-1]] + [base[k:] + base[:k] for k in range(1, n)]
+    tries += [base[:i] + [base[i + 1], base[i]] + base[i + 2:] for i in range(n - 1)]
+    out: list[list[int]] = []
+    for order in tries:
+        if order not in seen and order not in out:
+            out.append(order)
+        if len(out) == 2:
+            break
+    return out
 
 
 def _rank(candidates: list[dict[str, Any]], b1b: bool = False) -> list[dict[str, Any]]:
@@ -100,6 +142,32 @@ def create_mock_app(config: MockConfig | None = None) -> FastAPI:
         if cfg.down in ("health", "all"):
             await asyncio.sleep(3600)
         return {"status": "ok"}
+
+    app.state.sequence_requests = []  # /sequence/propose bodies received (dicts), for tests
+    app.state.sequence_calls = 0
+
+    @app.post("/sequence/propose", response_model=None)
+    async def sequence_propose(body: SequenceBody, authorization: str | None = Header(None)) -> Any:
+        if cfg.down in ("sequence", "all"):
+            await asyncio.sleep(3600)
+        if cfg.token and not bearer_matches(authorization, cfg.token):
+            return Response(status_code=401)
+        app.state.sequence_calls += 1
+        if app.state.sequence_calls <= cfg.sequence_busy:
+            return JSONResponse({"code": "sequence_busy", "detail": "an ordering call is already running"},
+                                status_code=429, headers={"Retry-After": str(cfg.sequence_retry_after_s)})
+        app.state.sequence_requests.append(body.model_dump())
+        t0 = time.perf_counter()
+        if cfg.sequence_delay_s > 0:
+            await asyncio.sleep(cfg.sequence_delay_s)
+        n = len(body.products)
+        orders = mock_orders(n, body.evaluated)
+        best = min((e["makespan_ticks"] for e in body.evaluated if e.get("makespan_ticks") is not None), default=None)
+        return {"orders": [{"order": o, "reasoning": f"mock: variation {i + 1} of the best order so far"}
+                           for i, o in enumerate(orders)],
+                "analysis": f"mock analysis (reasoning {body.reasoning}): best so far {best} ticks",
+                "heuristic": {"order": largest_first(body.products), "reasoning": "Longest first"},
+                "latency_ms": round(1000 * (time.perf_counter() - t0), 1), "error": None if orders else "no-valid-order"}
 
     @app.post("/decide", status_code=202)
     async def decide(body: DecideRequest, authorization: str | None = Header(None)) -> Response:
