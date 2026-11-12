@@ -8,7 +8,7 @@ The result of the **"Optimize order"** button: several entry orders of the sessi
 
 ## How it is produced and when it is available
 
-- **Start.** It is produced on request: `POST /sessions/{id}/optimize-order`, or the button on the Visualization tab. Only with a session that has a list, idle at tick 0.
+- **Start.** It is produced on request: `POST /sessions/{id}/optimize-order` (a session with a list, idle at tick 0), or the button in the Order entry tab, which creates that session itself.
 - **Lifetime.** Available **while the session exists**, from the moment it starts:
   - each order appears in it as soon as its simulation ends;
   - the session keeps only its **last** optimization;
@@ -21,7 +21,7 @@ The result of the **"Optimize order"** button: several entry orders of the sessi
 |---|---|
 | `GET /sessions/{id}/optimize-order` | The whole record (below) |
 | WebSocket `optimize_progress`, `optimize_best`, `optimize_result`, `optimize_failed` | Progress and results as they happen ([websocket.md](websocket.md)) |
-| Page, **Visualization** tab, panel "§1b Optimize order" | Progress, "Best order found so far", the table of orders, the reason of the winner and the notice |
+| Page, **Order entry** tab, under the Current list | Progress, "Best option found so far", the table of orders, the reason of the winner and the notice. "Use this" reorders the Current list |
 | `GET /sessions/{id}` → `optimize_status`, `optimization` | The outcome and the applied order ([sessions-and-state.md](sessions-and-state.md)) |
 | `GET /runs/{id}` → `optimization` | The estimate next to the real run ([runs.md](runs.md)) |
 

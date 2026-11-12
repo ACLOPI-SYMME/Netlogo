@@ -120,15 +120,15 @@
 
   /* ----- session workbench ----- */
   /* the controls are a menu bar across the top; below, the figure with the readouts beside it */
-  #page-session { grid-template-columns: minmax(0, 1fr); grid-template-areas: "setup" "optimize" "run" "figure" "readouts" "decisions" "events"; }
+  #page-session { grid-template-columns: minmax(0, 1fr); grid-template-areas: "setup" "run" "figure" "readouts" "decisions" "events"; }
   #setup { grid-area: setup; } #run-panel { grid-area: run; } .figure { grid-area: figure; } #readouts { grid-area: readouts; }
   #decisions-panel { grid-area: decisions; } #events-panel { grid-area: events; }
   @media (min-width: 1100px) {
     #page-session { grid-template-columns: minmax(9.5rem, 11rem) minmax(0, 1fr) minmax(17rem, 22rem);
-                    grid-template-areas: "setup setup setup" "optimize optimize optimize" "run figure readouts" "decisions decisions events"; align-items: start; }
+                    grid-template-areas: "setup setup setup" "run figure readouts" "decisions decisions events"; align-items: start; }
   }
   @media (min-width: 1100px) and (max-width: 1400px) {
-    #page-session { grid-template-areas: "setup setup setup" "optimize optimize optimize" "run figure readouts" "decisions decisions decisions" "events events events"; }
+    #page-session { grid-template-areas: "setup setup setup" "run figure readouts" "decisions decisions decisions" "events events events"; }
   }
 
   /* menu bar: one band per group (Setup, Run), label on the left, controls in a row */
@@ -181,9 +181,8 @@
             background: var(--paper); border: var(--rule-w) solid var(--rule); padding: var(--s2); white-space: pre; }
 
   /* ----- optimize order ----- */
-  #optimize-panel { grid-area: optimize; }
-  #optimize-panel .head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2) var(--s4); }
-  #optimize-panel .head h2 { margin: 0; }
+  #optimize-panel .row { margin-top: var(--s2); }
+  #opt-session:empty, #opt-blocked:empty { display: none; }
   .seq { display: flex; flex-wrap: wrap; gap: 3px; align-items: center; }
   .seq .type-dot { margin-right: 0; }
   .opt-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--s3) var(--s4); margin-top: var(--s3); }
@@ -283,7 +282,7 @@
 <section id="page-session" class="page" role="tabpanel">
   <div id="setup" class="panel toolbar" role="toolbar" aria-label="Session controls">
     <div class="group">
-      <span class="label"><span class="sec">§1</span> Setup</span>
+      <span class="label">Setup</span>
       <div class="row">
         <label class="field"><span>Rule</span>
           <select id="rule"><option value="1">Rule 1 — Random machine</option><option value="2">Rule 2 — Nearest machine</option>
@@ -305,34 +304,8 @@
     </div>
   </div>
 
-  <div id="optimize-panel" class="panel" hidden>
-    <div class="head">
-      <h2><span class="sec">§1b</span>Optimize order</h2>
-      <span class="label">Entry order of the session</span><div id="opt-list" class="seq"></div>
-    </div>
-    <div class="row" style="margin-top: var(--s2)">
-      <button id="opt-start" class="primary">Optimize order</button>
-      <span id="opt-help" class="muted">It can take about 3 minutes; you can use the best option found at any time.</span>
-      <button id="opt-cancel" class="ghost" hidden>✕ Cancel</button>
-      <span id="opt-blocked" class="err"></span>
-    </div>
-    <div id="opt-progress" hidden>
-      <div class="meter"><span id="opt-bar" style="width:0%"></span></div>
-      <div id="opt-progress-text" class="mono" aria-live="polite"></div>
-    </div>
-    <div class="opt-grid" id="opt-results" hidden>
-      <div id="opt-best"></div>
-      <div>
-        <div class="table-wrap"><table class="set opt"><thead><tr><th>Origin</th><th>Estimated time</th><th>Saving</th>
-          <th>Order</th><th></th></tr></thead><tbody id="opt-rows"></tbody></table></div>
-        <div id="opt-why"></div>
-      </div>
-    </div>
-    <p id="opt-note" hidden></p>
-  </div>
-
   <div id="run-panel" class="panel" role="toolbar" aria-label="Run controls">
-    <h2><span class="sec">§2</span>Run</h2>
+    <h2>Run</h2>
     <label class="field"><span>Live speed</span>
       <select id="speed"><option value="0.5">0.5× (16 ticks/s)</option><option value="1" selected>1× (32 ticks/s)</option>
         <option value="2">2× (64 ticks/s)</option><option value="4">4× (128 ticks/s)</option></select></label>
@@ -355,10 +328,10 @@
   </figure>
 
   <div id="readouts" class="panel">
-    <h2><span class="sec">§3</span>Indicators</h2>
+    <h2>Indicators</h2>
     <div id="kpis"><p class="muted">No session yet.</p></div>
     <hr class="rule">
-    <h2><span class="sec">§4</span>Agent</h2>
+    <h2>Agent</h2>
     <div id="decisions" class="muted">–</div>
   </div>
 
@@ -380,7 +353,7 @@
 <!-- ===================== Order entry (product set) ===================== -->
 <section id="page-set" class="page" role="tabpanel" hidden>
   <div class="panel">
-    <h2><span class="sec">§1</span>Build the list</h2>
+    <h2>Build the list</h2>
     <p class="muted" style="margin: 0 0 var(--s3)">Products enter the plant in the order of the list. PO, Item ID and # together
       identify each product. At most <span class="mono">30</span> products.</p>
     <div class="row">
@@ -415,7 +388,7 @@
     </div>
     <div class="row"><button id="csv-download">Download CSV</button><button id="clear">Clear list</button></div>
     <hr class="rule">
-    <h2><span class="sec">§2</span>Saved sets</h2>
+    <h2>Saved sets</h2>
     <div class="row">
       <label class="field"><span>Name</span><input id="set-name" value="My set"></label>
       <button id="set-save" class="primary">Save</button>
@@ -435,6 +408,28 @@
     <div class="table-wrap" style="margin-top: var(--s2)"><table class="set order"><thead><tr><th></th><th>Order</th><th>PO</th><th>Item ID</th><th>#</th>
       <th>Type</th><th>Priority</th><th>DueDate (u.t.)</th><th>Id</th><th>Actions</th></tr></thead>
       <tbody id="set-rows"></tbody></table></div>
+    <div id="optimize-panel">
+      <hr class="rule">
+      <div class="row">
+        <button id="opt-start" class="primary">Optimize order</button>
+        <span id="opt-help" class="muted">It can take about 3 minutes; you can use the best option found at any time.</span>
+        <button id="opt-cancel" class="ghost" hidden>✕ Cancel</button>
+      </div>
+      <div class="row"><span id="opt-session" class="muted mono"></span><span id="opt-blocked" class="err"></span></div>
+      <div id="opt-progress" hidden>
+        <div class="meter"><span id="opt-bar" style="width:0%"></span></div>
+        <div id="opt-progress-text" class="mono" aria-live="polite"></div>
+      </div>
+      <div class="opt-grid" id="opt-results" hidden>
+        <div id="opt-best"></div>
+        <div>
+          <div class="table-wrap"><table class="set opt"><thead><tr><th>Origin</th><th>Estimated time</th><th>Saving</th>
+            <th>Order</th><th></th></tr></thead><tbody id="opt-rows"></tbody></table></div>
+          <div id="opt-why"></div>
+        </div>
+      </div>
+      <p id="opt-note" hidden></p>
+    </div>
   </div>
 </section>
 
@@ -522,9 +517,9 @@ function showTab(name) {
   if (name === "runs") loadRuns(true);
   if (name === "session") resizeCanvas();
 }
-$("tab-session").onclick = () => showTab("session");
+$("tab-session").onclick = () => { leaveOptimize(); showTab("session"); };
 $("tab-set").onclick = () => showTab("set");
-$("tab-runs").onclick = () => showTab("runs");
+$("tab-runs").onclick = () => { leaveOptimize(); showTab("runs"); };
 
 // tooltips also open with a tap (touch screens have no hover)
 document.querySelectorAll(".tip > button").forEach(b => {
@@ -571,6 +566,7 @@ function showRun(info) {
 }
 async function createSession(body) {
   if (sid) { await api("DELETE", `/sessions/${sid}`).catch(() => {}); }
+  optSid = null;  // the session optimize order created (if it was that one) is gone
   const info = await api("POST", "/sessions", body);
   sessionInfo = info; sid = info.session_id; optState = null; clearInterval(optPoll); optPoll = null;
   $("opt-blocked").textContent = ""; $("opt-blocked").dataset.api = "";
@@ -595,8 +591,8 @@ $("create").onclick = () => act(async () => {
   return info;
 });
 $("seed-copy").onclick = () => { try { navigator.clipboard.writeText(String(sessionInfo.parameters.seed)); } catch (e) {} };
-$("live").onclick = () => act(() => { requireSession(); return api("POST", `/sessions/${sid}/run`, {mode: "live", speed: +$("speed").value}); });
-$("fast").onclick = () => act(() => { requireSession(); return api("POST", `/sessions/${sid}/run`, {mode: "fast"}); });
+$("live").onclick = () => act(async () => { requireSession(); await sessionForEditedList(); return api("POST", `/sessions/${sid}/run`, {mode: "live", speed: +$("speed").value}); });
+$("fast").onclick = () => act(async () => { requireSession(); await sessionForEditedList(); return api("POST", `/sessions/${sid}/run`, {mode: "fast"}); });
 $("pause").onclick = () => act(() => { requireSession(); return api("POST", `/sessions/${sid}/pause`); });
 $("resume").onclick = () => act(() => {
   requireSession();
@@ -611,7 +607,7 @@ $("reset").onclick = () => act(() => { requireSession(); return api("POST", `/se
 $("close").onclick = () => act(async () => {
   requireSession();
   await api("DELETE", `/sessions/${sid}`);
-  sid = null; $("sid").textContent = "–"; $("list-progress").textContent = "–"; disconnect();
+  forgetSession();
   optState = null; clearInterval(optPoll); optPoll = null; renderOptimize();
 });
 document.addEventListener("keydown", e => {  // space: pause / resume
@@ -717,6 +713,9 @@ function handle(m) {
 
 // ----- optimize order (docs/optimize-order.md) -----
 let optState = null, optFetching = false, optPoll = null;
+// the session created here for optimize order, the list at the start (orders index it), whether an order was used,
+// and the list as it was applied (an edited list gets its own session when it runs)
+let optSid = null, optItems = [], optApplied = false, optListKey = null;
 const OPT_ACTIVE = ["running", "waiting_turn", "waiting_ai"];
 const seqDots = (products, order) => `<span class="seq">${(order ?? products.map((_, i) => i)).map(i => {
   const p = products[i] || {}; const id = itemId(asItem(p));
@@ -737,24 +736,20 @@ function optNotice() {
     ? "Estimate in deterministic mode, with a single seed and a simple rule (b1b) as an approximation of the agent. The real saving may vary."
     : `Estimate in deterministic mode, with a single seed and the session's rule (rule ${rule}). The real saving may vary.`;
 }
+function optActive() { return !!(optState && OPT_ACTIVE.includes(optState.status)); }
 function optCanStart() {
-  if (!sessionInfo || !sessionInfo.products_total) return "Optimize order needs a product list (choose one in Product set).";
-  if (optState && OPT_ACTIVE.includes(optState.status)) return "";
-  if (runState !== "idle" || (sessionInfo.ticks ?? 0) > 0) return "Only before running: reset the session first.";
+  if (!setItems.length) return "Add products to the list first.";
+  if (duplicatedIds().size) return "Fix the repeated ids first.";
   return null;  // can start
 }
 function renderOptimize() {
-  const has = !!(sessionInfo && sessionInfo.products_total);
-  $("optimize-panel").hidden = !sid || !has;
-  if (!sid || !has) return;
-  $("opt-list").innerHTML = seqDots(sessionInfo.products || []);
-  const active = !!(optState && OPT_ACTIVE.includes(optState.status));
-  const why = optCanStart();
+  const active = optActive();
+  const why = active ? "" : optCanStart();
   $("opt-start").disabled = active || why !== null;
   if (!active && why) $("opt-blocked").textContent = why;
   else if (!active && $("opt-blocked").dataset.api !== "1") $("opt-blocked").textContent = "";
   $("opt-cancel").hidden = !active;
-  for (const b of ["live", "fast", "reset"]) $(b).disabled = active;
+  for (const b of ["live", "fast", "reset"]) $(b).disabled = active && sid === optSid;
   $("opt-progress").hidden = !active;
   const o = optState;
   if (!o) { $("opt-results").hidden = true; $("opt-note").hidden = true; return; }
@@ -769,13 +764,14 @@ function renderOptimize() {
   }
   $("opt-results").hidden = !o.evaluated.length;
   const best = o.best !== null ? o.evaluated[o.best] : null;
-  const canApply = !active ? (runState === "idle" && (sessionInfo.ticks ?? 0) === 0) : true;
-  $("opt-best").innerHTML = best ? `<span class="label">${active ? "Best order found so far" : "Best order found"}</span>
+  // an order can be used while its session (created here) is alive, idle and at tick 0
+  const canApply = !!optSid && sid === optSid && (active || (runState === "idle" && (sessionInfo?.ticks ?? 0) === 0));
+  $("opt-best").innerHTML = best ? `<span class="label">${active ? "Best option found so far" : "Best option found"}</span>
       <span class="big">${ut(best.makespan_time)}<small> u.t.</small></span>
       <span class="mono muted">${best.makespan_ticks} ticks · ${esc(best.label)}</span><br>
       <span>Saving: ${savingText(best)}</span>
       <div style="margin: var(--s2) 0">${seqDots(o.products, best.order)}</div>
-      ${o.applied === best.index ? `<b>✓ Applied</b>` : `<button id="opt-use-best" class="primary" ${canApply ? "" : "disabled"}>Use this</button>`}`
+      ${o.applied === best.index ? `<b>✓ Applied to the current list</b>` : `<button id="opt-use-best" class="primary" ${canApply ? "" : "disabled"}>Use this</button>`}`
     : `<span class="muted">No complete simulation yet${o.evaluated.length ? " (the horizon is too short for the list)" : ""}.</span>`;
   if ($("opt-use-best")) $("opt-use-best").onclick = () => applyOrder(best.index);
   const rows = o.evaluated.map(c => `<tr class="${c.index === o.best ? "best" : ""} ${c.index === o.applied ? "applied" : ""}">
@@ -795,32 +791,74 @@ function renderOptimize() {
   }
   if (o.warning) whyText += `${whyText ? "<br>" : ""}<span class="err">${esc(o.warning)}</span>`;
   if (o.status === "failed") whyText += `${whyText ? "<br>" : ""}<span class="err">Optimization failed: ${esc(o.error || "")}</span>`;
-  if (o.status === "cancelled") whyText += `${whyText ? "<br>" : ""}<span class="muted">Cancelled: the session keeps its order.</span>`;
+  if (o.status === "cancelled") whyText += `${whyText ? "<br>" : ""}<span class="muted">Cancelled: the list keeps its order.</span>`;
   $("opt-why").innerHTML = whyText;
   $("opt-note").hidden = false; $("opt-note").textContent = optNotice();
 }
 async function refreshOptimize() {
-  if (!sid || optFetching) return;
+  if (!sid || sid !== optSid || optFetching) return;
   optFetching = true;
   try {
     const r = await fetch(`/sessions/${sid}/optimize-order`);
-    optState = r.ok ? await r.json() : null;
+    if (r.ok) optState = await r.json();
   } catch (e) {} finally { optFetching = false; }
-  if (optState && !OPT_ACTIVE.includes(optState.status)) {
+  if (optState && !optActive()) {
     clearInterval(optPoll); optPoll = null;
     try { sessionInfo = await api("GET", `/sessions/${sid}`); showRun(sessionInfo); } catch (e) {}
   }
   renderOptimize();
 }
+function forgetSession() {
+  if (sid === optSid) optSid = null;
+  sid = null; $("sid").textContent = "–"; $("list-progress").textContent = "–"; disconnect();
+}
+async function closeOptSession() {
+  // the session optimize order created and nobody chose an order for: close it and free its place
+  if (!optSid) return;
+  const s = optSid; optSid = null; optApplied = false;
+  clearInterval(optPoll); optPoll = null;
+  await api("DELETE", `/sessions/${s}`).catch(() => {});
+  if (sid === s) { sid = null; $("sid").textContent = "–"; $("list-progress").textContent = "–"; disconnect(); }
+  $("opt-session").textContent = "";
+  renderOptimize();
+}
+function leaveOptimize() {
+  // leaving the Order entry tab without choosing an order: stop the optimization and close its session
+  if (!optSid || optApplied) return;
+  const s = optSid;
+  (async () => {
+    if (optActive()) await api("POST", `/sessions/${s}/optimize-order/cancel`).catch(() => {});
+    if (optState && optActive()) optState.status = "cancelled";
+    await closeOptSession();
+  })();
+}
+window.addEventListener("pagehide", () => {
+  if (optSid && !optApplied) { try { fetch(`/sessions/${optSid}`, {method: "DELETE", keepalive: true}); } catch (e) {} }
+});
 async function startOptimize() {
-  if (!sid) return;
   $("opt-blocked").textContent = ""; $("opt-blocked").dataset.api = "";
+  const blocked = reason => { $("opt-blocked").textContent = reason; $("opt-blocked").dataset.api = "1"; renderOptimize(); };
+  const why = optCanStart(); if (why) return blocked(why);
+  const s = generateSeed(); if (!s.ok) return blocked("Invalid seed");
+  if (sid && sid !== optSid && !confirm("Optimizing creates its own session: the session open in Visualization will be closed. Continue?")) return;
+  // the session optimize order needs: the current list, the rule and horizon chosen in Visualization, and the
+  // seed of this tab's checkbox (random if unchecked)
+  const body = {rule: +$("rule").value, horizon_ticks: +$("horizon").value, products: setItems.map(asPayload)};
+  if (s.seed !== undefined) body.seed = s.seed;
+  if (body.rule === 4) body.strategy = "agent";
+  let info;
+  try { info = await createSession(body); } catch (e) { return blocked((e.data && e.data.detail) || e.message); }  // e.g. no free place
+  optSid = sid; optApplied = false; optItems = setItems.map(p => ({...p})); optListKey = null;
+  $("session-set").value = CURRENT_LIST;
+  $("opt-session").textContent = `Session ${sid.slice(0, 8)} · rule ${info.parameters.rule} · seed ${info.parameters.seed}` +
+    (info.seed_source === "random" ? " (random)" : "");
   try {
     optState = await api("POST", `/sessions/${sid}/optimize-order`, {});
     clearError();
     clearInterval(optPoll); optPoll = setInterval(refreshOptimize, 2000);  // backup of the WebSocket messages
-  } catch (e) {  // blocked: provisional rule (live agent runs), fast-run quota, list too long, not idle…
-    $("opt-blocked").textContent = (e.data && e.data.detail) || e.message; $("opt-blocked").dataset.api = "1";
+  } catch (e) {  // blocked: one optimization at a time, provisional rule (live agent runs), list too long…
+    await closeOptSession();
+    return blocked((e.data && e.data.detail) || e.message);
   }
   renderOptimize();
 }
@@ -829,14 +867,31 @@ async function applyOrder(index) {
     const out = await api("POST", `/sessions/${sid}/apply-order`, {candidate: index});
     sessionInfo = out.session; optState = out.optimization; showRun(sessionInfo); clearError();
     const c = optState.evaluated[index];
-    msg(`Order applied (${c.label}): estimated ${ut(c.makespan_time)} u.t.; the session is ready to run`);
+    // the current list (same editable table) takes the new order; the session is ready to run with it
+    setItems = c.order.map(i => ({...optItems[i]}));
+    optApplied = true; optListKey = listKey();
+    markDirty(true); renderSet();
+    msg(`Order applied (${c.label}): estimated ${ut(c.makespan_time)} u.t. The list shows the new order; run it from Visualization`);
   } catch (e) { msg(e.message, true); refreshOptimize(); }
   renderOptimize();
+}
+const listKey = () => JSON.stringify(setItems.map(asPayload));
+async function sessionForEditedList() {
+  // the session made by optimize order runs as it is, unless the list was edited after "Use this": then the
+  // edited list gets its own session (same rule, horizon and seed)
+  if (!sid || sid !== optSid || !optApplied || listKey() === optListKey) return;
+  const seed = sessionInfo.parameters.seed;
+  const body = {rule: sessionInfo.parameters.rule, horizon_ticks: sessionInfo.parameters.horizon_ticks, seed,
+                products: setItems.map(asPayload)};
+  if (body.rule === 4) body.strategy = "agent";
+  await createSession(body);
+  msg("The list changed after optimizing: a new session was created with the edited list");
 }
 $("opt-start").onclick = () => startOptimize();
 $("opt-cancel").onclick = () => act(async () => {
   $("opt-cancel").disabled = true;
   try { optState = await api("POST", `/sessions/${sid}/optimize-order/cancel`); } finally { $("opt-cancel").disabled = false; }
+  if (!optApplied) await closeOptSession();  // cancelled without choosing: the session made here frees its place
   renderOptimize();
 });
 
@@ -947,6 +1002,7 @@ function renderSet() {
   $("csv-download").disabled = !setItems.length;
   $("set-save").disabled = !setItems.length;
   $("add").disabled = setItems.length >= MAX_PRODUCTS;
+  renderOptimize();  // the Optimize order button follows the list
   const body = $("set-rows"); body.textContent = "";
   if (!setItems.length) { body.innerHTML = `<tr><td colspan="10" class="empty">The list is empty: add products, generate them from a seed or upload a CSV.</td></tr>`; return; }
   const dups = duplicatedIds();
