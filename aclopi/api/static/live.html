@@ -203,6 +203,7 @@
   table.opt details .seq { margin-top: 4px; white-space: normal; max-width: 26rem; }
   #opt-why { font-size: var(--step--1); line-height: 1.5; }
   #opt-why:empty { display: none; }
+  #opt-note { font-size: var(--step--1); font-style: italic; margin-top: var(--s2); }
 
   /* ----- tables ----- */
   .table-wrap { overflow-x: auto; border: var(--rule-w) solid var(--rule); border-radius: var(--radius); background: var(--paper); }
@@ -429,6 +430,7 @@
           <div class="table-wrap"><table class="set opt"><thead><tr><th>Origin</th><th>Estimated time</th><th>Saving</th>
             <th>Order</th><th></th></tr></thead><tbody id="opt-rows"></tbody></table></div>
           <div id="opt-why"></div>
+          <p id="opt-note" class="muted">Estimated with a fully deterministic simulation (fixed times and a fixed seed, the same in every session). The final result may differ because of the nature of the simulation: in the real run, variable times and the rule's decisions can change the order's performance.</p>
         </div>
       </div>
     </div>

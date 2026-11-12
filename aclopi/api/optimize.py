@@ -8,7 +8,8 @@ Rounds, all on the session's own worker (simulate_list, aclopi.sim.sequencing) a
   (order, makespan_ticks, details) and proposes up to 2 new orders; the valid, new ones are simulated and
   added. There is a single mode; the AI's reasoning effort is the agent's own configuration.
 
-Every simulation uses the session's seed, the strategy of its rule (rules 1-3 -> rule1-rule3; rule 4 ->
+Every simulation uses the fixed seed ACLOPI_OPTIMIZE_SEED (1; not the session's, so the same list and
+rule give the same times in any session), the strategy of its rule (rules 1-3 -> rule1-rule3; rule 4 ->
 b1b, or b1 when the session uses b1), mode Deterministic and the session's horizon as max_ticks. The
 times always come from simulate_list, never from the AI's text.
 
@@ -131,7 +132,7 @@ class OrderOptimization:
         self.active = True  # until the session's setup is made again (restore or apply)
         self.products = [dict(p) for p in record.product_list or []]  # the list as it was at the start
         p = record.parameters
-        self.seed, self.max_ticks = int(p["seed"]), int(p["horizon_ticks"])
+        self.seed, self.max_ticks = int(settings.optimize_seed), int(p["horizon_ticks"])
         self.strategy = sim_strategy(int(p["rule"]), record.strategy)
         self.evaluated: list[dict[str, Any]] = []
         self.discarded: list[dict[str, Any]] = []

@@ -208,6 +208,7 @@ A session with a request in progress never closes.
 | `ACLOPI_WS_QUEUE` | `32` | Queued messages per WebSocket client before resynchronising it |
 | `ACLOPI_OPTIMIZE_ROUNDS` | `2` | Optimize order: rounds with the AI (replaces `ACLOPI_OPTIMIZE_ROUNDS_FULL`) |
 | `ACLOPI_OPTIMIZE_MAX_PRODUCTS` | `50` | Optimize order: longest list (422 above) |
+| `ACLOPI_OPTIMIZE_SEED` | `1` | Optimize order: fixed seed of every estimate (not the session's) |
 | `ACLOPI_OPTIMIZE_BLOCK_WHEN_LIVE_AGENT` | `1` | Optimize order: provisional rule, refused while live agent sessions run (`0` removes it) |
 | `ACLOPI_OPTIMIZE_MAX_WAIT_S` | `300` | Optimize order: total wait for a turn at the AI (429) before failing |
 | `ACLOPI_OPTIMIZE_AI_TIMEOUT_S` | `90` | Optimize order: timeout of each `POST /sequence/propose` |

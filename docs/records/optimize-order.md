@@ -36,7 +36,7 @@ The result of the **"Optimize order"** button: several entry orders of the sessi
 | `current` | Simulation in progress: `label`, `ticks`, `done` (products finished), `total` | — | `null` when not simulating |
 | `ai_elapsed_s` | Seconds the AI has been thinking | s | only in `waiting_ai` |
 | `waited_s` | Seconds waited for a turn at the AI (429), in total | s | — |
-| `strategy`, `simulation_mode`, `seed`, `max_ticks` | How every order was simulated | — | e.g. `b1b`, `Deterministic`, the session's seed, the session's horizon |
+| `strategy`, `simulation_mode`, `seed`, `max_ticks` | How every order was simulated | — | e.g. `b1b`, `Deterministic`, the fixed seed `ACLOPI_OPTIMIZE_SEED` (1), the session's horizon |
 | `products` | The session's list **at the start**. Every `order` indexes it | — | see [product-sets.md](product-sets.md) |
 | `evaluated[]` | The orders simulated (table below) | — | in the order they were simulated |
 | `discarded[]` | Orders not simulated: `label`, `origin`, `round`, `order`, `reason` (`invalid`: not a complete order; `same_as`: equal to the order named in `same_as`), `reasoning` | — | — |
@@ -111,7 +111,7 @@ The real run had `kpis.makespan_ticks: 10276` (3,185.56 u.t.): 2.7 % above the e
 ## Pitfalls
 
 - **`order` indexes the list as it was at the start.** After applying, the session's list is the reordered one. A new optimization takes the new list as its "Original".
-- **The estimate is not the real run.** It uses mode Deterministic, one seed and, with rule 4, the b1b rule in place of the agent. The real saving may vary.
+- **The estimate is not the real run.** It uses mode Deterministic, the fixed seed `ACLOPI_OPTIMIZE_SEED` and, with rule 4, the b1b rule in place of the agent. The real saving may vary.
 - **Not done by the horizon.** With a short horizon, `all_done: false` and `makespan_*: null`. There is no saving and no best order. Raise the horizon.
 - **The saving can be negative**: the order is worse than the original.
 - **`optimization` in a run is only there if an order was applied** before that run. Optimizing without applying leaves `null`.

@@ -144,11 +144,12 @@ def test_503_when_the_fast_quota_is_full() -> None:
 def test_settings_from_env() -> None:
     s = Settings.from_env({})
     assert (s.optimize_rounds, s.optimize_max_products, s.optimize_block_when_live_agent,
-            s.optimize_max_wait_s, s.optimize_ai_timeout_s) == (2, 50, True, 300.0, 90.0)
+            s.optimize_max_wait_s, s.optimize_ai_timeout_s, s.optimize_seed) == (2, 50, True, 300.0, 90.0, 1)
     s = Settings.from_env({"ACLOPI_OPTIMIZE_ROUNDS": "3", "ACLOPI_OPTIMIZE_MAX_PRODUCTS": "20",
-                           "ACLOPI_OPTIMIZE_BLOCK_WHEN_LIVE_AGENT": "0", "ACLOPI_OPTIMIZE_MAX_WAIT_S": "60"})
+                           "ACLOPI_OPTIMIZE_BLOCK_WHEN_LIVE_AGENT": "0", "ACLOPI_OPTIMIZE_MAX_WAIT_S": "60",
+                           "ACLOPI_OPTIMIZE_SEED": "7"})
     assert (s.optimize_rounds, s.optimize_max_products, s.optimize_block_when_live_agent,
-            s.optimize_max_wait_s) == (3, 20, False, 60.0)
+            s.optimize_max_wait_s, s.optimize_seed) == (3, 20, False, 60.0, 7)
 
 
 def test_mock_orders_are_new() -> None:
