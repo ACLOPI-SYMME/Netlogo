@@ -57,7 +57,7 @@ Rules of the rounds:
 - **Simulation parameters** (the same for every order):
   - strategy: rules 1–3 → `rule1`–`rule3`; rule 4 → `b1b` (`b1` if the session uses `b1`);
   - mode `Deterministic`;
-  - the session's seed;
+  - the fixed seed `ACLOPI_OPTIMIZE_SEED` (1 by default), not the session's: the same list with the same rule gives the same times in any session;
   - `max_ticks` = the session's horizon. If the list does not finish by then, the order shows "not done by the horizon" and has no makespan.
 - **The AI fails or brings nothing valid:** the rounds end with what was evaluated so far (at least the original and the heuristic). It is not an error: the status is `done`, with a `warning`.
 - **Agent down:** the platform does not call it. The optimization ends after round 0 with the warning "the AI is not available; only the original and the heuristic were compared". The platform knows the agent is down from its health check (`GET /health` of the agent, the same check the platform already runs).
@@ -161,6 +161,7 @@ When an order is applied, the session keeps `optimization`. It shows in `GET /se
 | `ACLOPI_OPTIMIZE_BLOCK_WHEN_LIVE_AGENT` | `1` | Provisional rule: refuse while live agent sessions run (`0` removes it) |
 | `ACLOPI_OPTIMIZE_MAX_WAIT_S` | `300` | Total wait for a turn at the AI (429) before failing |
 | `ACLOPI_OPTIMIZE_AI_TIMEOUT_S` | `90` | Timeout of each `POST /sequence/propose` |
+| `ACLOPI_OPTIMIZE_SEED` | `1` | Fixed seed of every estimate (not the session's) |
 
 **Mock agent** (`aclopi.agent_mock`, for tests and local runs). `POST /sequence/propose` takes `products`, `evaluated`, `strategy` and `mode`. It answers:
 
@@ -178,7 +179,7 @@ Its behaviour can be set with these variables:
 
 ## The estimate is not the real run
 
-The times come from mode Deterministic, a single seed and, with rule 4, the b1b rule as an approximation of the agent, so the real saving may vary. The page no longer shows a notice about it (removed on 12 Nov).
+The times come from mode Deterministic, the fixed seed `ACLOPI_OPTIMIZE_SEED` and, with rule 4, the b1b rule as an approximation of the agent, so the real saving may vary. The page shows a note under the table: "Estimated with a fully deterministic simulation (fixed times and a fixed seed, the same in every session). The final result may differ because of the nature of the simulation: …".
 
 In the real example, rule 4 with the agent and 5 products: the estimate (Deterministic, b1b) was 10,005 ticks, and the real fast run (Stochastic, mock agent) took 10,276 ticks.
 
