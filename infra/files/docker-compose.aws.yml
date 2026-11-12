@@ -1,0 +1,76 @@
+# Production stack on the EC2 instance (infra/README.md). Written to /opt/aclopi/docker-compose.yml by the user data.
+# Differences from the local docker-compose.yml: images from ECR, DynamoDB in AWS (instance role, no keys),
+# port 80 (CloudFront's origin), logs to CloudWatch, the agent talks to the university LLM through the host's VPN.
+# Values come from /opt/aclopi/.env, written by /opt/aclopi/bin/start.sh at every boot and deployment.
+name: aclopi
+
+services:
+  platform:
+    image: ${PLATFORM_IMAGE}:${IMAGE_TAG}
+    command: ["python", "-m", "aclopi.api"]
+    ports:
+      - "80:8000"
+    env_file:
+      - path: platform.env
+        required: false
+    environment:
+      ACLOPI_AGENT_URL: http://agent:8100
+      ACLOPI_AGENT_TOKEN: ${AGENT_TOKEN}
+      ACLOPI_ORIGIN_VERIFY: ${ORIGIN_VERIFY}
+      ACLOPI_RESULTS_STORE: dynamodb
+      ACLOPI_DYNAMODB_TABLE_PREFIX: ${TABLE_PREFIX}
+      ACLOPI_AWS_REGION: ${AWS_REGION}
+      AWS_DEFAULT_REGION: ${AWS_REGION}
+    volumes:
+      - ./results:/app/results
+    restart: unless-stopped
+    mem_limit: 12g
+    memswap_limit: 12g
+    healthcheck:
+      test: ["CMD", "python", "-c", "import sys, urllib.request; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=4).status == 200 else 1)"]
+      interval: 15s
+      timeout: 5s
+      start_period: 180s
+      retries: 3
+    logging:
+      driver: awslogs
+      options:
+        awslogs-region: ${AWS_REGION}
+        awslogs-group: ${LOG_GROUP_PLATFORM}
+        awslogs-create-group: "false"
+    networks: [internal]
+
+  agent:
+    image: ${AGENT_IMAGE}:${IMAGE_TAG}
+    env_file:
+      - path: agent.env
+        required: true
+      - path: agent.secrets.env
+        required: true
+    environment:
+      ACLOPI_PLATFORM_URL: http://platform:8000
+      ACLOPI_AGENT_TOKEN: ${AGENT_TOKEN}
+      ACLOPI_AGENT_LOG: /app/results/agent/decisions.jsonl
+      ACLOPI_LLM_BASE_URL: http://${LLM_HOSTNAME}:${LLM_PORT}/v1
+    # The containers do not see the host's /etc/hosts: the LLM server's name is given here.
+    extra_hosts:
+      - "${LLM_HOSTNAME}:${LLM_IP}"
+    volumes:
+      - ./results:/app/results
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import sys, urllib.request; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8100/health', timeout=4).status == 200 else 1)"]
+      interval: 15s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+    logging:
+      driver: awslogs
+      options:
+        awslogs-region: ${AWS_REGION}
+        awslogs-group: ${LOG_GROUP_AGENT}
+        awslogs-create-group: "false"
+    networks: [internal]
+
+networks:
+  internal: {}

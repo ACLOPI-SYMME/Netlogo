@@ -44,6 +44,7 @@ from aclopi.contracts.agent import bearer_matches
 from aclopi.api.product_sets import InMemoryProductSetStore, parse_csv, summary, to_csv
 from aclopi.api.results import DynamoProductSetStore, DynamoResultsStore, InMemoryResultsStore
 from aclopi.api.optimize import get_optimization
+from aclopi.api.origin import OriginVerifyMiddleware
 from aclopi.api.whatif import run_whatif
 from aclopi.api.ws import stream_session
 from aclopi.api.registry import SessionRegistry
@@ -254,6 +255,7 @@ def create_app(
     app.state.runtime = runtime
     app.state.settings = settings
     app.add_middleware(RequestContextMiddleware)
+    app.add_middleware(OriginVerifyMiddleware, secret=settings.origin_verify)
     errors.install(app)
 
     def require_agent_token(authorization: str | None = Header(None)) -> None:
