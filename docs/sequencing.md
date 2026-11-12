@@ -89,7 +89,6 @@ Usa autenticación `Authorization: Bearer <ACLOPI_AGENT_TOKEN>`, el mismo token 
 | `products` | Entre 1 y 100. `type` es `A`, `B`, `E`, `I`, `L`, `P` o `T`; si no, responde 422. `priority` es opcional y no se usa. |
 | `evaluated` | Opcional, hasta 50. Lo que ya se simuló: `order` (permutación de los índices; si no lo es, responde 422), `makespan_ticks` y `details` (lo que devuelve `simulate_list(details=True)`; opcional, pero sin él el LLM tiene menos datos). |
 | `strategy`, `mode` | Lo que se usará en `simulate_list`. Por defecto `b1b` y `Deterministic`. Cambian cómo el prompt describe el enrutamiento y los tiempos. |
-| `reasoning` | Opcional: `"none"`, `"low"` o `"medium"`. Si no viene, se usa `ACLOPI_SEQUENCE_REASONING`. `"none"` es el **modo rápido**: ~6–7 s con 20 productos, frente a ~25–55 s con `medium`. Usa su propio tope y sus propios tokens (ver Configuración). Cualquier otro valor responde 422. |
 
 **Respuesta.** Siempre es 200, aunque el LLM falle.
 
@@ -117,7 +116,7 @@ Usa autenticación `Authorization: Bearer <ACLOPI_AGENT_TOKEN>`, el mismo token 
 
 El prompt pide citar solo cifras que estén en los datos (makespan, `details`, cifras precalculadas) y no estimar tiempos propios.
 
-- `ACLOPI_SEQUENCE_FAST_TIMEOUT_S` y `ACLOPI_SEQUENCE_FAST_MAX_TOKENS`: tope y `max_tokens` con `reasoning` `"none"`; por defecto 30 s y 1.000 tokens, más 6 por producto. Con `low` y `medium` se usan hasta 8.000 tokens, más 6 por producto, para que quepan el razonamiento y la respuesta.
+- `max_tokens` de la llamada: 8.000 más 6 por producto, para que quepan el razonamiento y la respuesta.
 - `ACLOPI_SEQUENCE_PROMPT_BUDGET`: presupuesto del prompt en tokens (caracteres / 4); por defecto 30.000. Si el prompt lo pasa, solo las 3 órdenes evaluadas con menor makespan llevan sus `details` y las demás solo su makespan.
 
 **Tamaño del prompt** (medido con `scripts/a4/sequence_prompt_size.py`, con `details` sintéticos de forma real):
@@ -131,10 +130,10 @@ El prompt pide citar solo cifras que estén en los datos (makespan, `details`, c
 
 El prompt crece poco, porque solo la mejor orden lleva su tabla por producto, así que el presupuesto de 30.000 no se alcanza en usos normales. Lo que limita es la respuesta: 2 permutaciones completas. Con strata (una llamada por caso):
 
-| Productos | Modo rápido (`none`) | `medium` |
+| Productos | Órdenes válidas | Latencia |
 |---|---|---|
-| 50 | 2/2 órdenes válidas, 7,8 s | 2/2 válidas, 29,6 s |
-| 100 | 1/2 válidas, 12,5 s | 1/2 válidas, 60,4 s |
+| 50 | 2/2 | 29,6 s |
+| 100 | 1/2 | 60,4 s |
 
 **Recomendación: 50 productos como máximo** para `/sequence/propose`. La API acepta 100.
 
@@ -206,12 +205,3 @@ Latencia del LLM: ronda 1: 26.1 s, ronda 2: 55.8 s, ronda 3: 53.6 s. Mejor orden
 Latencia del LLM: ronda 1: 25.1 s, ronda 2: 26.5 s, ronda 3: 53.8 s. Mejor orden: ABABEABEABEABIABAAII, 24106 ticks (ronda 3, LLM 1).
 
 Explicaciones de cada orden y el `analysis` de cada ronda: `results/sequencing/rounds_*.json`.
-
-### Modo rápido (`reasoning` `"none"`, ronda 0 + 1 ronda)
-
-Resultado de `scripts/a4/sequence_rounds.py --rounds 1 --reasoning none`. Detalle en `results/sequencing/rounds_*_none.json`.
-
-| Lista | Heurística | Mejor del LLM | vs. heurística | Latencia |
-|---|---|---|---|---|
-| Agrupada | 26612 | 25654 (ABIEIEIEABABABABABAA) | −3,6 % | 6,1 s |
-| Intercalada ABIE | 26612 | 27102 (AIAIAIAAAABEBEBEBBBA) | +1,8 % (no mejora) | 6,7 s |

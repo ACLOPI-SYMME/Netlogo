@@ -306,25 +306,22 @@ def test_heuristic_order_is_the_heuristic() -> None:
     assert heuristic_order([{"type": "I", "priority": 60}, {"type": "L"}]) == [1, 0]
 
 
-def test_reasoning_per_request(tmp_path) -> None:
-    async def run(body_extra: dict[str, Any]) -> tuple[httpx.Response, FixedLLM]:
+def test_reasoning_only_from_the_environment(tmp_path) -> None:
+    async def run(body_extra: dict[str, Any], env: dict[str, str]) -> tuple[httpx.Response, FixedLLM]:
         llm = FixedLLM({"analysis": "a", "orders": [{"order": list(range(19, -1, -1)), "reasoning": "r"}]})
-        settings = AgentSettings(token="tok", log_path=str(tmp_path / "d.jsonl"), sequence_reasoning="low",
-                                 sequence_fast_timeout_s=12.0, sequence_fast_max_tokens=500)
+        settings = AgentSettings.from_env({"ACLOPI_AGENT_TOKEN": "tok", "ACLOPI_AGENT_LOG": str(tmp_path / "d.jsonl"), **env})
         app = create_app(settings, llm=llm)
         body = {"products": [{"type": t} for t in LIST_20], **body_extra}
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://agent") as c:
             r = await c.post("/sequence/propose", json=body, headers={"Authorization": "Bearer tok"})
         return r, llm
 
-    r, llm = asyncio.run(run({}))
-    assert r.status_code == 200 and llm.seen[0] == (8120, "low", 90.0)  # ACLOPI_SEQUENCE_REASONING
-    r, llm = asyncio.run(run({"reasoning": "medium"}))
-    assert llm.seen[0] == (8120, "medium", 90.0)
-    r, llm = asyncio.run(run({"reasoning": "none"}))
-    assert r.status_code == 200 and llm.seen[0] == (620, "none", 12.0)  # fast: 500 + 6 x 20 tokens, 12 s
-    r, _ = asyncio.run(run({"reasoning": "high"}))
-    assert r.status_code == 422
+    r, llm = asyncio.run(run({}, {}))
+    assert r.status_code == 200 and llm.seen[0] == (8120, "medium", 90.0)  # default: medium, 8000 + 6 x 20, 90 s
+    r, llm = asyncio.run(run({}, {"ACLOPI_SEQUENCE_REASONING": "low"}))
+    assert llm.seen[0] == (8120, "low", 90.0)
+    r, llm = asyncio.run(run({"reasoning": "none"}, {}))  # not a field of the request: ignored
+    assert r.status_code == 200 and llm.seen[0] == (8120, "medium", 90.0)
 
 
 def test_prompt_budget_keeps_the_details_of_the_3_best() -> None:
