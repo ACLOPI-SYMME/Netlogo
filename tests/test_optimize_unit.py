@@ -31,10 +31,10 @@ def test_classify_invalid_and_repeated() -> None:
     orders = [{"order": [3, 2, 1, 0], "reasoning": "a"}, {"order": [0, 1, 2], "reasoning": "short"},
               {"order": [1, 3, 2, 0], "reasoning": "same as heuristic"}, {"order": [3, 2, 1, 0], "reasoning": "again"},
               {"order": [0, 0, 1, 2]}, "not a dict", {"order": [2, 3, 0, 1], "reasoning": "b"}]
-    new, discarded = classify(orders, 4, known, "AI round 1 · {}")
+    new, discarded = classify(orders, 4, known, "AI option {}", 3)
     assert new == [{"order": [3, 2, 1, 0], "reasoning": "a"}, {"order": [2, 3, 0, 1], "reasoning": "b"}]
     assert [(d["reason"], d["same_as"]) for d in discarded] == [
-        ("invalid", None), ("same_as", "Heuristic"), ("same_as", "AI round 1 · 1"), ("invalid", None), ("invalid", None)]
+        ("invalid", None), ("same_as", "Heuristic"), ("same_as", "AI option 3"), ("invalid", None), ("invalid", None)]
 
 
 @pytest.mark.parametrize("rule, strategy, expected", [

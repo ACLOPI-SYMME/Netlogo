@@ -23,8 +23,7 @@ How to read each field: [records/optimize-order.md](records/optimize-order.md).
    - **If there is no free place** (no free worker, another optimization in progress, the provisional rule…), the reason is shown and the session that was created is closed.
 3. Progress shows in the same tab, with a "Cancel" button. The comparison updates after every simulation:
    - the best option so far, with "Use this";
-   - a table with every order evaluated ("Use this order");
-   - the notice that it is an estimate.
+   - a table with every order evaluated ("Use this order").
 4. "Use this" or "Use this order":
    - the platform cuts the rounds that are left and sets the session up again with that order;
    - the Current list shows the new order in the same editable table, so it can still be adjusted or saved.
@@ -36,7 +35,7 @@ How to read each field: [records/optimize-order.md](records/optimize-order.md).
 
 | Round | What | AI |
 |---|---|---|
-| 0 | The **original** order and the **heuristic** (`largest_first`), simulated one after the other | No call |
+| 0 | The **original** order and the **heuristic** "Largest first" (`largest_first`: products with more operations first, alternating types), simulated one after the other | No call |
 | 1..N | `POST /sequence/propose` with the products and **every order evaluated so far** (`order`, `makespan_ticks`, `details`). The valid, new orders it returns are simulated and added | One call per round |
 
 There is **a single mode**:
@@ -49,9 +48,11 @@ How much the AI reasons is configured in the agent itself, not in the platform's
 
 The old modes `quick` and `full` were removed on 12 Nov. An old client that still sends `mode` is not refused: the field is ignored.
 
+On the page the rounds are not shown: the AI's orders are "AI option 1, 2, 3, 4", numbered in the order they were simulated.
+
 Rules of the rounds:
 
-- **Validation.** Each order of the AI must be a complete permutation of `0..n−1`. If it is not, it is discarded as `invalid`. If it equals an order already evaluated, or another one of the same answer, it is discarded as `same_as` and marked with that order's name ("same as Heuristic"). It is not simulated again. If the heuristic equals the original, it is listed as "same as Original".
+- **Validation.** Each order of the AI must be a complete permutation of `0..n−1`. If it is not, it is discarded as `invalid`. If it equals an order already evaluated, or another one of the same answer, it is discarded as `same_as` and marked with that order's name ("same as Largest first"). It is not simulated again. If the heuristic equals the original, it is listed as "same as Original".
 - **Times.** Times always come from `simulate_list`, never from the AI's text.
 - **Simulation parameters** (the same for every order):
   - strategy: rules 1–3 → `rule1`–`rule3`; rule 4 → `b1b` (`b1` if the session uses `b1`);
@@ -175,11 +176,9 @@ Its behaviour can be set with these variables:
 | `ACLOPI_MOCK_SEQUENCE_BUSY=n` | The first `n` calls answer 429 with `Retry-After: ACLOPI_MOCK_SEQUENCE_RETRY_AFTER_S` (1 by default) |
 | `ACLOPI_MOCK_DOWN=sequence` | `POST /sequence/propose` never answers |
 
-## Notice shown with the results
+## The estimate is not the real run
 
-> Estimate in deterministic mode, with a single seed and a simple rule (b1b) as an approximation of the agent. The real saving may vary.
-
-For rules 1–3 the page says "the session's rule (rule N)" instead of b1b.
+The times come from mode Deterministic, a single seed and, with rule 4, the b1b rule as an approximation of the agent, so the real saving may vary. The page no longer shows a notice about it (removed on 12 Nov).
 
 In the real example, rule 4 with the agent and 5 products: the estimate (Deterministic, b1b) was 10,005 ticks, and the real fast run (Stochastic, mock agent) took 10,276 ticks.
 

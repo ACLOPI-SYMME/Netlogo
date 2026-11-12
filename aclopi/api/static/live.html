@@ -187,6 +187,10 @@
   .seq .type-dot { margin-right: 0; }
   .opt-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--s3) var(--s4); margin-top: var(--s3); }
   @media (min-width: 900px) { .opt-grid { grid-template-columns: minmax(16rem, 22rem) minmax(0, 1fr); align-items: start; } }
+  .spinner { display: inline-block; width: 12px; height: 12px; margin-right: 6px; vertical-align: -1px;
+             border: 2px solid var(--rule-2); border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .spinner { animation: none; } }
   .meter { height: 8px; background: var(--panel-2); border: var(--rule-w) solid var(--rule); margin: var(--s2) 0; }
   .meter span { display: block; height: 100%; background: var(--accent); transition: width .15s ease-out; }
   #opt-best { border: var(--rule-w) solid var(--rule-2); border-radius: var(--radius); padding: var(--s3); background: var(--paper); }
@@ -199,7 +203,6 @@
   table.opt details .seq { margin-top: 4px; white-space: normal; max-width: 26rem; }
   #opt-why { font-size: var(--step--1); line-height: 1.5; }
   #opt-why:empty { display: none; }
-  #opt-note { font-size: var(--step--1); color: var(--ink-2); font-style: italic; margin-top: var(--s2); }
 
   /* ----- tables ----- */
   .table-wrap { overflow-x: auto; border: var(--rule-w) solid var(--rule); border-radius: var(--radius); background: var(--paper); }
@@ -428,7 +431,6 @@
           <div id="opt-why"></div>
         </div>
       </div>
-      <p id="opt-note" hidden></p>
     </div>
   </div>
 </section>
@@ -565,7 +567,7 @@ function showRun(info) {
   renderOptimize();
 }
 async function createSession(body) {
-  if (sid) { await api("DELETE", `/sessions/${sid}`).catch(() => {}); }
+  if (sid) { disconnect(); await api("DELETE", `/sessions/${sid}`).catch(() => {}); }
   optSid = null;  // the session optimize order created (if it was that one) is gone
   const info = await api("POST", "/sessions", body);
   sessionInfo = info; sid = info.session_id; optState = null; clearInterval(optPoll); optPoll = null;
@@ -606,6 +608,7 @@ $("speed").onchange = () => {
 $("reset").onclick = () => act(() => { requireSession(); return api("POST", `/sessions/${sid}/reset`); });
 $("close").onclick = () => act(async () => {
   requireSession();
+  disconnect();
   await api("DELETE", `/sessions/${sid}`);
   forgetSession();
   optState = null; clearInterval(optPoll); optPoll = null; renderOptimize();
@@ -707,7 +710,7 @@ function handle(m) {
     case "finished": showKpis(m.kpis); msg(`Run finished at tick ${m.tick}` + (m.reason ? ` (${m.reason})` : "")); break;
     case "resync": msg(`Resynchronising (${m.reason}, ${m.dropped} messages dropped)`); break;
     case "run_error": msg(`Run error: ${m.error}`, true); break;
-    case "closed": msg(`Session closed: ${m.code} – ${m.reason}`, true); break;
+    case "closed": if (m.code !== "session_deleted") msg(`Session closed: ${m.code} – ${m.reason}`, true); break;
   }
 }
 
@@ -716,6 +719,31 @@ let optState = null, optFetching = false, optPoll = null;
 // the session created here for optimize order, the list at the start (orders index it), whether an order was used,
 // and the list as it was applied (an edited list gets its own session when it runs)
 let optSid = null, optItems = [], optApplied = false, optListKey = null;
+// orders whose "view order" is open (the table is redrawn on every progress message), and the clock of the
+// current wait for the AI / for a turn: started from the server's seconds, then counted by the page itself
+const openOrders = new Set();
+let waitClock = null;  // {key, t0}
+function syncWaitClock(o) {
+  const waiting = o.status === "waiting_ai" || o.status === "waiting_turn";
+  if (!waiting) { waitClock = null; return; }
+  const key = `${o.optimization_id}:${o.status}:${o.round}`;
+  const serverS = o.status === "waiting_ai" ? (o.ai_elapsed_s ?? 0) : (o.waited_s ?? 0);
+  const localS = waitClock && waitClock.key === key ? (performance.now() - waitClock.t0) / 1000 : null;
+  if (localS === null || Math.abs(localS - serverS) > 2) waitClock = {key, t0: performance.now() - 1000 * serverS};
+}
+function showProgressText() {
+  const o = optState;
+  if (!o || !optActive()) return;
+  const head = "";  // the AI's rounds are not shown: only what is being done
+  const seconds = waitClock ? Math.floor((performance.now() - waitClock.t0) / 1000) : 0;
+  let body;
+  if (o.status === "waiting_ai") body = `<span class="spinner" aria-hidden="true"></span>The AI is thinking… ${seconds} s`;
+  else if (o.status === "waiting_turn") body = `<span class="spinner" aria-hidden="true"></span>Waiting for a turn at the AI… ${seconds} s`;
+  else if (o.current) body = esc(`simulating ${o.current.label}: ${o.current.done}/${o.current.total} products done (tick ${o.current.ticks})`);
+  else body = "starting…";
+  $("opt-progress-text").innerHTML = esc(head) + body;
+}
+setInterval(showProgressText, 250);  // the seconds tick in real time between server messages
 const OPT_ACTIVE = ["running", "waiting_turn", "waiting_ai"];
 const seqDots = (products, order) => `<span class="seq">${(order ?? products.map((_, i) => i)).map(i => {
   const p = products[i] || {}; const id = itemId(asItem(p));
@@ -728,14 +756,8 @@ function savingText(c) {
 }
 const ORIGIN_WHY = {
   original: "Your order was already the fastest of the orders tested: keep it.",
-  heuristic: "Heuristic (longest first): products with more operations enter first (A, B, L; then E; then I, P, T), alternating types so the same type rarely enters twice in a row.",
+  heuristic: "Largest first: products with more operations enter first (A, B, L; then E; then I, P, T), alternating types so the same type rarely enters twice in a row.",
 };
-function optNotice() {
-  const rule = sessionInfo ? sessionInfo.parameters.rule : 3;
-  return rule === 4
-    ? "Estimate in deterministic mode, with a single seed and a simple rule (b1b) as an approximation of the agent. The real saving may vary."
-    : `Estimate in deterministic mode, with a single seed and the session's rule (rule ${rule}). The real saving may vary.`;
-}
 function optActive() { return !!(optState && OPT_ACTIVE.includes(optState.status)); }
 function optCanStart() {
   if (!setItems.length) return "Add products to the list first.";
@@ -752,15 +774,11 @@ function renderOptimize() {
   for (const b of ["live", "fast", "reset"]) $(b).disabled = active && sid === optSid;
   $("opt-progress").hidden = !active;
   const o = optState;
-  if (!o) { $("opt-results").hidden = true; $("opt-note").hidden = true; return; }
+  if (!o) { $("opt-results").hidden = true; return; }
   if (active) {
     $("opt-bar").style.width = `${o.progress_pct}%`;
-    let text = `Round ${o.round} of ${o.rounds} · `;
-    if (o.status === "waiting_ai") text += `The AI is thinking… ${Math.round(o.ai_elapsed_s ?? 0)} s`;
-    else if (o.status === "waiting_turn") text += `Waiting for a turn at the AI… ${Math.round(o.waited_s)} s`;
-    else if (o.current) text += `simulating ${o.current.label}: ${o.current.done}/${o.current.total} products done (tick ${o.current.ticks})`;
-    else text += "starting…";
-    $("opt-progress-text").textContent = text;
+    syncWaitClock(o);
+    showProgressText();
   }
   $("opt-results").hidden = !o.evaluated.length;
   const best = o.best !== null ? o.evaluated[o.best] : null;
@@ -778,22 +796,24 @@ function renderOptimize() {
       <td>${esc(c.label)}${c.index === o.applied ? " ✓" : ""}</td>
       <td class="num">${c.all_done ? `${ut(c.makespan_time)} u.t. <span class="muted">(${c.makespan_ticks})</span>` : `<span class="muted">not done by the horizon</span>`}</td>
       <td class="num">${savingText(c)}</td>
-      <td><details><summary>view order</summary>${seqDots(o.products, c.order)}</details></td>
+      <td><details data-order="${c.index}" ${openOrders.has(c.index) ? "open" : ""}><summary>view order</summary>${seqDots(o.products, c.order)}</details></td>
       <td>${c.index === o.applied ? "" : `<button data-apply="${c.index}" ${canApply ? "" : "disabled"}>Use this order</button>`}</td></tr>`);
   const dropped = o.discarded.map(d => `<tr class="muted"><td>${esc(d.label)}</td><td colspan="4">${d.reason === "invalid"
       ? "discarded: not a complete order" : `discarded: same as ${esc(d.same_as)}`}</td></tr>`);
   $("opt-rows").innerHTML = rows.concat(dropped).join("");
   $("opt-rows").querySelectorAll("button[data-apply]").forEach(b => b.onclick = () => applyOrder(+b.dataset.apply));
+  $("opt-rows").querySelectorAll("details[data-order]").forEach(d => d.ontoggle = () => {
+    if (d.open) openOrders.add(+d.dataset.order); else openOrders.delete(+d.dataset.order);
+  });
   let whyText = "";
   if (best && !active) {
-    whyText = best.origin === "ai" ? `<b>Why (AI):</b> ${esc(best.reasoning || "–")}${best.analysis ? `<br><span class="muted">Analysis of round ${best.round}: ${esc(best.analysis)}</span>` : ""}`
+    whyText = best.origin === "ai" ? `<b>Why (AI):</b> ${esc(best.reasoning || "–")}${best.analysis ? `<br><span class="muted">AI analysis: ${esc(best.analysis)}</span>` : ""}`
       : `<b>Why:</b> ${esc(ORIGIN_WHY[best.origin])}`;
   }
   if (o.warning) whyText += `${whyText ? "<br>" : ""}<span class="err">${esc(o.warning)}</span>`;
   if (o.status === "failed") whyText += `${whyText ? "<br>" : ""}<span class="err">Optimization failed: ${esc(o.error || "")}</span>`;
   if (o.status === "cancelled") whyText += `${whyText ? "<br>" : ""}<span class="muted">Cancelled: the list keeps its order.</span>`;
   $("opt-why").innerHTML = whyText;
-  $("opt-note").hidden = false; $("opt-note").textContent = optNotice();
 }
 async function refreshOptimize() {
   if (!sid || sid !== optSid || optFetching) return;
@@ -817,9 +837,18 @@ async function closeOptSession() {
   if (!optSid) return;
   const s = optSid; optSid = null; optApplied = false;
   clearInterval(optPoll); optPoll = null;
+  if (sid === s) disconnect();
   await api("DELETE", `/sessions/${s}`).catch(() => {});
   if (sid === s) { sid = null; $("sid").textContent = "–"; $("list-progress").textContent = "–"; disconnect(); }
   $("opt-session").textContent = "";
+  renderOptimize();
+}
+function resetOptimize() {
+  // another list was loaded: the results of the previous one no longer apply. An optimization not chosen is
+  // stopped and its session closed; an applied one keeps its session (an edited list gets a new one on run).
+  if (optSid && !optApplied) leaveOptimize();
+  optState = null; openOrders.clear(); waitClock = null; clearInterval(optPoll); optPoll = null;
+  $("opt-session").textContent = ""; $("opt-blocked").textContent = ""; $("opt-blocked").dataset.api = "";
   renderOptimize();
 }
 function leaveOptimize() {
@@ -848,7 +877,7 @@ async function startOptimize() {
   if (body.rule === 4) body.strategy = "agent";
   let info;
   try { info = await createSession(body); } catch (e) { return blocked((e.data && e.data.detail) || e.message); }  // e.g. no free place
-  optSid = sid; optApplied = false; optItems = setItems.map(p => ({...p})); optListKey = null;
+  optSid = sid; optApplied = false; optItems = setItems.map(p => ({...p})); optListKey = null; openOrders.clear();
   $("session-set").value = CURRENT_LIST;
   $("opt-session").textContent = `Session ${sid.slice(0, 8)} · rule ${info.parameters.rule} · seed ${info.parameters.seed}` +
     (info.seed_source === "random" ? " (random)" : "");
@@ -1060,7 +1089,7 @@ function nextNumber(po, item) {
   const nums = setItems.filter(p => p.po === po && p.item_id === item).map(p => Number(p.number)).filter(Number.isFinite);
   return String(nums.length ? Math.max(...nums) + 1 : 1);
 }
-function setList(items, dirtyAfter) { setItems = items.map(asItem); markDirty(dirtyAfter); renderSet(); }
+function setList(items, dirtyAfter) { setItems = items.map(asItem); markDirty(dirtyAfter); resetOptimize(); renderSet(); }
 $("add").onclick = () => {
   const pr = Number($("add-priority").value), due = $("add-due").value.trim();
   const po = $("add-po").value.trim(), item = $("add-item").value.trim();

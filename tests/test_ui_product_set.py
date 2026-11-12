@@ -494,28 +494,32 @@ def test_optimize_order_panel(server: tuple[str, list], browser: Any, tmp_path: 
     assert page.is_disabled("#opt-start") and page.is_disabled("#fast")
     # round 0 done, the AI thinking: best so far (heuristic) with its saving, and the table
     OPT["state"] = _opt_state("waiting_ai", [_candidate(0, "original", "Original", [0, 1, 2, 3, 4], 10000, 0.0, 0.0),
-                                             _candidate(1, "heuristic", "Heuristic", [0, 3, 4, 1, 2], 9000, 310.0, 10.0)],
+                                             _candidate(1, "heuristic", "Largest first", [0, 3, 4, 1, 2], 9000, 310.0, 10.0)],
                               ai_elapsed_s=25.0)
     page.evaluate("handle({type: 'optimize_best', optimization_id: 'o1'})")
     page.wait_for_function("document.querySelector('#opt-best').textContent.includes('Best option found so far')")
     assert "The AI is thinking… 25 s" in page.inner_text("#opt-progress-text")
     best = page.inner_text("#opt-best")
-    assert "2790.0" in best and "Heuristic" in best and "310.0 u.t. (−10 %)" in best
-    assert page.eval_on_selector_all("#opt-rows tr", "els => els.map(e => e.cells[0].textContent.trim())") == ["Original", "Heuristic"]
+    assert "2790.0" in best and "Largest first" in best and "310.0 u.t. (−10 %)" in best
+    assert page.eval_on_selector_all("#opt-rows tr", "els => els.map(e => e.cells[0].textContent.trim())") == ["Original", "Largest first"]
     page.click("#opt-rows tr:nth-child(2) summary")
     assert dots("#opt-rows tr:nth-child(2) details") == list("ABEIP")
-    assert "single seed" in page.inner_text("#opt-note")
+    assert page.query_selector("#opt-note") is None  # no estimate notice
     # "Use this": the Current list (same editable table) takes the new order
     page.click("#opt-use-best")
     page.wait_for_function("document.querySelector('#opt-best').textContent.includes('Applied')")
     assert OPT["calls"][-1] == ("apply", {"candidate": 1}) and rows(page) == list("ABEIP")
     assert page.is_hidden("#opt-progress") and page.is_enabled("#opt-start") and page.inner_text("#sid") == "s1"
+    # opening another list clears the Optimize order panel (results of the previous list)
+    page.evaluate("setList([{type: 'B'}, {type: 'A'}], true)")
+    assert page.is_hidden("#opt-results") and page.inner_text("#opt-session") == ""
+    load_csv(page, tmp_path, CSV_OK)
     # Cancel without choosing frees the session
     page.click("#opt-start")
     page.wait_for_function("!document.querySelector('#opt-cancel').hidden")
     page.click("#opt-cancel")
     page.wait_for_function("document.querySelector('#sid').textContent === '–'")
-    assert OPT["calls"][-2:] == [("cancel", "s1"), ("delete", "s1")] and rows(page) == list("ABEIP")
+    assert OPT["calls"][-2:] == [("cancel", "s1"), ("delete", "s1")] and rows(page) == list("AIPBE")
     # leaving the tab without choosing frees it as well
     page.click("#opt-start")
     page.wait_for_function("!document.querySelector('#opt-cancel').hidden")

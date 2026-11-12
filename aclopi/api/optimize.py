@@ -65,11 +65,11 @@ def is_permutation(order: Any, n: int) -> bool:
 
 
 def classify(orders: Sequence[Any], n: int, known: Sequence[tuple[list[int], str]],
-             label: str = "#{}") -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+             label: str = "#{}", first: int = 1) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Split the AI's orders ([{order, reasoning}]) into new valid ones and discarded ones: not a complete
     permutation of 0..n-1 ("invalid") or equal to an order already known or earlier in the list
     ("same_as" with that order's label). known: (order, label) already evaluated; label: format of the
-    labels of the new ones (1, 2, ...)."""
+    labels of the new ones, numbered from `first`."""
     seen = [(list(o), label) for o, label in known]
     new: list[dict[str, Any]] = []
     discarded: list[dict[str, Any]] = []
@@ -84,7 +84,7 @@ def classify(orders: Sequence[Any], n: int, known: Sequence[tuple[list[int], str
         if same is not None:
             discarded.append({"order": list(order), "reason": "same_as", "same_as": same, "reasoning": reasoning})
             continue
-        seen.append((list(order), label.format(len(new) + 1)))
+        seen.append((list(order), label.format(first + len(new))))
         new.append({"order": list(order), "reasoning": reasoning})
     return new, discarded
 
@@ -243,11 +243,11 @@ class OrderOptimization:
         await self._evaluate("original", 0, "Original", identity, None, None)
         heuristic = largest_first(self.products)
         if heuristic == identity:
-            self.discarded.append({"origin": "heuristic", "round": 0, "label": "Heuristic", "order": heuristic,
+            self.discarded.append({"origin": "heuristic", "round": 0, "label": "Largest first", "order": heuristic,
                                    "reason": "same_as", "same_as": "Original", "reasoning": "Longest first"})
             self.sims_done += 1
         elif not self._stop:
-            await self._evaluate("heuristic", 0, "Heuristic", heuristic, "Longest first", None)
+            await self._evaluate("heuristic", 0, "Largest first", heuristic, "Longest first", None)
 
     async def _ai_round(self, k: int) -> bool:
         """One round with the AI; False ends the rounds (AI down or failed, no valid new order, stopped)."""
@@ -264,9 +264,10 @@ class OrderOptimization:
         self.rounds_info.append(info)
         known = [(c["order"], c["label"]) for c in self.evaluated] + \
                 [(d["order"], d["label"]) for d in self.discarded if d.get("reason") == "same_as" and d.get("order")]
-        new, discarded = classify(answer.get("orders") or [], self.n, known, f"AI round {k} · {{}}")
+        first = 1 + sum(1 for c in self.evaluated if c["origin"] == "ai")
+        new, discarded = classify(answer.get("orders") or [], self.n, known, "AI option {}", first)
         for i, d in enumerate(discarded):
-            self.discarded.append({"origin": "ai", "round": k, "label": f"AI round {k} (discarded {i + 1})", **d})
+            self.discarded.append({"origin": "ai", "round": k, "label": "AI option (discarded)", **d})
         self.sims_planned -= 2 - len(new)
         if not new:
             if self.warning is None:
@@ -275,7 +276,7 @@ class OrderOptimization:
         for i, item in enumerate(new):
             if self._stop:
                 return False
-            await self._evaluate("ai", k, f"AI round {k} · {i + 1}", item["order"], item["reasoning"], info["analysis"])
+            await self._evaluate("ai", k, f"AI option {first + i}", item["order"], item["reasoning"], info["analysis"])
         return True
 
     async def _evaluate(self, origin: str, k: int, label: str, order: list[int], reasoning: str | None,

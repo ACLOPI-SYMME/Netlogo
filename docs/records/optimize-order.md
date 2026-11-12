@@ -21,7 +21,7 @@ The result of the **"Optimize order"** button: several entry orders of the sessi
 |---|---|
 | `GET /sessions/{id}/optimize-order` | The whole record (below) |
 | WebSocket `optimize_progress`, `optimize_best`, `optimize_result`, `optimize_failed` | Progress and results as they happen ([websocket.md](websocket.md)) |
-| Page, **Order entry** tab, under the Current list | Progress, "Best option found so far", the table of orders, the reason of the winner and the notice. "Use this" reorders the Current list |
+| Page, **Order entry** tab, under the Current list | Progress, "Best option found so far", the table of orders and the reason of the winner. "Use this" reorders the Current list |
 | `GET /sessions/{id}` → `optimize_status`, `optimization` | The outcome and the applied order ([sessions-and-state.md](sessions-and-state.md)) |
 | `GET /runs/{id}` → `optimization` | The estimate next to the real run ([runs.md](runs.md)) |
 
@@ -53,7 +53,7 @@ Each element of `evaluated`:
 | Field | Meaning | Unit |
 |---|---|---|
 | `index` | Position in `evaluated` (what `apply-order` takes) | — |
-| `origin`, `label`, `round` | `original` ("Original", round 0), `heuristic` ("Heuristic", round 0) or `ai` ("AI round k · 1" or "· 2") | — |
+| `origin`, `label`, `round` | `original` ("Original", round 0), `heuristic` ("Largest first", round 0) or `ai` ("AI option 1", "AI option 2"… numbered in order across the AI's rounds; the rounds are not shown on the page) | — |
 | `order` | Permutation of the positions of `products` (0-based): `order[0]` is the product that enters first | — |
 | `types` | The types in that order, e.g. `ABAEI` | — |
 | `makespan_ticks`, `makespan_time` | When the last product finishes, from `simulate_list`. `null` if the list did not finish by `max_ticks` (`all_done: false`) | ticks; u.t. |
@@ -73,10 +73,10 @@ Session with rule 4 (agent), seed 42, horizon 20,000 and 5 products (types I, A,
  "evaluated": [
   {"index": 0, "origin": "original", "label": "Original", "order": [0, 1, 2, 3, 4], "types": "IAEBA",
    "makespan_ticks": 10005, "makespan_time": 3101.55, "saving_time": 0.0, "saving_pct": 0.0, "wall_s": 18.98},
-  {"index": 1, "origin": "heuristic", "label": "Heuristic", "order": [1, 3, 4, 2, 0], "types": "ABAEI",
+  {"index": 1, "origin": "heuristic", "label": "Largest first", "order": [1, 3, 4, 2, 0], "types": "ABAEI",
    "makespan_ticks": 10366, "makespan_time": 3213.46, "saving_time": -111.91, "saving_pct": -3.6,
    "reasoning": "Longest first", "wall_s": 14.09},
-  {"index": 2, "origin": "ai", "label": "AI round 1 · 1", "order": [4, 3, 2, 1, 0], "types": "ABEAI",
+  {"index": 2, "origin": "ai", "label": "AI option 1", "order": [4, 3, 2, 1, 0], "types": "ABEAI",
    "makespan_ticks": 11660, "makespan_time": 3614.6, "saving_time": -513.05, "saving_pct": -16.5,
    "reasoning": "mock: variation 1 of the best order so far", "wall_s": 11.38},
   "…1 more"],
@@ -111,7 +111,7 @@ The real run had `kpis.makespan_ticks: 10276` (3,185.56 u.t.): 2.7 % above the e
 ## Pitfalls
 
 - **`order` indexes the list as it was at the start.** After applying, the session's list is the reordered one. A new optimization takes the new list as its "Original".
-- **The estimate is not the real run.** It uses mode Deterministic, one seed and, with rule 4, the b1b rule in place of the agent. The real saving may vary (the page says so under the results).
+- **The estimate is not the real run.** It uses mode Deterministic, one seed and, with rule 4, the b1b rule in place of the agent. The real saving may vary.
 - **Not done by the horizon.** With a short horizon, `all_done: false` and `makespan_*: null`. There is no saving and no best order. Raise the horizon.
 - **The saving can be negative**: the order is worse than the original.
 - **`optimization` in a run is only there if an order was applied** before that run. Optimizing without applying leaves `null`.
