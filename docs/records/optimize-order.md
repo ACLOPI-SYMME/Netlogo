@@ -53,7 +53,7 @@ Each element of `evaluated`:
 | Field | Meaning | Unit |
 |---|---|---|
 | `index` | Position in `evaluated` (what `apply-order` takes) | — |
-| `origin`, `label`, `round` | `original` ("Original", round 0), `heuristic` ("Heuristic", round 0) or `ai` ("AI round k · 1" or "· 2") | — |
+| `origin`, `label`, `round` | `original` ("Original", round 0), `heuristic` ("Largest first", round 0) or `ai` ("AI round k · 1" or "· 2") | — |
 | `order` | Permutation of the positions of `products` (0-based): `order[0]` is the product that enters first | — |
 | `types` | The types in that order, e.g. `ABAEI` | — |
 | `makespan_ticks`, `makespan_time` | When the last product finishes, from `simulate_list`. `null` if the list did not finish by `max_ticks` (`all_done: false`) | ticks; u.t. |
@@ -73,7 +73,7 @@ Session with rule 4 (agent), seed 42, horizon 20,000 and 5 products (types I, A,
  "evaluated": [
   {"index": 0, "origin": "original", "label": "Original", "order": [0, 1, 2, 3, 4], "types": "IAEBA",
    "makespan_ticks": 10005, "makespan_time": 3101.55, "saving_time": 0.0, "saving_pct": 0.0, "wall_s": 18.98},
-  {"index": 1, "origin": "heuristic", "label": "Heuristic", "order": [1, 3, 4, 2, 0], "types": "ABAEI",
+  {"index": 1, "origin": "heuristic", "label": "Largest first", "order": [1, 3, 4, 2, 0], "types": "ABAEI",
    "makespan_ticks": 10366, "makespan_time": 3213.46, "saving_time": -111.91, "saving_pct": -3.6,
    "reasoning": "Longest first", "wall_s": 14.09},
   {"index": 2, "origin": "ai", "label": "AI round 1 · 1", "order": [4, 3, 2, 1, 0], "types": "ABEAI",

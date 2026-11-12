@@ -756,7 +756,7 @@ function savingText(c) {
 }
 const ORIGIN_WHY = {
   original: "Your order was already the fastest of the orders tested: keep it.",
-  heuristic: "Heuristic (longest first): products with more operations enter first (A, B, L; then E; then I, P, T), alternating types so the same type rarely enters twice in a row.",
+  heuristic: "Largest first: products with more operations enter first (A, B, L; then E; then I, P, T), alternating types so the same type rarely enters twice in a row.",
 };
 function optActive() { return !!(optState && OPT_ACTIVE.includes(optState.status)); }
 function optCanStart() {
@@ -841,6 +841,14 @@ async function closeOptSession() {
   await api("DELETE", `/sessions/${s}`).catch(() => {});
   if (sid === s) { sid = null; $("sid").textContent = "–"; $("list-progress").textContent = "–"; disconnect(); }
   $("opt-session").textContent = "";
+  renderOptimize();
+}
+function resetOptimize() {
+  // another list was loaded: the results of the previous one no longer apply. An optimization not chosen is
+  // stopped and its session closed; an applied one keeps its session (an edited list gets a new one on run).
+  if (optSid && !optApplied) leaveOptimize();
+  optState = null; openOrders.clear(); waitClock = null; clearInterval(optPoll); optPoll = null;
+  $("opt-session").textContent = ""; $("opt-blocked").textContent = ""; $("opt-blocked").dataset.api = "";
   renderOptimize();
 }
 function leaveOptimize() {
@@ -1081,7 +1089,7 @@ function nextNumber(po, item) {
   const nums = setItems.filter(p => p.po === po && p.item_id === item).map(p => Number(p.number)).filter(Number.isFinite);
   return String(nums.length ? Math.max(...nums) + 1 : 1);
 }
-function setList(items, dirtyAfter) { setItems = items.map(asItem); markDirty(dirtyAfter); renderSet(); }
+function setList(items, dirtyAfter) { setItems = items.map(asItem); markDirty(dirtyAfter); resetOptimize(); renderSet(); }
 $("add").onclick = () => {
   const pr = Number($("add-priority").value), due = $("add-due").value.trim();
   const po = $("add-po").value.trim(), item = $("add-item").value.trim();

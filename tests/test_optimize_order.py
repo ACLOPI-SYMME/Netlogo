@@ -130,7 +130,7 @@ def test_round0_without_ai_then_the_rounds(stack: Any, client: httpx.Client) -> 
     assert reqs[0]["strategy"] == "rule3" and reqs[0]["mode"] == "Deterministic" and "reasoning" not in reqs[0]
     assert all(e["details"] is not None for e in reqs[0]["evaluated"])
     labels = [e["label"] for e in o["evaluated"]]
-    assert labels == ["Original", "Heuristic", "AI round 1 · 1", "AI round 1 · 2", "AI round 2 · 1", "AI round 2 · 2"]
+    assert labels == ["Original", "Largest first", "AI round 1 · 1", "AI round 1 · 2", "AI round 2 · 1", "AI round 2 · 2"]
     assert [e["origin"] for e in o["evaluated"]] == ["original", "heuristic", "ai", "ai", "ai", "ai"]
     assert all(e["all_done"] and e["makespan_ticks"] for e in o["evaluated"])
     assert o["evaluated"][0]["saving_time"] == 0.0 and o["evaluated"][2]["analysis"].startswith("mock analysis")
@@ -233,7 +233,7 @@ def test_agent_down_compares_original_and_heuristic(stack: Any, client: httpx.Cl
     sid = _session(client)
     _optimize(client, sid)
     o = _wait_opt(client, sid)
-    assert o["status"] == "done" and o["warning"] == AI_DOWN and [e["label"] for e in o["evaluated"]] == ["Original", "Heuristic"]
+    assert o["status"] == "done" and o["warning"] == AI_DOWN and [e["label"] for e in o["evaluated"]] == ["Original", "Largest first"]
     assert mock.app.state.sequence_calls == 0
     client.delete(f"/sessions/{sid}")
 

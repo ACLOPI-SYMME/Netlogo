@@ -35,7 +35,7 @@ How to read each field: [records/optimize-order.md](records/optimize-order.md).
 
 | Round | What | AI |
 |---|---|---|
-| 0 | The **original** order and the **heuristic** (`largest_first`), simulated one after the other | No call |
+| 0 | The **original** order and the **heuristic** "Largest first" (`largest_first`: products with more operations first, alternating types), simulated one after the other | No call |
 | 1..N | `POST /sequence/propose` with the products and **every order evaluated so far** (`order`, `makespan_ticks`, `details`). The valid, new orders it returns are simulated and added | One call per round |
 
 There is **a single mode**:
@@ -50,7 +50,7 @@ The old modes `quick` and `full` were removed on 12 Nov. An old client that stil
 
 Rules of the rounds:
 
-- **Validation.** Each order of the AI must be a complete permutation of `0..n−1`. If it is not, it is discarded as `invalid`. If it equals an order already evaluated, or another one of the same answer, it is discarded as `same_as` and marked with that order's name ("same as Heuristic"). It is not simulated again. If the heuristic equals the original, it is listed as "same as Original".
+- **Validation.** Each order of the AI must be a complete permutation of `0..n−1`. If it is not, it is discarded as `invalid`. If it equals an order already evaluated, or another one of the same answer, it is discarded as `same_as` and marked with that order's name ("same as Largest first"). It is not simulated again. If the heuristic equals the original, it is listed as "same as Original".
 - **Times.** Times always come from `simulate_list`, never from the AI's text.
 - **Simulation parameters** (the same for every order):
   - strategy: rules 1–3 → `rule1`–`rule3`; rule 4 → `b1b` (`b1` if the session uses `b1`);

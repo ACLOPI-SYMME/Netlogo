@@ -243,11 +243,11 @@ class OrderOptimization:
         await self._evaluate("original", 0, "Original", identity, None, None)
         heuristic = largest_first(self.products)
         if heuristic == identity:
-            self.discarded.append({"origin": "heuristic", "round": 0, "label": "Heuristic", "order": heuristic,
+            self.discarded.append({"origin": "heuristic", "round": 0, "label": "Largest first", "order": heuristic,
                                    "reason": "same_as", "same_as": "Original", "reasoning": "Longest first"})
             self.sims_done += 1
         elif not self._stop:
-            await self._evaluate("heuristic", 0, "Heuristic", heuristic, "Longest first", None)
+            await self._evaluate("heuristic", 0, "Largest first", heuristic, "Longest first", None)
 
     async def _ai_round(self, k: int) -> bool:
         """One round with the AI; False ends the rounds (AI down or failed, no valid new order, stopped)."""
