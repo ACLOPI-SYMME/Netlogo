@@ -57,7 +57,7 @@ class Settings:
     aws_region: str = "eu-north-1"  # DynamoDB region (Stockholm); ignored by DynamoDB Local
     whatif_diag_dir: Path = field(default_factory=lambda: REPO_ROOT / "results" / "whatif_diagnostics")
     # Optimize order (docs/optimize-order.md)
-    optimize_rounds_full: int = 2
+    optimize_rounds: int = 2  # rounds with the AI
     optimize_max_products: int = 50
     optimize_block_when_live_agent: bool = True  # provisional rule, until Línea A confirms its test
     optimize_max_wait_s: float = 300.0  # waiting for a turn at the agent (429) before failing
@@ -104,7 +104,7 @@ class Settings:
             aws_region=env.get("ACLOPI_AWS_REGION", "").strip() or "eu-north-1",
             whatif_diag_dir=Path(env["ACLOPI_WHATIF_DIAG_DIR"]) if env.get("ACLOPI_WHATIF_DIAG_DIR", "").strip()
             else REPO_ROOT / "results" / "whatif_diagnostics",
-            optimize_rounds_full=_int(env, "ACLOPI_OPTIMIZE_ROUNDS_FULL", 2),
+            optimize_rounds=_int(env, "ACLOPI_OPTIMIZE_ROUNDS", 2),
             optimize_max_products=_int(env, "ACLOPI_OPTIMIZE_MAX_PRODUCTS", 50),
             optimize_block_when_live_agent=env.get("ACLOPI_OPTIMIZE_BLOCK_WHEN_LIVE_AGENT", "1").strip().lower()
             not in ("0", "false", "no"),

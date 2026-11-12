@@ -31,8 +31,7 @@ The result of the **"Optimize order"** button: several entry orders of the sessi
 |---|---|---|---|
 | `optimization_id` | Identifier | — | 32 hexadecimal characters |
 | `status` | State | — | `running`, `waiting_ai`, `waiting_turn`, `done`, `cancelled`, `failed` |
-| `mode`, `reasoning_effort` | Mode asked for, and the reasoning sent to the AI | — | `quick` / `none`; `full` / `medium` |
-| `round`, `rounds` | Round in progress (or the last one), and rounds with the AI planned | — | 0 = original and heuristic |
+| `round`, `rounds` | Round in progress (or the last one), and rounds with the AI planned (`ACLOPI_OPTIMIZE_ROUNDS`, 2) | — | 0 = original and heuristic |
 | `progress_pct` | Progress | % | 0–100 (100 at the end) |
 | `current` | Simulation in progress: `label`, `ticks`, `done` (products finished), `total` | — | `null` when not simulating |
 | `ai_elapsed_s` | Seconds the AI has been thinking | s | only in `waiting_ai` |
@@ -65,10 +64,10 @@ Each element of `evaluated`:
 
 ## Real example
 
-Session with rule 4 (agent), seed 42, horizon 20,000 and 5 products (types I, A, E, B, A). Mode `quick`, with the mock agent (`aclopi.agent_mock`, 4 s per answer). It took 61 s. Excerpt of `GET /sessions/{id}/optimize-order` at the end:
+Session with rule 4 (agent), seed 42, horizon 20,000 and 5 products (types I, A, E, B, A). One round with the AI, with the mock agent (`aclopi.agent_mock`, 4 s per answer). It took 61 s. (Made on 11 Nov, with the old mode `quick`. Today there is one mode with 2 rounds, so it would take about twice as long. The fields `mode` and `reasoning_effort` of that time are left out.) Excerpt of `GET /sessions/{id}/optimize-order` at the end:
 
 ```json
-{"optimization_id": "d0b7acc159ef49d2b9ea7ee07d4053db", "status": "done", "mode": "quick", "reasoning_effort": "none",
+{"optimization_id": "d0b7acc159ef49d2b9ea7ee07d4053db", "status": "done",
  "round": 1, "rounds": 1, "progress_pct": 100.0, "strategy": "b1b", "simulation_mode": "Deterministic",
  "seed": 42, "max_ticks": 20000, "best": 0, "warning": null, "applied": null, "stopped_early": false,
  "evaluated": [
@@ -82,7 +81,7 @@ Session with rule 4 (agent), seed 42, horizon 20,000 and 5 products (types I, A,
    "reasoning": "mock: variation 1 of the best order so far", "wall_s": 11.38},
   "…1 more"],
  "discarded": [],
- "rounds_info": [{"round": 1, "analysis": "mock analysis (reasoning none): best so far 10005 ticks",
+ "rounds_info": [{"round": 1, "analysis": "mock analysis: best so far 10005 ticks",
                   "latency_ms": 4020.6, "error": null}]}
 ```
 
@@ -95,7 +94,7 @@ Session with rule 4 (agent), seed 42, horizon 20,000 and 5 products (types I, A,
 After applying the best order (`apply-order {"candidate": 0}`) and running fast, the session and the saved run carry:
 
 ```json
-"optimization": {"optimized": true, "mode": "quick", "order": [0, 1, 2, 3, 4], "origin": "original", "label": "Original",
+"optimization": {"optimized": true, "order": [0, 1, 2, 3, 4], "origin": "original", "label": "Original",
                  "round": 0, "estimated_makespan_ticks": 10005, "estimated_makespan_time": 3101.55,
                  "estimated_saving_time": 0.0, "estimated_saving_pct": 0.0, "estimate_strategy": "b1b",
                  "estimate_mode": "Deterministic", "optimization_id": "d0b7acc159ef49d2b9ea7ee07d4053db"}

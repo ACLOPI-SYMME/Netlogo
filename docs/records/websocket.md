@@ -134,7 +134,7 @@ Fast run with decisions:
 
 **`optimize_progress`, `optimize_best`, `optimize_result`, `optimize_failed`** ("Optimize order", [optimize-order.md](optimize-order.md))
 
-All carry `optimization_id`. Real example (rule 4, 5 products, mode `quick`):
+All carry `optimization_id`. Real example (rule 4, 5 products, one round with the AI):
 
 ```json
 {"type": "optimize_progress", "seq": 1, "status": "running", "phase": "simulating", "round": 0, "rounds": 1,

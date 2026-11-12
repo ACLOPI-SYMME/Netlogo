@@ -311,9 +311,8 @@
       <span class="label">Entry order of the session</span><div id="opt-list" class="seq"></div>
     </div>
     <div class="row" style="margin-top: var(--s2)">
-      <span class="label">Look for a better order</span>
-      <button id="opt-quick" title="1 round with the AI, quick reasoning">Quick (~1 min)</button>
-      <button id="opt-full" title="2 rounds with the AI, deeper reasoning">Full (~3 min)</button>
+      <button id="opt-start" class="primary">Optimize order</button>
+      <span id="opt-help" class="muted">It can take about 3 minutes; you can use the best option found at any time.</span>
       <button id="opt-cancel" class="ghost" hidden>✕ Cancel</button>
       <span id="opt-blocked" class="err"></span>
     </div>
@@ -751,7 +750,7 @@ function renderOptimize() {
   $("opt-list").innerHTML = seqDots(sessionInfo.products || []);
   const active = !!(optState && OPT_ACTIVE.includes(optState.status));
   const why = optCanStart();
-  $("opt-quick").disabled = $("opt-full").disabled = active || why !== null;
+  $("opt-start").disabled = active || why !== null;
   if (!active && why) $("opt-blocked").textContent = why;
   else if (!active && $("opt-blocked").dataset.api !== "1") $("opt-blocked").textContent = "";
   $("opt-cancel").hidden = !active;
@@ -813,11 +812,11 @@ async function refreshOptimize() {
   }
   renderOptimize();
 }
-async function startOptimize(mode) {
+async function startOptimize() {
   if (!sid) return;
   $("opt-blocked").textContent = ""; $("opt-blocked").dataset.api = "";
   try {
-    optState = await api("POST", `/sessions/${sid}/optimize-order`, {mode});
+    optState = await api("POST", `/sessions/${sid}/optimize-order`, {});
     clearError();
     clearInterval(optPoll); optPoll = setInterval(refreshOptimize, 2000);  // backup of the WebSocket messages
   } catch (e) {  // blocked: provisional rule (live agent runs), fast-run quota, list too long, not idle…
@@ -834,8 +833,7 @@ async function applyOrder(index) {
   } catch (e) { msg(e.message, true); refreshOptimize(); }
   renderOptimize();
 }
-$("opt-quick").onclick = () => startOptimize("quick");
-$("opt-full").onclick = () => startOptimize("full");
+$("opt-start").onclick = () => startOptimize();
 $("opt-cancel").onclick = () => act(async () => {
   $("opt-cancel").disabled = true;
   try { optState = await api("POST", `/sessions/${sid}/optimize-order/cancel`); } finally { $("opt-cancel").disabled = false; }

@@ -55,7 +55,7 @@ Every run that finishes, fails or is stopped leaves **one record** with its para
 | `decisions_summary` | Summary of the agent's decisions. Same fields as `decisions` in [metrics.md](metrics.md), without the `log` list | — | — |
 | `whatif_summary` | Summary of the what-ifs. Same fields as `whatif` in [metrics.md](metrics.md) | — | — |
 | `scenario_id`, `scenario`, `scenario_events`, `scenario_summary` | Scenario of the run. Today always `S0`, `{}` and empty | — | see [scenarios.md](scenarios.md) |
-| `optimization` | "Optimize order" applied before the run: `optimized`, `mode` (`quick`/`full`), `order`, `origin` and `label` of the chosen order, `estimated_makespan_ticks` / `estimated_makespan_time`, `estimated_saving_time` / `estimated_saving_pct` (against the user's order), `estimate_strategy`, `estimate_mode`, `optimization_id` | ticks, u.t., % | `null` if no order was applied; see [optimize-order.md](optimize-order.md) |
+| `optimization` | "Optimize order" applied before the run: `optimized`, `order`, `origin` and `label` of the chosen order, `estimated_makespan_ticks` / `estimated_makespan_time`, `estimated_saving_time` / `estimated_saving_pct` (against the user's order), `estimate_strategy`, `estimate_mode`, `optimization_id`. Runs saved before 12 Nov may also carry `mode` (`quick`/`full`) | ticks, u.t., % | `null` if no order was applied; see [optimize-order.md](optimize-order.md) |
 
 ## Real example
 

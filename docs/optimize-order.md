@@ -12,7 +12,7 @@ How to read each field: [records/optimize-order.md](records/optimize-order.md).
 ## Flow on the page (Visualization tab)
 
 1. Create the session with a list (Product set: "Current list" or a saved set).
-2. "Optimize order": **Quick (~1 min)** or **Full (~3 min)**. Progress shows with a "Cancel" button.
+2. "Optimize order": a single button, with the help text "It can take about 3 minutes; you can use the best option found at any time". Progress shows with a "Cancel" button.
 3. The comparison updates after every simulation: the best order so far ("Use this") and a table with every order evaluated ("Use this order").
 4. When the user chooses an order, the platform cuts the rounds that are left and sets the session up again with that order.
 5. Run (live or fast). The estimate and the real result are both kept, so they can be compared.
@@ -24,10 +24,15 @@ How to read each field: [records/optimize-order.md](records/optimize-order.md).
 | 0 | The **original** order and the **heuristic** (`largest_first`), simulated one after the other | No call |
 | 1..N | `POST /sequence/propose` with the products and **every order evaluated so far** (`order`, `makespan_ticks`, `details`). The valid, new orders it returns are simulated and added | One call per round |
 
-| Mode | `reasoning` sent to the AI | Rounds with the AI | Simulations | Measured duration |
-|---|---|---|---|---|
-| `quick` | `none` | 1 | up to 4 | ~1 min (5 products, rule 4: 61 s) |
-| `full` | `medium` | `ACLOPI_OPTIMIZE_ROUNDS_FULL` (2) | up to 6 | ~3 min with the real LLM |
+There is **a single mode**:
+
+- rounds with the AI: `ACLOPI_OPTIMIZE_ROUNDS`, 2 by default;
+- simulations: up to 6;
+- duration: about 3 min with the real LLM.
+
+How much the AI reasons is configured in the agent itself, not in the platform's request: the platform does not send `reasoning`.
+
+The old modes `quick` and `full` were removed on 12 Nov. An old client that still sends `mode` is not refused: the field is ignored.
 
 Rules of the rounds:
 
@@ -70,7 +75,7 @@ While an optimization is active, the session refuses every other operation with 
 
 | Route | What it does |
 |---|---|
-| `POST /sessions/{id}/optimize-order` `{"mode": "quick" \| "full"}` | Starts it. **202** with the state (`Optimization`) |
+| `POST /sessions/{id}/optimize-order` | Starts it, with no body or an empty one (`{}`); a `mode` sent by an old client is ignored. **202** with the state (`Optimization`) |
 | `GET /sessions/{id}/optimize-order` | State, round `k` of `N`, progress and results of the session's last optimization. 404 `optimization_not_found` if there was none |
 | `POST /sessions/{id}/optimize-order/cancel` | Stops it: the simulation in progress stops in ≤ 1,000 ticks, and a wait for the AI is abandoned at once. Answers when the session has been set up again. 409 if it already ended |
 | `POST /sessions/{id}/apply-order` `{"candidate": i}` | Applies the evaluated order `i` (`evaluated[].index`). If the optimization is still running, it **stops the rounds that are left** first. Reorders **the session's copy** of the list (not the saved set) and runs setup again with the same seed, rule, strategy and horizon. Answers `{session, products, optimization}`. Only before running: 409 if the session is not idle at tick 0 |
@@ -119,13 +124,14 @@ Published on the session's channel (`/ws/sessions/{id}`), with `optimization_id`
 When an order is applied, the session keeps `optimization`. It shows in `GET /sessions/{id}`, and every run saved afterwards copies it into its record (`GET /runs/{id}`), so the estimate shows next to the real result:
 
 ```json
-{"optimized": true, "mode": "quick", "order": [0, 1, 2, 3, 4], "origin": "original", "label": "Original", "round": 0,
+{"optimized": true, "order": [0, 1, 2, 3, 4], "origin": "original", "label": "Original", "round": 0,
  "estimated_makespan_ticks": 10005, "estimated_makespan_time": 3101.55,
  "estimated_saving_time": 0.0, "estimated_saving_pct": 0.0,
  "estimate_strategy": "b1b", "estimate_mode": "Deterministic", "optimization_id": "d0b7acc1…"}
 ```
 
 - **The list.** The session's list (`products` in `SessionInfo`) and `products_hash` change to the new order. `product_set_id` stays as the set it came from, and the saved set is not changed.
+- **Old records.** Runs saved before 12 Nov may still carry `mode` (`quick`/`full`) in `optimization`. They are still read and shown; new runs no longer have it.
 - **Not applied.** Without applying, `optimization` stays `null`; only `optimize_status` shows the outcome.
 - **Not persisted.** The optimization itself (every order evaluated) lives in memory with the session. It is not stored in DynamoDB.
 
@@ -133,13 +139,13 @@ When an order is applied, the session keeps `optimization`. It shows in `GET /se
 
 | Variable | Default | Description |
 |---|---|---|
-| `ACLOPI_OPTIMIZE_ROUNDS_FULL` | `2` | Rounds with the AI in `full` |
+| `ACLOPI_OPTIMIZE_ROUNDS` | `2` | Rounds with the AI (replaces `ACLOPI_OPTIMIZE_ROUNDS_FULL`) |
 | `ACLOPI_OPTIMIZE_MAX_PRODUCTS` | `50` | Longest list that can be optimized (422 above) |
 | `ACLOPI_OPTIMIZE_BLOCK_WHEN_LIVE_AGENT` | `1` | Provisional rule: refuse while live agent sessions run (`0` removes it) |
 | `ACLOPI_OPTIMIZE_MAX_WAIT_S` | `300` | Total wait for a turn at the AI (429) before failing |
 | `ACLOPI_OPTIMIZE_AI_TIMEOUT_S` | `90` | Timeout of each `POST /sequence/propose` |
 
-**Mock agent** (`aclopi.agent_mock`, for tests and local runs). `POST /sequence/propose` takes `products`, `evaluated`, `strategy`, `mode` and `reasoning`. It answers:
+**Mock agent** (`aclopi.agent_mock`, for tests and local runs). `POST /sequence/propose` takes `products`, `evaluated`, `strategy` and `mode`. It answers:
 
 - 2 new orders, built from the best one evaluated (reversed, rotated or swapped);
 - the heuristic;
@@ -163,5 +169,4 @@ In the real example, rule 4 with the agent and 5 products: the estimate (Determi
 
 ## Known limits
 
-- **What the AI receives.** The real agent service (`aclopi/agent/service.py`) does not read `reasoning` yet: it uses its own `ACLOPI_SEQUENCE_REASONING`. `quick` and `full` therefore differ in the number of rounds, but not in the reasoning effort, until Línea A accepts the field. The platform already sends it.
 - **One optimization at a time.** Only one per session, and only with the session idle at tick 0.

@@ -767,16 +767,16 @@ class SessionRegistry:
 
     # ----- optimize order (aclopi.api.optimize, docs/optimize-order.md) -----
 
-    async def start_optimize(self, session_id: str, mode: str, settings: Any) -> OrderOptimization:
+    async def start_optimize(self, session_id: str, settings: Any) -> OrderOptimization:
         record = self.get(session_id)
         self._ensure_active(record)
         check_can_optimize(self, record, settings)
         await self.refresh_cache(session_id)  # layout and snapshot of the setup, for clients during the rounds
         check_can_optimize(self, record, settings)  # again: other requests ran while the cache was read
-        optimizer = OrderOptimization(self, record, settings, mode)
+        optimizer = OrderOptimization(self, record, settings)
         record.optimizer = optimizer
         optimizer.start()
-        logger.info("Optimize order started (%s, %d products, %s)", mode, optimizer.n, optimizer.strategy,
+        logger.info("Optimize order started (%d rounds, %d products, %s)", optimizer.rounds, optimizer.n, optimizer.strategy,
                     extra={"session_id": session_id})
         return optimizer
 

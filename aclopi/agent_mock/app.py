@@ -16,8 +16,8 @@ POST /sessions/{id}/next-machine:
                    timed-out what-if: decides without it (level llm).
     code-fallback  best by finish
 - The reason names the product (type and priority from /decide), e.g. "best finish (E, priority 80)".
-- POST /sequence/propose (optimize order, docs/sequencing.md): products, evaluated, strategy, mode and
-  reasoning; answers 2 new orders (from the best evaluated one: reversed, rotated, swapped; never one
+- POST /sequence/propose (optimize order, docs/sequencing.md): products, evaluated, strategy and mode;
+  answers 2 new orders (from the best evaluated one: reversed, rotated, swapped; never one
   already evaluated), the heuristic (largest_first) and an analysis. ACLOPI_MOCK_SEQUENCE_DELAY_S waits
   before answering; ACLOPI_MOCK_SEQUENCE_BUSY=n answers 429 with Retry-After
   (ACLOPI_MOCK_SEQUENCE_RETRY_AFTER_S, 1) to the first n calls.
@@ -101,7 +101,6 @@ class SequenceBody(BaseModel):
     evaluated: list[dict[str, Any]] = Field(default_factory=list)
     strategy: str = "b1b"
     mode: str = "Deterministic"
-    reasoning: str | None = None
 
 
 def mock_orders(n: int, evaluated: list[dict[str, Any]]) -> list[list[int]]:
@@ -165,7 +164,7 @@ def create_mock_app(config: MockConfig | None = None) -> FastAPI:
         best = min((e["makespan_ticks"] for e in body.evaluated if e.get("makespan_ticks") is not None), default=None)
         return {"orders": [{"order": o, "reasoning": f"mock: variation {i + 1} of the best order so far"}
                            for i, o in enumerate(orders)],
-                "analysis": f"mock analysis (reasoning {body.reasoning}): best so far {best} ticks",
+                "analysis": f"mock analysis: best so far {best} ticks",
                 "heuristic": {"order": largest_first(body.products), "reasoning": "Longest first"},
                 "latency_ms": round(1000 * (time.perf_counter() - t0), 1), "error": None if orders else "no-valid-order"}
 
