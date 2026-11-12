@@ -187,6 +187,10 @@
   .seq .type-dot { margin-right: 0; }
   .opt-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--s3) var(--s4); margin-top: var(--s3); }
   @media (min-width: 900px) { .opt-grid { grid-template-columns: minmax(16rem, 22rem) minmax(0, 1fr); align-items: start; } }
+  .spinner { display: inline-block; width: 12px; height: 12px; margin-right: 6px; vertical-align: -1px;
+             border: 2px solid var(--rule-2); border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .spinner { animation: none; } }
   .meter { height: 8px; background: var(--panel-2); border: var(--rule-w) solid var(--rule); margin: var(--s2) 0; }
   .meter span { display: block; height: 100%; background: var(--accent); transition: width .15s ease-out; }
   #opt-best { border: var(--rule-w) solid var(--rule-2); border-radius: var(--radius); padding: var(--s3); background: var(--paper); }
@@ -715,6 +719,31 @@ let optState = null, optFetching = false, optPoll = null;
 // the session created here for optimize order, the list at the start (orders index it), whether an order was used,
 // and the list as it was applied (an edited list gets its own session when it runs)
 let optSid = null, optItems = [], optApplied = false, optListKey = null;
+// orders whose "view order" is open (the table is redrawn on every progress message), and the clock of the
+// current wait for the AI / for a turn: started from the server's seconds, then counted by the page itself
+const openOrders = new Set();
+let waitClock = null;  // {key, t0}
+function syncWaitClock(o) {
+  const waiting = o.status === "waiting_ai" || o.status === "waiting_turn";
+  if (!waiting) { waitClock = null; return; }
+  const key = `${o.optimization_id}:${o.status}:${o.round}`;
+  const serverS = o.status === "waiting_ai" ? (o.ai_elapsed_s ?? 0) : (o.waited_s ?? 0);
+  const localS = waitClock && waitClock.key === key ? (performance.now() - waitClock.t0) / 1000 : null;
+  if (localS === null || Math.abs(localS - serverS) > 2) waitClock = {key, t0: performance.now() - 1000 * serverS};
+}
+function showProgressText() {
+  const o = optState;
+  if (!o || !optActive()) return;
+  const head = `Round ${o.round} of ${o.rounds} · `;
+  const seconds = waitClock ? Math.floor((performance.now() - waitClock.t0) / 1000) : 0;
+  let body;
+  if (o.status === "waiting_ai") body = `<span class="spinner" aria-hidden="true"></span>The AI is thinking… ${seconds} s`;
+  else if (o.status === "waiting_turn") body = `<span class="spinner" aria-hidden="true"></span>Waiting for a turn at the AI… ${seconds} s`;
+  else if (o.current) body = esc(`simulating ${o.current.label}: ${o.current.done}/${o.current.total} products done (tick ${o.current.ticks})`);
+  else body = "starting…";
+  $("opt-progress-text").innerHTML = esc(head) + body;
+}
+setInterval(showProgressText, 250);  // the seconds tick in real time between server messages
 const OPT_ACTIVE = ["running", "waiting_turn", "waiting_ai"];
 const seqDots = (products, order) => `<span class="seq">${(order ?? products.map((_, i) => i)).map(i => {
   const p = products[i] || {}; const id = itemId(asItem(p));
@@ -748,12 +777,8 @@ function renderOptimize() {
   if (!o) { $("opt-results").hidden = true; return; }
   if (active) {
     $("opt-bar").style.width = `${o.progress_pct}%`;
-    let text = `Round ${o.round} of ${o.rounds} · `;
-    if (o.status === "waiting_ai") text += `The AI is thinking… ${Math.round(o.ai_elapsed_s ?? 0)} s`;
-    else if (o.status === "waiting_turn") text += `Waiting for a turn at the AI… ${Math.round(o.waited_s)} s`;
-    else if (o.current) text += `simulating ${o.current.label}: ${o.current.done}/${o.current.total} products done (tick ${o.current.ticks})`;
-    else text += "starting…";
-    $("opt-progress-text").textContent = text;
+    syncWaitClock(o);
+    showProgressText();
   }
   $("opt-results").hidden = !o.evaluated.length;
   const best = o.best !== null ? o.evaluated[o.best] : null;
@@ -771,12 +796,15 @@ function renderOptimize() {
       <td>${esc(c.label)}${c.index === o.applied ? " ✓" : ""}</td>
       <td class="num">${c.all_done ? `${ut(c.makespan_time)} u.t. <span class="muted">(${c.makespan_ticks})</span>` : `<span class="muted">not done by the horizon</span>`}</td>
       <td class="num">${savingText(c)}</td>
-      <td><details><summary>view order</summary>${seqDots(o.products, c.order)}</details></td>
+      <td><details data-order="${c.index}" ${openOrders.has(c.index) ? "open" : ""}><summary>view order</summary>${seqDots(o.products, c.order)}</details></td>
       <td>${c.index === o.applied ? "" : `<button data-apply="${c.index}" ${canApply ? "" : "disabled"}>Use this order</button>`}</td></tr>`);
   const dropped = o.discarded.map(d => `<tr class="muted"><td>${esc(d.label)}</td><td colspan="4">${d.reason === "invalid"
       ? "discarded: not a complete order" : `discarded: same as ${esc(d.same_as)}`}</td></tr>`);
   $("opt-rows").innerHTML = rows.concat(dropped).join("");
   $("opt-rows").querySelectorAll("button[data-apply]").forEach(b => b.onclick = () => applyOrder(+b.dataset.apply));
+  $("opt-rows").querySelectorAll("details[data-order]").forEach(d => d.ontoggle = () => {
+    if (d.open) openOrders.add(+d.dataset.order); else openOrders.delete(+d.dataset.order);
+  });
   let whyText = "";
   if (best && !active) {
     whyText = best.origin === "ai" ? `<b>Why (AI):</b> ${esc(best.reasoning || "–")}${best.analysis ? `<br><span class="muted">Analysis of round ${best.round}: ${esc(best.analysis)}</span>` : ""}`
@@ -841,7 +869,7 @@ async function startOptimize() {
   if (body.rule === 4) body.strategy = "agent";
   let info;
   try { info = await createSession(body); } catch (e) { return blocked((e.data && e.data.detail) || e.message); }  // e.g. no free place
-  optSid = sid; optApplied = false; optItems = setItems.map(p => ({...p})); optListKey = null;
+  optSid = sid; optApplied = false; optItems = setItems.map(p => ({...p})); optListKey = null; openOrders.clear();
   $("session-set").value = CURRENT_LIST;
   $("opt-session").textContent = `Session ${sid.slice(0, 8)} · rule ${info.parameters.rule} · seed ${info.parameters.seed}` +
     (info.seed_source === "random" ? " (random)" : "");
