@@ -184,9 +184,9 @@ def test_old_runs_with_a_mode_still_read() -> None:
     assert "mode" not in RunRecord(**new).model_dump()["optimization"]
 
 
-def test_agent_kind_from_the_url_and_compose_stops_everything() -> None:
-    """The kind shown in /health comes from the configured URL; the real agent never restarts on its own and
-    the down scripts include every profile (docs/deploy-local.md, "The profile trap")."""
+def test_agent_kind_from_the_url_and_compose_handles_the_agent() -> None:
+    """The kind shown in /health comes from the configured URL; Línea A's agent is a plain service of the stack
+    (no profile: a plain docker compose up / down starts and stops it) and the platform points at it."""
     import yaml
 
     from aclopi.api.agent import AgentClient, agent_kind
@@ -197,10 +197,7 @@ def test_agent_kind_from_the_url_and_compose_stops_everything() -> None:
     assert info["kind"] == "real" and info["url"] == "http://agent:8100" and "secret" not in str(info)
     root = Path(__file__).resolve().parents[1]
     compose = yaml.safe_load((root / "docker-compose.yml").read_text(encoding="utf-8"))
-    assert compose["services"]["agent"]["profiles"] == ["agent"] and compose["services"]["agent"]["restart"] == "no"
-    # the real agent is the platform's default; the mock only starts with its own profile (automatic tests)
-    assert compose["services"]["agent-mock"]["profiles"] == ["mock"]
-    assert "agent:8100" in compose["services"]["platform"]["environment"]["ACLOPI_AGENT_URL"]
-    assert '[string]$Agent = "real"' in (root / "docker" / "up.ps1").read_text(encoding="utf-8")
-    for script in ("down.ps1", "down.sh"):
-        assert '--profile "*" down' in (root / "docker" / script).read_text(encoding="utf-8"), script
+    services = compose["services"]
+    assert "profiles" not in services["agent"] and "agent-mock" not in services
+    assert not any("profiles" in s for s in services.values())
+    assert services["platform"]["environment"]["ACLOPI_AGENT_URL"] == "http://agent:8100"
