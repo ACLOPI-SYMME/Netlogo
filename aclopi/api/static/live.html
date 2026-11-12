@@ -199,7 +199,6 @@
   table.opt details .seq { margin-top: 4px; white-space: normal; max-width: 26rem; }
   #opt-why { font-size: var(--step--1); line-height: 1.5; }
   #opt-why:empty { display: none; }
-  #opt-note { font-size: var(--step--1); color: var(--ink-2); font-style: italic; margin-top: var(--s2); }
 
   /* ----- tables ----- */
   .table-wrap { overflow-x: auto; border: var(--rule-w) solid var(--rule); border-radius: var(--radius); background: var(--paper); }
@@ -428,7 +427,6 @@
           <div id="opt-why"></div>
         </div>
       </div>
-      <p id="opt-note" hidden></p>
     </div>
   </div>
 </section>
@@ -565,7 +563,7 @@ function showRun(info) {
   renderOptimize();
 }
 async function createSession(body) {
-  if (sid) { await api("DELETE", `/sessions/${sid}`).catch(() => {}); }
+  if (sid) { disconnect(); await api("DELETE", `/sessions/${sid}`).catch(() => {}); }
   optSid = null;  // the session optimize order created (if it was that one) is gone
   const info = await api("POST", "/sessions", body);
   sessionInfo = info; sid = info.session_id; optState = null; clearInterval(optPoll); optPoll = null;
@@ -606,6 +604,7 @@ $("speed").onchange = () => {
 $("reset").onclick = () => act(() => { requireSession(); return api("POST", `/sessions/${sid}/reset`); });
 $("close").onclick = () => act(async () => {
   requireSession();
+  disconnect();
   await api("DELETE", `/sessions/${sid}`);
   forgetSession();
   optState = null; clearInterval(optPoll); optPoll = null; renderOptimize();
@@ -707,7 +706,7 @@ function handle(m) {
     case "finished": showKpis(m.kpis); msg(`Run finished at tick ${m.tick}` + (m.reason ? ` (${m.reason})` : "")); break;
     case "resync": msg(`Resynchronising (${m.reason}, ${m.dropped} messages dropped)`); break;
     case "run_error": msg(`Run error: ${m.error}`, true); break;
-    case "closed": msg(`Session closed: ${m.code} – ${m.reason}`, true); break;
+    case "closed": if (m.code !== "session_deleted") msg(`Session closed: ${m.code} – ${m.reason}`, true); break;
   }
 }
 
@@ -730,12 +729,6 @@ const ORIGIN_WHY = {
   original: "Your order was already the fastest of the orders tested: keep it.",
   heuristic: "Heuristic (longest first): products with more operations enter first (A, B, L; then E; then I, P, T), alternating types so the same type rarely enters twice in a row.",
 };
-function optNotice() {
-  const rule = sessionInfo ? sessionInfo.parameters.rule : 3;
-  return rule === 4
-    ? "Estimate in deterministic mode, with a single seed and a simple rule (b1b) as an approximation of the agent. The real saving may vary."
-    : `Estimate in deterministic mode, with a single seed and the session's rule (rule ${rule}). The real saving may vary.`;
-}
 function optActive() { return !!(optState && OPT_ACTIVE.includes(optState.status)); }
 function optCanStart() {
   if (!setItems.length) return "Add products to the list first.";
@@ -752,7 +745,7 @@ function renderOptimize() {
   for (const b of ["live", "fast", "reset"]) $(b).disabled = active && sid === optSid;
   $("opt-progress").hidden = !active;
   const o = optState;
-  if (!o) { $("opt-results").hidden = true; $("opt-note").hidden = true; return; }
+  if (!o) { $("opt-results").hidden = true; return; }
   if (active) {
     $("opt-bar").style.width = `${o.progress_pct}%`;
     let text = `Round ${o.round} of ${o.rounds} · `;
@@ -793,7 +786,6 @@ function renderOptimize() {
   if (o.status === "failed") whyText += `${whyText ? "<br>" : ""}<span class="err">Optimization failed: ${esc(o.error || "")}</span>`;
   if (o.status === "cancelled") whyText += `${whyText ? "<br>" : ""}<span class="muted">Cancelled: the list keeps its order.</span>`;
   $("opt-why").innerHTML = whyText;
-  $("opt-note").hidden = false; $("opt-note").textContent = optNotice();
 }
 async function refreshOptimize() {
   if (!sid || sid !== optSid || optFetching) return;
@@ -817,6 +809,7 @@ async function closeOptSession() {
   if (!optSid) return;
   const s = optSid; optSid = null; optApplied = false;
   clearInterval(optPoll); optPoll = null;
+  if (sid === s) disconnect();
   await api("DELETE", `/sessions/${s}`).catch(() => {});
   if (sid === s) { sid = null; $("sid").textContent = "–"; $("list-progress").textContent = "–"; disconnect(); }
   $("opt-session").textContent = "";

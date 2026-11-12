@@ -504,7 +504,7 @@ def test_optimize_order_panel(server: tuple[str, list], browser: Any, tmp_path: 
     assert page.eval_on_selector_all("#opt-rows tr", "els => els.map(e => e.cells[0].textContent.trim())") == ["Original", "Heuristic"]
     page.click("#opt-rows tr:nth-child(2) summary")
     assert dots("#opt-rows tr:nth-child(2) details") == list("ABEIP")
-    assert "single seed" in page.inner_text("#opt-note")
+    assert page.query_selector("#opt-note") is None  # no estimate notice
     # "Use this": the Current list (same editable table) takes the new order
     page.click("#opt-use-best")
     page.wait_for_function("document.querySelector('#opt-best').textContent.includes('Applied')")

@@ -21,7 +21,7 @@ The result of the **"Optimize order"** button: several entry orders of the sessi
 |---|---|
 | `GET /sessions/{id}/optimize-order` | The whole record (below) |
 | WebSocket `optimize_progress`, `optimize_best`, `optimize_result`, `optimize_failed` | Progress and results as they happen ([websocket.md](websocket.md)) |
-| Page, **Order entry** tab, under the Current list | Progress, "Best option found so far", the table of orders, the reason of the winner and the notice. "Use this" reorders the Current list |
+| Page, **Order entry** tab, under the Current list | Progress, "Best option found so far", the table of orders and the reason of the winner. "Use this" reorders the Current list |
 | `GET /sessions/{id}` → `optimize_status`, `optimization` | The outcome and the applied order ([sessions-and-state.md](sessions-and-state.md)) |
 | `GET /runs/{id}` → `optimization` | The estimate next to the real run ([runs.md](runs.md)) |
 
@@ -111,7 +111,7 @@ The real run had `kpis.makespan_ticks: 10276` (3,185.56 u.t.): 2.7 % above the e
 ## Pitfalls
 
 - **`order` indexes the list as it was at the start.** After applying, the session's list is the reordered one. A new optimization takes the new list as its "Original".
-- **The estimate is not the real run.** It uses mode Deterministic, one seed and, with rule 4, the b1b rule in place of the agent. The real saving may vary (the page says so under the results).
+- **The estimate is not the real run.** It uses mode Deterministic, one seed and, with rule 4, the b1b rule in place of the agent. The real saving may vary.
 - **Not done by the horizon.** With a short horizon, `all_done: false` and `makespan_*: null`. There is no saving and no best order. Raise the horizon.
 - **The saving can be negative**: the order is worse than the original.
 - **`optimization` in a run is only there if an order was applied** before that run. Optimizing without applying leaves `null`.
