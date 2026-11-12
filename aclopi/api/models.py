@@ -452,6 +452,9 @@ class SessionCounts(BaseModel):
 
 class AgentHealth(BaseModel):
     configured: bool
+    kind: Literal["mock", "real", "other"] | None = Field(None, description="From the configured URL's host: agent-mock "
+                                                                          "-> mock, agent -> real (docs/deploy-local.md)")
+    url: str | None = Field(None, description="ACLOPI_AGENT_URL: the agent the platform talks to")
     status: Literal["ok", "down", "unknown", "not_configured"]
     last_check: float | None = None
     last_ok: float | None = None

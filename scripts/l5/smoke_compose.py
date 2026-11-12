@@ -1,13 +1,16 @@
 """Smoke test of the Docker Compose stack (docker-compose.yml; docs/deploy-local.md).
 
-With the stack up (docker compose up -d):
+With the stack up (docker/up.ps1), or starting it with --up:
 1. upload a CSV of 8 products, save it as a set, run rule 4 / b1 in fast mode with that set and no
    seed; check all_products_done, makespan, decisions, the random seed kept, and the run in
    DynamoDB Local (GET /runs);
 2. run rule 4 / agent live for 30 s; check decisions over WebSocket and a pace of ~32 ticks/s;
-3. check that /health shows the agent.
+3. check that /health shows the agent, its kind (mock / real, from the URL) and its URL;
+4. "Optimize order" with a list of 8 varied products (rule 3): at least one round of the AI;
+5. with --down: stop the whole stack (docker/down) and check that no container of the project is left
+   (docker compose ps -a empty, every profile included).
 
-    python scripts/l5/smoke_compose.py [--url http://localhost:8000]
+    python scripts/l5/smoke_compose.py [--url http://localhost:8000] [--up mock|real] [--down]
 The token is ACLOPI_AGENT_TOKEN from the environment or from .env. Prints one line per check.
 """
 
@@ -17,6 +20,7 @@ import argparse
 import asyncio
 import json
 import os
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -44,15 +48,65 @@ def check(ok: bool, what: str, detail: object = "") -> None:
 
 
 def wait_ready(c: httpx.Client, timeout_s: float = 300) -> None:
-    deadline = time.monotonic() + timeout_s
-    while time.monotonic() < deadline:
+    t0 = time.monotonic()
+    last = t0
+    while time.monotonic() - t0 < timeout_s:
         try:
             if c.get("/health/ready").status_code == 200:
                 return
         except httpx.HTTPError:
             pass
+        if time.monotonic() - last >= 30:
+            last = time.monotonic()
+            print(f"  waiting for the platform: {last - t0:.0f} s of at most {timeout_s:.0f} s", flush=True)
         time.sleep(2)
     check(False, "platform ready")
+
+
+def stack(action: str, agent: str = "mock") -> None:
+    """docker/up or docker/down (the .ps1 on Windows, the .sh elsewhere)."""
+    if sys.platform == "win32":
+        cmd = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(REPO_ROOT / "docker" / f"{action}.ps1")]
+        if action == "up":
+            cmd += ["-Agent", agent]
+    else:
+        cmd = ["sh", str(REPO_ROOT / "docker" / f"{action}.sh")] + (["--agent", agent] if action == "up" else [])
+    t0 = time.monotonic()
+    done = subprocess.run(cmd, cwd=REPO_ROOT, capture_output=True, text=True)
+    check(done.returncode == 0, f"docker/{action} ({agent if action == 'up' else 'every profile'})",
+          f"{time.monotonic() - t0:.0f} s" + ("" if done.returncode == 0 else f": {done.stderr[-500:]}"))
+
+
+def project_containers() -> list[str]:
+    out = subprocess.run(["docker", "ps", "-a", "--filter", "label=com.docker.compose.project=aclopi",
+                          "--format", "{{.Names}}"], capture_output=True, text=True, check=True).stdout
+    listed = subprocess.run(["docker", "compose", "--profile", "*", "ps", "-a", "-q"], cwd=REPO_ROOT,
+                            capture_output=True, text=True, check=True).stdout
+    return sorted(set(out.split()) | set(listed.split()))
+
+
+def optimize_order(c: httpx.Client) -> None:
+    products = [{"type": t, "priority": 80} for t in "AEIBTLPA"]  # 8 products, every type
+    r = c.post("/sessions", json={"rule": 3, "seed": 42, "horizon_ticks": 200000, "products": products})
+    check(r.status_code == 201, "session for optimize order (rule 3, 8 products)", r.status_code)
+    sid = r.json()["session_id"]
+    r = c.post(f"/sessions/{sid}/optimize-order", json={})
+    check(r.status_code == 202, "optimize order started", r.status_code)
+    t0 = last = time.monotonic()
+    while (o := c.get(f"/sessions/{sid}/optimize-order").json())["status"] not in ("done", "cancelled", "failed"):
+        if time.monotonic() - t0 > 600:
+            check(False, "optimize order ends in 10 min", o["status"])
+        if time.monotonic() - last >= 30:
+            last = time.monotonic()
+            print(f"  optimize order: {o['status']}, round {o['round']} of {o['rounds']}, {o['progress_pct']} % "
+                  f"({last - t0:.0f} s)", flush=True)
+        time.sleep(2)
+    ai = [e for e in o["evaluated"] if e["origin"] == "ai"]
+    check(o["status"] == "done" and o["warning"] is None and len(o["rounds_info"]) >= 1 and ai,
+          "optimize order: at least one round of the AI",
+          f"{len(o['rounds_info'])} round(s), {len(o['evaluated'])} orders, best {o['evaluated'][o['best']]['label']} "
+          f"({o['evaluated'][o['best']]['makespan_ticks']} ticks) in {time.monotonic() - t0:.0f} s; warning {o['warning']}")
+    c.delete(f"/sessions/{sid}")
 
 
 def wait_state(c: httpx.Client, sid: str, states: tuple[str, ...], timeout_s: float) -> dict:
@@ -87,7 +141,11 @@ async def watch_live(ws_url: str, seconds: float) -> tuple[list[tuple[float, int
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--url", default="http://localhost:8000")
+    parser.add_argument("--up", choices=("mock", "real"), help="start the stack with docker/up first")
+    parser.add_argument("--down", action="store_true", help="stop the whole stack at the end and check that nothing is left")
     args = parser.parse_args()
+    if args.up:
+        stack("up", args.up)
     t = token()
     headers = {"Authorization": f"Bearer {t}"} if t else {}
     with httpx.Client(base_url=args.url, timeout=60, headers=headers) as c:
@@ -137,9 +195,19 @@ def main() -> int:
         check(len(decided) >= 1, "decisions over WebSocket", [(d["level"], d["late"]) for d in decided])
         c.delete(f"/sessions/{sid}")
 
-        # 3. agent in /health
+        # 3. agent in /health: which one (kind, from the URL) and where
         agent = c.get("/health").json()["agent"]
         check(agent["configured"] and agent["status"] == "ok", "agent in /health", agent["status"])
+        expected = args.up or agent["kind"]
+        check(agent["kind"] == expected and agent["url"] == f"http://{'agent-mock' if expected == 'mock' else 'agent'}:8100",
+              "agent kind and URL in /health", f"{agent['kind']} at {agent['url']}")
+
+        # 4. optimize order: at least one round of the AI (POST /sequence/propose answers)
+        optimize_order(c)
+    if args.down:
+        stack("down")
+        left = project_containers()
+        check(not left, "nothing of the project left after down (docker compose ps -a)", left)
     print("smoke test passed")
     return 0
 

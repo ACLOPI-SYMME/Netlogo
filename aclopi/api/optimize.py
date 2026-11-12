@@ -373,6 +373,10 @@ class OrderOptimization:
                     if self._stop:
                         return None
                     continue
+                if r.status_code == 404:  # an agent without POST /sequence/propose (e.g. an old image)
+                    self.warning = (f"The AI is not available (the agent has no order-proposing function): it answered "
+                                    f"404 (round {k}); the result uses the orders evaluated so far")
+                    return None
                 if r.status_code != 200:
                     self.warning = f"the AI answered {r.status_code} (round {k}); the result uses the orders evaluated so far"
                     return None
