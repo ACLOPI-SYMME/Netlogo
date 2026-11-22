@@ -21,7 +21,7 @@ The result of the **"Optimize order"** button: several entry orders of the sessi
 |---|---|
 | `GET /sessions/{id}/optimize-order` | The whole record (below) |
 | WebSocket `optimize_progress`, `optimize_best`, `optimize_result`, `optimize_failed` | Progress and results as they happen ([websocket.md](websocket.md)) |
-| Page, **Order entry** tab, under the Current list | Progress, "Best option found so far", the table of orders and the reason of the winner. "Use this" reorders the Current list |
+| Page, **Order entry** tab, under the production orders | Progress, "Best option found so far", the table of orders and the reason of the winner. "Use this" reorders the production orders |
 | `GET /sessions/{id}` → `optimize_status`, `optimization` | The outcome and the applied order ([sessions-and-state.md](sessions-and-state.md)) |
 | `GET /runs/{id}` → `optimization` | The estimate next to the real run ([runs.md](runs.md)) |
 

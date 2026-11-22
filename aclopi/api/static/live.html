@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>ACLOPI – Plant simulation</title>
+<title>ACLOPI Project</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Source+Serif+4:opsz,wght@8..60,500;8..60,600&display=swap">
@@ -205,6 +205,14 @@
   #opt-why:empty { display: none; }
   #opt-note { font-size: var(--step--1); font-style: italic; margin-top: var(--s2); }
 
+  /* ----- order entry options, hints, run groups ----- */
+  .option { border: var(--rule-w) solid var(--rule); border-radius: var(--radius); padding: var(--s3); margin-bottom: var(--s3); background: var(--paper); }
+  h3 { font: 600 var(--step-0) var(--font-sans); margin: 0 0 var(--s2); }
+  .hint { font-size: var(--step--1); color: var(--ink-2); margin: var(--s2) 0 0; line-height: 1.45; }
+  .run-group { margin-top: var(--s4); }
+  .run-group > .row { justify-content: space-between; align-items: center; }
+  abbr[title] { text-decoration: underline dotted; cursor: help; }
+
   /* ----- tables ----- */
   .table-wrap { overflow-x: auto; border: var(--rule-w) solid var(--rule); border-radius: var(--radius); background: var(--paper); }
   table.set { border-collapse: collapse; width: 100%; font-size: var(--step--1); }
@@ -263,20 +271,20 @@
 </head>
 <body>
 <header class="bar">
-  <h1>ACLOPI <small>Monorail plant · digital twin</small></h1>
+  <h1>ACLOPI Project <small>Smart AIP Primeca</small></h1>
   <div class="status" aria-label="Run status">
     <div><span class="label">Session</span><b id="sid" class="mono" title="Session id">–</b></div>
     <div><span class="label">State</span><b id="runstate">–</b></div>
     <div><span class="label">Tick</span><b id="tick" class="num">–</b></div>
     <div><span class="label">Rate</span><b id="rate" class="num">–</b></div>
-    <div><span class="label">Set</span><b id="list-progress" class="num">–</b></div>
+    <div><span class="label">Orders</span><b id="list-progress" class="num">–</b></div>
   </div>
   <button id="theme" class="ghost" aria-label="Switch light / dark theme" title="Light / dark">◐</button>
 </header>
 <nav class="tabs" role="tablist">
-  <button id="tab-set" role="tab"><span class="n">1</span>Order entry</button>
-  <button id="tab-session" role="tab" class="active"><span class="n">2</span>Visualization</button>
-  <button id="tab-runs" role="tab"><span class="n">3</span>History Logs</button>
+  <button id="tab-set" role="tab">Order entry</button>
+  <button id="tab-session" role="tab" class="active">Visualization</button>
+  <button id="tab-runs" role="tab">History Logs</button>
 </nav>
 <div id="agent-banner" class="notice" role="alert" hidden>The agent is not available: fast runs with rule 4 cannot start; live runs fall back to rule 3.</div>
 <div id="msg" role="status" aria-live="polite"></div>
@@ -286,13 +294,13 @@
 <section id="page-session" class="page" role="tabpanel">
   <div id="setup" class="panel toolbar" role="toolbar" aria-label="Session controls">
     <div class="group">
-      <span class="label">Setup</span>
+      <span class="label">Manufacturing Layout</span>
       <div class="row">
         <label class="field"><span>Rule</span>
           <select id="rule"><option value="1">Rule 1 — Random machine</option><option value="2">Rule 2 — Nearest machine</option>
             <option value="3" selected>Rule 3 — Potential fields</option><option value="4">Rule 4 — AI agent</option></select></label>
-        <label class="field"><span>Product set</span>
-          <select id="session-set"><option value="">Random (generated from the seed)</option><option value="__current__">Current list (Order entry tab)</option></select></label>
+        <label class="field"><span>Production orders</span>
+          <select id="session-set"><option value="">Random (generated from the seed)</option><option value="__current__">Production orders (Order entry tab)</option></select></label>
         <label class="field"><span>Horizon (ticks)</span><input id="horizon" type="number" min="1" max="1000000" value="10000"></label>
         <span class="field"><span>&nbsp;</span><span class="check"><label class="check"><input id="seed-on" type="checkbox"> Set a seed</label>
           <span class="tip end"><button type="button" aria-label="About the seed" aria-describedby="seed-tip">i</button>
@@ -325,9 +333,8 @@
 
   <figure class="figure">
     <div class="canvas-wrap"><canvas id="plant" aria-label="Plant: monorail, machines M1–M7 and products"></canvas><div id="probe"></div></div>
-    <figcaption><span class="sec">Fig. 1</span> <b>Plant layout and products.</b> Grey lines: monorail; squares: machines
-      (filled while processing); circles: products, coloured and lettered by type. Positions are interpolated in ticks between
-      the platform's updates; hover a product to read it.
+    <figcaption>Grey lines: monorail. Squares: machines M1–M7 (filled while processing). Circles: products, coloured and
+      lettered by type; hover one to read it.
       <div class="legend" id="legend"></div></figcaption>
   </figure>
 
@@ -341,7 +348,9 @@
 
   <div id="decisions-panel" class="panel">
     <div class="row" style="justify-content: space-between">
-      <h2><span class="sec">Tab. 1</span>Latest decisions <small class="muted">(50 newest first)</small></h2>
+      <div><h2>Agent decisions</h2>
+        <p class="hint" style="margin: 0">Rule 4 only: for each operation of a product, the machine the AI agent chose, and why.
+          The 50 newest, newest first.</p></div>
       <label class="field"><span>Level</span><select id="dec-level" class="dec-level"><option value="">(all)</option></select></label>
     </div>
     <div class="table-wrap" style="margin-top: var(--s2)"><table class="set dec"><thead><tr><th>Tick</th><th>Product (type)</th><th>Operation</th>
@@ -349,7 +358,7 @@
   </div>
 
   <div id="events-panel" class="panel">
-    <h2><span class="sec">Log</span>Model events <small class="muted">(last 200)</small></h2>
+    <h2>Model events <small class="muted">(last 200)</small></h2>
     <div id="events"></div>
   </div>
 </section>
@@ -357,21 +366,53 @@
 <!-- ===================== Order entry (product set) ===================== -->
 <section id="page-set" class="page" role="tabpanel" hidden>
   <div class="panel">
-    <h2>Build the list</h2>
-    <p class="muted" style="margin: 0 0 var(--s3)">Products enter the plant in the order of the list. PO, Item ID and # together
-      identify each product. At most <span class="mono">30</span> products.</p>
-    <div class="row">
-      <label class="field"><span>PO</span><input id="add-po" type="text" style="width: 8rem" placeholder="optional"></label>
-      <label class="field"><span>Item ID</span><input id="add-item" type="text" style="width: 8rem" placeholder="optional"></label>
+    <h2>Production Order Entry</h2>
+    <p class="muted" style="margin: 0 0 var(--s3)">Three ways to fill the list of production orders (right). Orders enter
+      the plant in the order of the list; at most <span class="mono">30</span>.</p>
+
+    <div class="option">
+      <h3>Enter orders manually</h3>
+      <div class="row">
+        <label class="field"><span>PO</span><input id="add-po" type="text" style="width: 8rem" placeholder="optional"></label>
+        <label class="field"><span>Item ID</span><input id="add-item" type="text" style="width: 8rem" placeholder="optional"></label>
+      </div>
+      <div class="row">
+        <label class="field"><span>Type</span><select id="add-type"><option>A</option><option>I</option><option>P</option><option>B</option><option>E</option><option>L</option><option>T</option></select></label>
+        <label class="field"><span>Priority</span><input id="add-priority" type="number" min="60" max="100" value="80" style="width: 5.5rem"></label>
+        <label class="field"><span>DueDate (u.t.)</span><input id="add-due" type="number" min="0" step="any" style="width: 7rem" placeholder="optional"></label>
+        <button id="add">Add order</button>
+      </div>
+      <p class="hint"><b>Adds</b> one order at the end of the list. With PO and Item ID, # is numbered automatically.</p>
     </div>
-    <div class="row">
-      <label class="field"><span>Type</span><select id="add-type"><option>A</option><option>I</option><option>P</option><option>B</option><option>E</option><option>L</option><option>T</option></select></label>
-      <label class="field"><span>Priority</span><input id="add-priority" type="number" min="60" max="100" value="80" style="width: 5.5rem"></label>
-      <label class="field"><span>DueDate (u.t.)</span><input id="add-due" type="number" min="0" step="any" style="width: 7rem" placeholder="optional"></label>
-      <button id="add">Add</button>
+
+    <div class="option">
+      <h3>Import a CSV file</h3>
+      <div class="row"><input id="csv-file" type="file" accept=".csv,text/csv" aria-label="CSV file of production orders"></div>
+      <p class="hint">A CSV file with one production order per row and the columns <span class="mono">PO, Item ID, #, Type,
+        Priority, DueDate</span> (only Type is required; comma or semicolon). It <b>replaces</b> the current list.</p>
     </div>
-    <p class="muted" style="margin: var(--s2) 0 0; font-size: var(--step--1)">With PO and Item ID, # is numbered on from the last one of that PO and item.</p>
+
+    <div class="option">
+      <h3>Load a saved set</h3>
+      <div class="row">
+        <label class="field"><span>Saved sets</span><select id="saved-sets"></select></label>
+        <button id="set-open">Load</button><button id="set-delete" class="ghost">Delete</button>
+      </div>
+      <p class="hint">A list of orders saved before. It <b>replaces</b> the current list.</p>
+    </div>
+
     <hr class="rule">
+    <h3>Keep the list</h3>
+    <div class="row">
+      <label class="field"><span>Set name</span><input id="set-name" value="My set"></label>
+      <button id="set-save" class="primary">Save as set</button>
+    </div>
+    <div class="row"><button id="csv-download">Export CSV</button><button id="clear" class="ghost">Clear list</button></div>
+    <p class="hint">"Save as set" stores the list on the platform, to load it later. "Export CSV" downloads it as a CSV
+      file with the same columns as the import.</p>
+
+    <hr class="rule">
+    <h3>Generate a sample list</h3>
     <div class="row">
       <label class="check"><input id="gen-seed-on" type="checkbox"> Set a seed</label>
       <span class="tip"><button type="button" aria-label="About the generator seed" aria-describedby="gen-seed-tip">i</button>
@@ -383,35 +424,24 @@
     </div>
     <div class="row">
       <label class="field"><span>Quantity</span><input id="gen-count" type="number" min="1" max="30" value="10"></label>
-      <button id="generate">Generate from seed</button>
+      <button id="generate">Generate</button>
     </div>
     <div class="row"><span id="gen-used" class="muted mono"></span></div>
-    <hr class="rule">
-    <div class="row">
-      <label class="field"><span>Upload CSV</span><input id="csv-file" type="file" accept=".csv,text/csv"></label>
-    </div>
-    <div class="row"><button id="csv-download">Download CSV</button><button id="clear">Clear list</button></div>
-    <hr class="rule">
-    <h2>Saved sets</h2>
-    <div class="row">
-      <label class="field"><span>Name</span><input id="set-name" value="My set"></label>
-      <button id="set-save" class="primary">Save</button>
-    </div>
-    <div class="row">
-      <label class="field"><span>Saved</span><select id="saved-sets"></select></label>
-      <button id="set-open">Open</button><button id="set-delete">Delete</button>
-    </div>
+    <p class="hint">The orders the model itself would create (for tests). It <b>replaces</b> the current list.</p>
   </div>
   <div class="panel">
     <div class="row" style="justify-content: space-between; align-items: baseline">
-      <h2><span class="sec">Tab. 2</span>Current list</h2>
-      <span><b id="set-summary" class="big">0</b> <span class="muted">/ 30 products</span> <span id="set-dirty" class="err"></span></span>
+      <h2>Production orders</h2>
+      <span><b id="set-summary" class="big">0</b> <span class="muted">/ 30 orders</span> <span id="set-dirty" class="err"></span></span>
     </div>
+    <p class="hint" style="margin-top: 0">The list the simulation uses: orders enter the plant from top to bottom. Edit any
+      field, or drag a row to change the order.</p>
     <div id="set-counts" class="counts"></div>
     <div id="set-errors" class="err" role="alert" style="margin: var(--s2) 0"></div>
     <div class="table-wrap" style="margin-top: var(--s2)"><table class="set order"><thead><tr><th></th><th>Order</th><th>PO</th><th>Item ID</th><th>#</th>
-      <th>Type</th><th>Priority</th><th>DueDate (u.t.)</th><th>Id</th><th>Actions</th></tr></thead>
+      <th>Type</th><th>Priority</th><th><abbr title="u.t. = time units of the simulation (1 tick = 0.31 u.t.)">DueDate (u.t.)</abbr></th><th>Id</th><th>Actions</th></tr></thead>
       <tbody id="set-rows"></tbody></table></div>
+    <p class="hint">u.t.: time units of the simulation (1 tick = 0.31 u.t.). Id = PO-Item ID-#.</p>
     <div id="optimize-panel">
       <hr class="rule">
       <div class="row">
@@ -444,23 +474,26 @@
       <label class="field"><span>Seed</span><input id="runs-seed" type="number"></label>
       <label class="field"><span>Rule</span><select id="runs-rule"><option value="">(all)</option><option value="1">Rule 1</option><option value="2">Rule 2</option><option value="3">Rule 3</option><option value="4">Rule 4</option></select></label>
       <button id="runs-refresh">Refresh</button> <button id="runs-more" hidden>More</button>
-      <button id="runs-compare" class="primary">Compare selected</button>
     </div>
+    <p class="hint">Saved runs, grouped by the list of production orders they used. To compare runs, select two or more of
+      the same list and press "Compare selected" in that list.</p>
     <div id="runs-msg" class="err" style="margin-top: var(--s2)"></div>
-    <div class="table-wrap" style="margin-top: var(--s3)"><table class="set"><thead><tr><th></th><th>Started</th><th>Status</th><th>Rule</th><th>Seed</th><th>Set</th>
-      <th>Ticks</th><th>Makespan</th><th>Mean flow</th><th>Work</th><th>Finished</th><th>Created</th><th></th></tr></thead>
-      <tbody id="runs-rows"></tbody></table></div>
+    <div id="runs-groups"></div>
   </div>
   <div class="panel">
-    <h2><span class="sec">Tab. 3</span>Comparison</h2>
-    <div id="runs-compare-box" class="muted">Select at least 2 runs and press “Compare selected”.</div>
+    <h2>Comparison of runs</h2>
+    <p class="hint" style="margin-top: 0">Runs of the same list of production orders, side by side: when the last order
+      finished (makespan), how long an order took on average (mean flow time), the processing work done, and the orders
+      created and finished. Lower makespan and mean flow time are better. Runs with different seeds also had different
+      random processing times.</p>
+    <div id="runs-compare-box" class="muted">Select runs of one list and press "Compare selected".</div>
   </div>
   <div id="rd-box" class="panel" hidden>
-    <h2><span class="sec">Tab. 4</span>Decisions of run <span id="rd-title" class="mono"></span></h2>
+    <h2>Agent decisions of run <span id="rd-title" class="mono"></span></h2>
     <div class="row">
       <label class="field"><span>Level</span><select id="rd-level" class="dec-level"><option value="">(all)</option></select></label>
       <button id="rd-prev">‹ Previous</button> <span id="rd-page" class="mono"></span> <button id="rd-next">Next ›</button>
-      <button id="rd-csv">Download CSV</button> <button id="rd-close" class="ghost">Close</button>
+      <button id="rd-csv" title="CSV file with the agent decisions of this run">Download CSV</button> <button id="rd-close" class="ghost">Close</button>
     </div>
     <div class="table-wrap" style="margin-top: var(--s2)"><table class="set dec"><thead><tr><th>Tick</th><th>Product (type)</th><th>Operation</th>
       <th>Chosen machine</th><th>Level</th><th>Reason</th><th>Latency</th><th>Late</th></tr></thead><tbody id="rd-rows"></tbody></table></div>
@@ -587,7 +620,7 @@ $("create").onclick = () => act(async () => {
   if (body.rule === 4) body.strategy = "agent";  // for the user, rule 4 is the agent (b1 / b1b / none: API only)
   // "Current list": exactly the list shown in the Order entry tab, in that order.
   if ($("session-set").value === CURRENT_LIST) {
-    if (!setItems.length) throw new Error("The current list is empty (Order entry tab)");
+    if (!setItems.length) throw new Error("The list of production orders is empty (Order entry tab)");
     body.products = setItems.map(asPayload);
   } else if ($("session-set").value) body.product_set_id = $("session-set").value;
   const info = await createSession(body);
@@ -791,7 +824,7 @@ function renderOptimize() {
       <span class="mono muted">${best.makespan_ticks} ticks · ${esc(best.label)}</span><br>
       <span>Saving: ${savingText(best)}</span>
       <div style="margin: var(--s2) 0">${seqDots(o.products, best.order)}</div>
-      ${o.applied === best.index ? `<b>✓ Applied to the current list</b>` : `<button id="opt-use-best" class="primary" ${canApply ? "" : "disabled"}>Use this</button>`}`
+      ${o.applied === best.index ? `<b>✓ Applied to the production orders</b>` : `<button id="opt-use-best" class="primary" ${canApply ? "" : "disabled"}>Use this</button>`}`
     : `<span class="muted">No complete simulation yet${o.evaluated.length ? " (the horizon is too short for the list)" : ""}.</span>`;
   if ($("opt-use-best")) $("opt-use-best").onclick = () => applyOrder(best.index);
   const rows = o.evaluated.map(c => `<tr class="${c.index === o.best ? "best" : ""} ${c.index === o.applied ? "applied" : ""}">
@@ -1145,14 +1178,16 @@ $("generate").onclick = () => setAct(async () => {
   setList(g.products, true); setId = null; setError("");
   $("gen-used").textContent = `Seed used: ${g.seed}${g.seed_source === "random" ? " (random)" : ""}`;
 });
+let savedSets = [];  // also for the titles of the run groups (History Logs)
 async function refreshSaved() {
   const sets = await api("GET", "/product-sets");
+  savedSets = sets;
   const opts = sets.map(s => `<option value="${s.id}">${esc(s.name)} (${s.total})</option>`).join("");
   $("saved-sets").innerHTML = opts || `<option value="">(no saved sets)</option>`;
   $("set-open").disabled = $("set-delete").disabled = !sets.length;
   const chosen = $("session-set").value;
   $("session-set").innerHTML = `<option value="">Random (generated from the seed)</option>`
-    + `<option value="${CURRENT_LIST}">Current list (Order entry tab)</option>` + opts;
+    + `<option value="${CURRENT_LIST}">Production orders (Order entry tab)</option>` + opts;
   $("session-set").value = chosen;
   if ($("session-set").value !== chosen) $("session-set").value = "";
 }
@@ -1193,23 +1228,50 @@ function makespanText(k) {
   if (!k.all_done || k.makespan_time === null || k.makespan_time === undefined) return "not finished";
   return `${k.makespan_time.toFixed(1)} u.t. (${k.makespan_ticks} ticks)`;
 }
+// Runs grouped by the list of production orders they used: the same list (products_hash), or, without a list,
+// the same seed (the model generated the orders from it).
+function runGroupKey(r) { return r.products_hash ? `list:${r.products_hash}` : `random:${r.seed}`; }
+function runGroupTitle(r) {
+  if (!r.products_hash) return `Random orders generated from seed ${r.seed}`;
+  const saved = savedSets.find(x => x.id === r.product_set_id);
+  const name = saved ? `Saved set "${saved.name}"` : `List ${r.products_hash.slice(0, 8)}`;
+  return `${name} · ${r.products ? r.products.length : "?"} orders`;
+}
 function renderRuns() {
-  const body = $("runs-rows"); body.textContent = "";
-  if (!runs.length) { body.innerHTML = `<tr><td colspan="13" class="empty">No runs saved yet.</td></tr>`; return; }
-  runs.forEach(r => {
-    const k = r.kpis || {};
-    const tr = document.createElement("tr");
-    tr.innerHTML = `<td><input type="checkbox" data-id="${r.run_id}" aria-label="Select run ${r.run_id.slice(0, 8)}"></td><td class="num">${new Date(r.created_at * 1000).toLocaleString()}</td>
-      <td>${r.status}${r.reason ? " (" + esc(r.reason) + ")" : ""}</td><td>${esc(ruleText(r))}${hasScenario(r) ? ` <span title="${esc(scenarioText(r.scenario))}">[${esc(r.scenario_id)}]</span>` : ""}</td>
-      <td class="num">${r.seed}${r.seed_source === "random" ? "*" : ""}</td><td class="mono">${r.products_hash ? r.products_hash.slice(0, 8) : "Random"}</td>
-      <td class="num">${fmt(r.ticks)}</td><td class="num"><b>${makespanText(k)}</b></td><td class="num">${fmt(k.mean_flow_time)}</td><td class="num">${fmt(k.work_completed)}</td>
-      <td class="num">${fmt(k.finished)}</td><td class="num">${fmt(k.created)}</td>
-      <td style="white-space:nowrap"><button data-a="decisions">Decisions</button><button data-a="repeat">Repeat</button><button data-a="csv">CSV</button></td>`;
-    tr.querySelector('[data-a="repeat"]').onclick = () => repeatRun(r);
-    tr.querySelector('[data-a="csv"]').onclick = () => exportRun(r).catch(e => { $("runs-msg").textContent = e.message; });
-    tr.querySelector('[data-a="decisions"]').onclick = () => showRunDecisions(r).catch(e => { $("runs-msg").textContent = e.message; });
-    body.appendChild(tr);
-  });
+  const box = $("runs-groups"); box.textContent = "";
+  if (!runs.length) { box.innerHTML = `<p class="empty">No runs saved yet.</p>`; return; }
+  const groups = new Map();
+  for (const r of runs) {
+    const key = runGroupKey(r);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(r);
+  }
+  for (const [key, rs] of groups) {
+    const g = document.createElement("div");
+    g.className = "run-group";
+    const types = rs[0].products ? `<span class="seq">${rs[0].products.map(p => typeDot(p.type)).join("")}</span>` : "";
+    g.innerHTML = `<div class="row"><h3 style="margin: 0">${esc(runGroupTitle(rs[0]))} <small class="muted">(${rs.length} run${rs.length > 1 ? "s" : ""})</small></h3>
+        <button data-a="compare" class="primary">Compare selected</button></div>${types}
+      <div class="table-wrap" style="margin-top: var(--s2)"><table class="set"><thead><tr><th></th><th>Started</th><th>Status</th><th>Rule</th><th>Seed</th>
+        <th>Ticks</th><th>Makespan</th><th>Mean flow</th><th>Work</th><th>Finished</th><th>Created</th><th></th></tr></thead><tbody></tbody></table></div>`;
+    const body = g.querySelector("tbody");
+    rs.forEach(r => {
+      const k = r.kpis || {};
+      const tr = document.createElement("tr");
+      tr.innerHTML = `<td><input type="checkbox" data-id="${r.run_id}" aria-label="Select run ${r.run_id.slice(0, 8)}"></td><td class="num">${new Date(r.created_at * 1000).toLocaleString()}</td>
+        <td>${r.status}${r.reason ? " (" + esc(r.reason) + ")" : ""}</td><td>${esc(ruleText(r))}${hasScenario(r) ? ` <span title="${esc(scenarioText(r.scenario))}">[${esc(r.scenario_id)}]</span>` : ""}</td>
+        <td class="num">${r.seed}${r.seed_source === "random" ? "*" : ""}</td>
+        <td class="num">${fmt(r.ticks)}</td><td class="num"><b>${makespanText(k)}</b></td><td class="num">${fmt(k.mean_flow_time)}</td><td class="num">${fmt(k.work_completed)}</td>
+        <td class="num">${fmt(k.finished)}</td><td class="num">${fmt(k.created)}</td>
+        <td style="white-space:nowrap"><button data-a="decisions">Decisions</button><button data-a="repeat">Repeat</button><button data-a="csv" title="CSV file with the parameters, indicators and agent decisions of this run">CSV</button></td>`;
+      tr.querySelector('[data-a="repeat"]').onclick = () => repeatRun(r);
+      tr.querySelector('[data-a="csv"]').onclick = () => exportRun(r).catch(e => { $("runs-msg").textContent = e.message; });
+      tr.querySelector('[data-a="decisions"]').onclick = () => showRunDecisions(r).catch(e => { $("runs-msg").textContent = e.message; });
+      body.appendChild(tr);
+    });
+    g.querySelector('[data-a="compare"]').onclick = () => compareRuns(rs, g);
+    box.appendChild(g);
+  }
 }
 // Rule as the user sees it: rule 4 is the agent; b1 / b1b runs (created through the API) say so.
 const STRATEGY_NAMES = {b1: "B1", b1b: "B1b"};
@@ -1245,28 +1307,23 @@ async function exportRun(r) {
 }
 $("runs-refresh").onclick = () => loadRuns(true);
 $("runs-more").onclick = () => loadRuns(false);
-$("runs-compare").onclick = () => {
-  const ids = [...document.querySelectorAll('#runs-rows input[type=checkbox]:checked')].map(c => c.dataset.id);
-  const chosen = runs.filter(r => ids.includes(r.run_id));
-  if (chosen.length < 2) { $("runs-compare-box").textContent = "Select at least 2 runs"; return; }
-  // Grouped by seed + product set (and the scenario of an old run that had one): compared within a group.
-  const groups = new Map();
-  for (const r of chosen) {
-    const key = `seed ${r.seed} · set ${r.products_hash ? r.products_hash.slice(0, 8) : "random"}` +
-                (hasScenario(r) ? ` · scenario ${scenarioText(r.scenario)}` : "");
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key).push(r);
-  }
-  const keys = ["makespan", "mean_flow_time", "work_completed", "finished", "created", "throughput", "all_done"];
+// The indicators compared, with the names the user reads
+const COMPARE_ROWS = [["makespan", "Makespan (last order finished)"], ["mean_flow_time", "Mean flow time (u.t.)"],
+                      ["work_completed", "Processing work done (u.t.)"], ["finished", "Orders finished"],
+                      ["created", "Orders created"], ["throughput", "Throughput (orders / u.t.)"], ["all_done", "All orders finished"]];
+function compareRuns(groupRuns, groupEl) {
+  const ids = [...groupEl.querySelectorAll('input[type=checkbox]:checked')].map(c => c.dataset.id);
+  const rs = groupRuns.filter(r => ids.includes(r.run_id));
+  const box = $("runs-compare-box");
+  if (rs.length < 2) { box.classList.add("muted"); box.textContent = "Select at least 2 runs of this list"; return; }
   const cell = (r, k) => k === "makespan" ? makespanText(r.kpis || {}) : fmt((r.kpis || {})[k]);
-  $("runs-compare-box").classList.remove("muted");
-  $("runs-compare-box").innerHTML = (groups.size > 1 ? `<p class="err">The runs do not share the same seed and set: they are compared by group</p>` : "") +
-    [...groups].map(([key, rs]) => {
-      const head = `<tr><th>KPI</th>${rs.map(r => `<th>${esc(ruleText(r))} ${r.run_id.slice(0, 6)}</th>`).join("")}</tr>`;
-      const rows = keys.map(k => `<tr><td>${k}</td>${rs.map(r => `<td class="num">${cell(r, k)}</td>`).join("")}</tr>`).join("");
-      return `<h4>${esc(key)}</h4><div class="table-wrap"><table class="set">${head}${rows}</table></div>`;
-    }).join("");
-};
+  const head = `<tr><th>Indicator</th>${rs.map(r => `<th>${esc(ruleText(r))} ${r.run_id.slice(0, 6)}</th>`).join("")}</tr>`;
+  const rows = COMPARE_ROWS.map(([k, label]) => `<tr><td>${label}</td>${rs.map(r => `<td class="num">${cell(r, k)}</td>`).join("")}</tr>`).join("");
+  const seeds = new Set(rs.map(r => r.seed));
+  box.classList.remove("muted");
+  box.innerHTML = `<h4>${esc(runGroupTitle(rs[0]))}</h4>` + (seeds.size > 1 ? `<p class="hint">Different seeds: ${[...seeds].join(", ")}.</p>` : "") +
+    `<div class="table-wrap"><table class="set">${head}${rows}</table></div>`;
+}
 
 // ----- drawing -----
 // Playback runs on a clock in TICKS, not on the arrival time of the messages: the clock advances at the

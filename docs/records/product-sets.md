@@ -8,7 +8,7 @@ A fixed list of products (an order list: PO, Item ID, #, type, priority and due 
 
 ## How it is produced and when it is available
 
-- It is created by hand: on the page (**Order entry** tab → "Save") or with `POST /product-sets`.
+- It is created by hand: on the page (**Order entry** tab → "Save as set") or with `POST /product-sets`.
 - Available **always**, until it is deleted. With DynamoDB it is stored in the table **`aclopi_product_sets`** (key `id`) and persists; without DynamoDB it lives in memory and is lost when the API restarts.
 - The session keeps **its own copy**: editing or deleting the set afterwards does not change the sessions or runs that already used it. The saved run also carries the list (`products`).
 
@@ -22,7 +22,7 @@ A fixed list of products (an order list: PO, Item ID, #, type, priority and due 
 | `POST /product-sets`, `PUT /product-sets/{id}`, `DELETE /product-sets/{id}` | Create, replace, delete |
 | `POST /product-sets/parse-csv` | Validates an uploaded CSV and returns the list (does not save it) |
 | `POST /product-sets/generate` | The products the model would generate with a seed (does not save them) |
-| Page, **Order entry** tab | Editor, "Upload CSV", "Download CSV", "Generate from seed", "Save", "Open", "Delete" |
+| Page, **Order entry** tab | "Production Order Entry": enter orders manually ("Add order"), import a CSV file, load a saved set ("Load"); "Save as set", "Export CSV", "Clear list", "Generate" (a sample list from a seed), "Delete" |
 
 ## Fields
 
@@ -65,7 +65,7 @@ Fields of each product (only `type` and `priority` reach the NetLogo model; empt
 
 ## CSV of a set
 
-Six columns, one row per product, in entry order (the page's "Download CSV" and `GET /product-sets/{id}/csv` write the same):
+Six columns, one row per product, in entry order (the page's "Export CSV" and `GET /product-sets/{id}/csv` write the same):
 
 ```
 PO,Item ID,#,Type,Priority,DueDate
@@ -82,4 +82,4 @@ On the page (Order entry tab) every field can be edited in the list; the Id colu
 - **Same set for the simulation** = same `hash`, even with another name, `id`, PO, Item ID, # or due dates: the hash only uses type and priority.
 - **The list of `GET /product-sets` does not carry the products**; each set has to be requested.
 - **A run without a set** ("Random" on the page) has neither `product_set_id` nor `products_hash`: its products came from the seed.
-- **An inline set** (`products` when creating the session, or "Current list" on the page) has no `product_set_id`, but it does have `products_hash`.
+- **An inline set** (`products` when creating the session, or "Production orders (Order entry tab)" on the page) has no `product_set_id`, but it does have `products_hash`.

@@ -14,7 +14,7 @@ The full responses were saved in `results/docs_examples/`, which is not in git. 
 | File | Source | Where to see it |
 |---|---|---|
 | [runs.md](runs.md) | Saved runs | `GET /runs`, `GET /runs/{id}`, table `aclopi_runs`, **History Logs** tab, CSV of a run |
-| [decisions.md](decisions.md) | Agent decisions | `GET /runs/{id}/decisions`, table `aclopi_decisions`, "Latest decisions" panel, "Decisions" button, decisions CSV, the agent's own log (`decisions.jsonl`) |
+| [decisions.md](decisions.md) | Agent decisions | `GET /runs/{id}/decisions`, table `aclopi_decisions`, "Agent decisions" panel, "Decisions" button, decisions CSV, the agent's own log (`decisions.jsonl`) |
 | [metrics.md](metrics.md) | Session metrics | `GET /sessions/{id}/metrics` (groups `decisions` and `whatif`) |
 | [kpis.md](kpis.md) | Plant indicators | `GET /sessions/{id}/kpis`, `kpis` of runs and of WebSocket messages |
 | [events.md](events.md) | Model events | `GET /sessions/{id}/events`, `events` of WebSocket messages |

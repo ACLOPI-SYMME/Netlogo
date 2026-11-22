@@ -52,7 +52,7 @@ With rule 4, every time a product has to choose a machine for its next operation
 | Where | What it shows |
 |---|---|
 | `GET /runs/{run_id}/decisions` | Every decision of a saved run, in order |
-| Page, **Visualization** tab, **"Latest decisions"** panel | The 50 newest of the run in progress, newest on top, with a level filter |
+| Page, **Visualization** tab, **"Agent decisions"** panel | The 50 newest of the run in progress, newest on top, with a level filter |
 | Page, **History Logs** tab, **"Decisions"** button | All the decisions of a saved run, 50 per page, with a level filter and "Download CSV" |
 | DynamoDB | Table `aclopi_decisions` |
 

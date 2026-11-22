@@ -24,7 +24,7 @@ Every run that finishes, fails or is stopped leaves **one record** with its para
 |---|---|
 | `GET /runs` | List, newest first. Filters: `seed`, `strategy`, `rule`, `product_set_id`, `scenario`; paging: `limit` (1–500, 50 by default) and `cursor` |
 | `GET /runs/{run_id}` | One full record |
-| Page `/ui`, **History Logs** tab | Table with filters, "Compare selected", "Decisions", "Repeat" and "CSV" |
+| Page `/ui`, **History Logs** tab | Runs grouped by the list of production orders they used; filters, "Compare selected" (per list), "Decisions", "Repeat" and "CSV" |
 | DynamoDB | Table `aclopi_runs` (see `docs/deploy-local.md`) |
 
 `GET /runs` answers `{"runs": [...], "next_cursor": "..."}`. If `next_cursor` is not `null`, there are more: ask again with `cursor=<that value>`.

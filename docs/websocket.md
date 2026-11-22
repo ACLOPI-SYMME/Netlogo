@@ -101,7 +101,7 @@ Scenarios are not available on the platform (`docs/scenarios.md`), so no session
 ```
 
 - `product_type` and `operation` (the operation decided) come from the request sent to the agent; `reason` is the reason the agent gave (it can be `null`).
-- The page uses it for the "Latest decisions" panel (the 50 newest on top, with a level filter).
+- The page uses it for the "Agent decisions" panel (the 50 newest on top, with a level filter).
 - The aggregated metrics are in `GET /sessions/{id}/metrics` (`decisions`). Note: the message's `seq` field is the WebSocket message number, and the `seq` of the decided operation goes in **`seq_op`**.
 
 ### `finished`: the run reached the horizon

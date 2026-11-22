@@ -11,10 +11,10 @@ How to read each field: [records/optimize-order.md](records/optimize-order.md).
 
 ## Flow on the page (Order entry tab)
 
-1. Build the Current list. No session has to be created by hand.
-2. Press "Optimize order", next to the Current list. Its help text says: "It can take about 3 minutes; you can use the best option found at any time".
+1. Build the list of production orders. No session has to be created by hand.
+2. Press "Optimize order", under the list of production orders. Its help text says: "It can take about 3 minutes; you can use the best option found at any time".
    - **The session it needs.** The page creates it (`POST /sessions`) with:
-     - the Current list;
+     - the list of production orders;
      - the rule and horizon chosen in the Visualization tab;
      - the seed of this tab's "Set a seed" checkbox, or a random one, which is shown.
 
@@ -26,7 +26,7 @@ How to read each field: [records/optimize-order.md](records/optimize-order.md).
    - a table with every order evaluated ("Use this order").
 4. "Use this" or "Use this order":
    - the platform cuts the rounds that are left and sets the session up again with that order;
-   - the Current list shows the new order in the same editable table, so it can still be adjusted or saved.
+   - the list of production orders shows the new order in the same editable table, so it can still be adjusted or saved.
 5. Run from Visualization, with the session already set up. If the list was edited after "Use this", running creates a new session with the edited list, with the same rule, horizon and seed. The estimate and the real result are both kept, so they can be compared.
 
 **Without choosing an order**, the page closes the session it created and frees its place. This happens with "Cancel", with leaving the Order entry tab, and with closing the page.
