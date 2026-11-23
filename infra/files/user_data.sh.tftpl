@@ -1,0 +1,159 @@
+#!/usr/bin/env bash
+# First boot of a new instance (cloud-init runs it once). Installs Docker, the AWS CLI, the CloudWatch Agent and
+# the VPN client, writes the stack to /opt/aclopi and enables the systemd units. What has to happen at EVERY boot
+# (Elastic IP, secrets, containers, VPN) lives in those units, because a warm-pool instance is stopped and started.
+# Rendered by Terraform (infra/compute.tf): $${...} is bash, $${} without the double dollar is Terraform.
+set -euxo pipefail
+exec > >(tee -a /var/log/aclopi-user-data.log) 2>&1
+
+export DEBIAN_FRONTEND=noninteractive
+apt-get update
+apt-get install -y --no-install-recommends docker.io docker-compose-v2 openconnect python3-pip curl jq
+pip3 install --break-system-packages vpn-slice
+snap install aws-cli --classic || snap refresh aws-cli
+systemctl enable --now docker
+
+# CloudWatch Agent: memory and disk (the EC2 metrics do not include them) and the VPN log.
+curl -fsSL -o /tmp/cwagent.deb https://s3.${region}.amazonaws.com/amazoncloudwatch-agent-${region}/ubuntu/amd64/latest/amazon-cloudwatch-agent.deb
+dpkg -i /tmp/cwagent.deb
+mkdir -p /var/log/aclopi
+cat > /opt/aws/amazon-cloudwatch-agent/etc/aclopi.json <<'EOF'
+{
+  "agent": { "metrics_collection_interval": 60 },
+  "metrics": {
+    "namespace": "ACLOPI",
+    "append_dimensions": { "AutoScalingGroupName": "$${aws:AutoScalingGroupName}" },
+    "aggregation_dimensions": [["AutoScalingGroupName"]],
+    "metrics_collected": {
+      "mem": { "measurement": ["mem_used_percent"] },
+      "disk": { "measurement": ["used_percent"], "resources": ["/"] }
+    }
+  },
+  "logs": {
+    "logs_collected": {
+      "files": {
+        "collect_list": [
+          { "file_path": "/var/log/aclopi/*.log", "log_group_name": "${log_group_sys}", "log_stream_name": "{instance_id}/{file_basename}" },
+          { "file_path": "/var/log/aclopi-user-data.log", "log_group_name": "${log_group_sys}", "log_stream_name": "{instance_id}/user-data" }
+        ]
+      }
+    }
+  }
+}
+EOF
+/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -s \
+  -c file:/opt/aws/amazon-cloudwatch-agent/etc/aclopi.json
+
+# ----- the stack -----
+mkdir -p /opt/aclopi/bin /opt/aclopi/results
+
+cat > /opt/aclopi/bin/common.sh <<'EOF'
+# Shared by the aclopi scripts. Values fixed by Terraform.
+export PATH="/snap/bin:/usr/local/bin:$PATH"
+AWS_REGION="${region}"
+PARAM_PREFIX="${param_prefix}"
+EIP_ALLOCATION="${eip_allocation}"
+ECR_REGISTRY="${ecr_registry}"
+PLATFORM_IMAGE="${platform_repo}"
+AGENT_IMAGE="${agent_repo}"
+TABLE_PREFIX="${table_prefix}"
+LOG_GROUP_PLATFORM="${log_group_app}"
+LOG_GROUP_AGENT="${log_group_agt}"
+LLM_HOSTNAME="${llm_hostname}"
+LLM_PORT="${llm_port}"
+DEFAULT_IMAGE_TAG="${image_tag}"
+param() { aws ssm get-parameter --region "$AWS_REGION" --name "$PARAM_PREFIX/$1" --query Parameter.Value --output text; }
+param_secure() { aws ssm get-parameter --region "$AWS_REGION" --name "$PARAM_PREFIX/$1" --with-decryption --query Parameter.Value --output text; }
+log() { echo "$(date -Is) [$(basename "$0")] $*"; }
+EOF
+
+cat > /opt/aclopi/docker-compose.yml <<'EOF'
+${compose_file}
+EOF
+
+cat > /opt/aclopi/platform.env <<'EOF'
+${platform_env}
+EOF
+
+cat > /opt/aclopi/agent.env <<'EOF'
+${agent_env}
+EOF
+
+cat > /opt/aclopi/bin/vpn.sh <<'EOF'
+${vpn_script}
+EOF
+
+cat > /opt/aclopi/bin/start.sh <<'EOF'
+${start_script}
+EOF
+
+cat > /opt/aclopi/bin/health.sh <<'EOF'
+${health_script}
+EOF
+
+chmod 755 /opt/aclopi/bin/*.sh
+
+# ----- systemd units -----
+cat > /etc/systemd/system/aclopi-vpn.service <<'EOF'
+[Unit]
+Description=ACLOPI - university VPN (split tunnel to the LLM server)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/opt/aclopi/bin/vpn.sh
+Restart=always
+RestartSec=30
+StandardOutput=append:/var/log/aclopi/vpn.log
+StandardError=append:/var/log/aclopi/vpn.log
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+cat > /etc/systemd/system/aclopi.service <<'EOF'
+[Unit]
+Description=ACLOPI - Elastic IP, secrets and containers (platform + agent)
+After=docker.service network-online.target snapd.seeded.service
+Requires=docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/opt/aclopi/bin/start.sh
+Restart=on-failure
+RestartSec=30
+TimeoutStartSec=900
+StandardOutput=append:/var/log/aclopi/start.log
+StandardError=append:/var/log/aclopi/start.log
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+cat > /etc/systemd/system/aclopi-health.service <<'EOF'
+[Unit]
+Description=ACLOPI - publish health metrics
+
+[Service]
+Type=oneshot
+ExecStart=/opt/aclopi/bin/health.sh
+EOF
+
+cat > /etc/systemd/system/aclopi-health.timer <<'EOF'
+[Unit]
+Description=ACLOPI - health metrics every minute
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=1min
+
+[Install]
+WantedBy=timers.target
+EOF
+
+systemctl daemon-reload
+systemctl enable aclopi-vpn.service aclopi.service aclopi-health.timer
+systemctl start aclopi-vpn.service aclopi-health.timer
+systemctl start --no-block aclopi.service

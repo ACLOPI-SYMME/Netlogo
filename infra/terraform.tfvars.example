@@ -1,0 +1,8 @@
+# Copy to terraform.tfvars (not in git). Only alert_email is required; the rest have defaults (variables.tf).
+alert_email = "you@example.com"
+
+# instance_type      = "m7i.xlarge"   # m7a.xlarge if the load test asks for more CPU
+# schedule_start     = "30 7 * * 1-5" # Europe/Paris
+# schedule_stop      = "0 19 * * 1-5"
+# monthly_budget_usd = 100
+# initial_capacity   = 1               # 0 = do not start the instance on the first apply

@@ -49,6 +49,8 @@ class Settings:
     agent_decide_timeout_s: float = 2.0
     agent_health_interval_s: float = 30.0
     fast_decision_timeout_s: float = 90.0
+    # Cloud (infra/README.md): secret header that CloudFront adds; None = check off (local runs)
+    origin_verify: str | None = None
     # Results store (L5.7): "memory" or "dynamodb" (default dynamodb when an endpoint is given)
     results_store: str = "memory"
     dynamodb_endpoint: str | None = None
@@ -97,6 +99,7 @@ class Settings:
             agent_decide_timeout_s=_float(env, "ACLOPI_AGENT_DECIDE_TIMEOUT_S", 2.0),
             agent_health_interval_s=_float(env, "ACLOPI_AGENT_HEALTH_INTERVAL_S", 30.0),
             fast_decision_timeout_s=_float(env, "ACLOPI_FAST_DECISION_TIMEOUT_S", 90.0),
+            origin_verify=env.get("ACLOPI_ORIGIN_VERIFY", "").strip() or None,
             results_store=(env.get("ACLOPI_RESULTS_STORE", "").strip().lower()
                            or ("dynamodb" if env.get("ACLOPI_DYNAMODB_ENDPOINT", "").strip() else "memory")),
             dynamodb_endpoint=env.get("ACLOPI_DYNAMODB_ENDPOINT", "").strip() or None,
