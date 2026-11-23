@@ -19,7 +19,7 @@ sys.path.insert(0, str(REPO_ROOT / "scripts"))
 UNIT_FILES = {"test_agent_core", "test_agent_llm", "test_agent_service", "test_agent_token", "test_agent_triage",
               "test_candidates_unit", "test_decide_context", "test_hub", "test_product_limits_unit", "test_scenarios_unit",
               "test_ui_product_set", "test_whatif_estimate", "test_sequencing_unit", "test_optimize_unit",
-              "test_origin_unit"}
+              "test_origin_unit", "test_decision_fallback_unit"}
 API_FILES = {"test_whatif", "test_live", "test_agent_decisions", "test_workers", "test_api", "test_sequencing_platform",
              "test_optimize_order"}
 
