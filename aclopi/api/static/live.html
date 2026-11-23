@@ -305,6 +305,11 @@
             <option value="3" selected>Rule 3 — Potential fields</option><option value="4">Rule 4 — AI agent</option></select></label>
         <label class="field"><span>Production orders</span>
           <select id="session-set"><option value="">Random (generated from the seed)</option><option value="__current__">Production orders (Order entry tab)</option></select></label>
+        <span class="field" id="list-tip-box" hidden><span>&nbsp;</span><span class="check"><span class="tip">
+          <button type="button" aria-label="About Production orders (Order entry tab)" aria-describedby="list-tip">i</button>
+          <span id="list-tip" role="tooltip">The session uses the list of production orders as it is right now in the Order
+            entry tab, in that order, even if it was never saved as a set. Changes made there later do not reach this
+            session: create the session again to use them.</span></span></span></span>
         <label class="field"><span>Horizon (ticks)</span><input id="horizon" type="number" min="1" max="1000000" value="10000"></label>
         <span class="field"><span>&nbsp;</span><span class="check"><label class="check"><input id="seed-on" type="checkbox"> Set a seed</label>
           <span class="tip end"><button type="button" aria-label="About the seed" aria-describedby="seed-tip">i</button>
@@ -436,14 +441,15 @@
       <label class="field"><span>Set name</span><input id="set-name" value="My set"></label>
       <button id="set-save" class="primary">Save as set</button>
     </div>
-    <div class="row"><button id="csv-download">Export CSV</button><button id="clear" class="ghost">Clear list</button></div>
+    <div class="row"><button id="csv-download">Export CSV</button></div>
     <p class="hint">"Save as set" stores the list on the platform, to load it later. "Export CSV" downloads it as a CSV
       file with the same columns as the import.</p>
   </div>
   <div class="panel">
     <div class="row" style="justify-content: space-between; align-items: baseline">
       <h2>Production orders</h2>
-      <span><b id="set-summary" class="big">0</b> <span class="muted">/ 30 orders</span> <span id="set-dirty" class="err"></span></span>
+      <span><b id="set-summary" class="big">0</b> <span class="muted">/ 30 orders</span> <span id="set-dirty" class="err"></span>
+        <button id="clear" class="ghost" title="Remove every order of the list">Clear list</button></span>
     </div>
     <p class="hint" style="margin-top: 0">The list the simulation uses: orders enter the plant from top to bottom. Edit any
       field, or drag a row to change the order.</p>
@@ -944,7 +950,7 @@ async function startOptimize() {
   let info;
   try { info = await createSession(body); } catch (e) { return blocked((e.data && e.data.detail) || e.message); }  // e.g. no free place
   optSid = sid; optApplied = false; optItems = setItems.map(p => ({...p})); optListKey = null; openOrders.clear();
-  $("session-set").value = CURRENT_LIST;
+  $("session-set").value = CURRENT_LIST; updateListTip();
   $("opt-session").textContent = `Session ${sid.slice(0, 8)} · rule ${info.parameters.rule} · seed ${info.parameters.seed}` +
     (info.seed_source === "random" ? " (random)" : "");
   try {
@@ -1070,6 +1076,7 @@ async function setAct(fn) { try { await fn(); } catch (err) { setError(err.messa
 function markDirty(v) {
   dirty = v; $("set-dirty").textContent = v ? "unsaved changes" : "";
   if (v && setItems.length) $("session-set").value = CURRENT_LIST;  // what the user sees is what runs
+  if (typeof updateListTip === "function") updateListTip();
 }
 window.addEventListener("beforeunload", e => { if (dirty) { e.preventDefault(); e.returnValue = ""; } });
 function confirmDiscard() { return !dirty || confirm("The set has unsaved changes. Discard them?"); }
@@ -1171,6 +1178,9 @@ function showEntryMethod() {
   for (const m of ["manual", "csv", "saved", "generate"]) $(`entry-${m}`).hidden = $("entry-method").value !== m;
 }
 $("entry-method").onchange = showEntryMethod;
+// "Production orders (Order entry tab)" in Visualization gets its own information button
+function updateListTip() { $("list-tip-box").hidden = $("session-set").value !== CURRENT_LIST; }
+$("session-set").addEventListener("change", updateListTip);
 // The file input is hidden: its button would be in the browser's language. This one is in English.
 $("csv-choose").onclick = () => $("csv-file").click();
 $("csv-file").onchange = e => setAct(async () => {
@@ -1229,6 +1239,7 @@ async function refreshSaved() {
     + `<option value="${CURRENT_LIST}">Production orders (Order entry tab)</option>` + opts;
   $("session-set").value = chosen;
   if ($("session-set").value !== chosen) $("session-set").value = "";
+  updateListTip();
 }
 $("set-save").onclick = () => setAct(async () => {
   if (!$("set-name").value.trim()) throw new Error("Give the set a name");
@@ -1285,13 +1296,13 @@ function renderRuns() {
     const g = document.createElement("div");
     g.className = "run-group";
     g.innerHTML = `<h3>Seed ${esc(seed)} <small class="muted">(${rs.length} run${rs.length > 1 ? "s" : ""})</small></h3>
-      <div class="table-wrap"><table class="set"><thead><tr><th></th><th>Started</th><th>Status</th><th>Rule</th><th>Seed</th><th>Orders</th>
+      <div class="table-wrap"><table class="set"><thead><tr><th></th><th>Run</th><th>Started</th><th>Status</th><th>Rule</th><th>Seed</th><th>Orders</th>
         <th>Ticks</th><th>Makespan</th><th>Mean flow</th><th>Work</th><th>Finished</th><th>Created</th><th></th></tr></thead><tbody></tbody></table></div>`;
     const body = g.querySelector("tbody");
     rs.forEach(r => {
       const k = r.kpis || {};
       const tr = document.createElement("tr");
-      tr.innerHTML = `<td><input type="checkbox" data-id="${r.run_id}" aria-label="Select run ${r.run_id.slice(0, 8)}"></td><td class="num">${new Date(r.created_at * 1000).toLocaleString()}</td>
+      tr.innerHTML = `<td><input type="checkbox" data-id="${r.run_id}" aria-label="Select run ${r.run_id.slice(0, 6)}"></td><td class="mono" title="${esc(r.run_id)}">${esc(r.run_id.slice(0, 6))}</td><td class="num">${new Date(r.created_at * 1000).toLocaleString()}</td>
         <td>${r.status}${r.reason ? " (" + esc(r.reason) + ")" : ""}</td><td>${esc(ruleText(r))}${hasScenario(r) ? ` <span title="${esc(scenarioText(r.scenario))}">[${esc(r.scenario_id)}]</span>` : ""}</td>
         <td class="num">${r.seed}${r.seed_source === "random" ? "*" : ""}</td><td>${esc(listText(r))}</td>
         <td class="num">${fmt(r.ticks)}</td><td class="num"><b>${makespanText(k)}</b></td><td class="num">${fmt(k.mean_flow_time)}</td><td class="num">${fmt(k.work_completed)}</td>

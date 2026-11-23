@@ -315,7 +315,7 @@ def test_run_decisions_paged_filtered_and_csv(server: tuple[str, list], browser:
     assert len(lines) == 121 and lines[1] == "100,200,A,O1,M2,code-obvious,obvia 0,40,false"  # all of them, in order
     assert lines[2].startswith('110,201,I,O2,M3,llm,"razón larga, ')
     # An old run with a scenario still shows (rule cell), and Repetir sends no scenario.
-    assert page.inner_text("#runs-groups tbody tr:nth-child(5) td:nth-child(4)") == "Rule 3 [S2]"
+    assert page.inner_text("#runs-groups tbody tr:nth-child(5) td:nth-child(5)") == "Rule 3 [S2]"
     page.close()
 
 
@@ -339,13 +339,16 @@ def test_rule_4_is_the_agent_and_runs_show_the_strategy(server: tuple[str, list]
     # Runs: "Rule 4 (agent)", "(B1)", "(B1b)"; a none run (tests) is just "Rule 4".
     page.click("#tab-runs")
     page.wait_for_function("document.querySelectorAll('#runs-groups tbody tr').length === 5")
-    rules = page.eval_on_selector_all("#runs-groups tbody tr td:nth-child(4)", "els => els.map(e => e.textContent)")
+    rules = page.eval_on_selector_all("#runs-groups tbody tr td:nth-child(5)", "els => els.map(e => e.textContent)")
     assert rules == ["Rule 4 (agent)", "Rule 4 (B1)", "Rule 4 (B1b)", "Rule 4", "Rule 3 [S2]"]
     # The comparison uses the same names.
     for run_id in ("run-agent-0001", "run-b1-000001", "run-b1b-00001"):
         page.check(f'#runs-groups input[data-id="{run_id}"]')
     page.click("#runs-compare")
     heads = page.eval_on_selector_all("#runs-compare-box th", "els => els.map(e => e.textContent)")
+    # the run's short id in the table is the one in the comparison's columns
+    ids = page.eval_on_selector_all("#runs-groups tbody tr td:nth-child(2)", "els => els.map(e => e.textContent)")
+    assert ids[:3] == ["run-ag", "run-b1", "run-b1"]
     assert heads[1:] == ["Rule 4 (agent) run-ag", "Rule 4 (B1) run-b1", "Rule 4 (B1b) run-b1"]
     # "none" appears nowhere in the interface (visible text, options, values of the controls).
     texts = page.evaluate("""() => [document.body.innerText,
@@ -379,6 +382,10 @@ def test_layout_tooltip_errors_speed_and_set_limits(server: tuple[str, list], br
     # Tabs in workflow order; the session-set selector says what it is.
     assert page.eval_on_selector_all("nav.tabs button", "els => els.map(e => e.id)") == ["tab-set", "tab-session", "tab-runs"]
     assert page.eval_on_selector("label:has(#session-set) > span", "e => e.textContent") == "Production orders"
+    assert page.is_hidden("#list-tip-box")  # its information only with "Production orders (Order entry tab)"
+    page.select_option("#session-set", "__current__")
+    assert page.is_visible("#list-tip-box") and "even if it was never saved" in page.inner_text("#list-tip")
+    page.select_option("#session-set", "")
     # The seed tooltip says something and shows on keyboard focus.
     page.focus("button[aria-describedby=seed-tip]")
     assert page.eval_on_selector("#seed-tip", "e => getComputedStyle(e).visibility") == "visible"
