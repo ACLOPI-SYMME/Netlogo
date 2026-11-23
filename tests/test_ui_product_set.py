@@ -344,7 +344,7 @@ def test_rule_4_is_the_agent_and_runs_show_the_strategy(server: tuple[str, list]
     # The comparison uses the same names.
     for run_id in ("run-agent-0001", "run-b1-000001", "run-b1b-00001"):
         page.check(f'#runs-groups input[data-id="{run_id}"]')
-    page.click("#runs-groups [data-a=compare]")
+    page.click("#runs-compare")
     heads = page.eval_on_selector_all("#runs-compare-box th", "els => els.map(e => e.textContent)")
     assert heads[1:] == ["Rule 4 (agent) run-ag", "Rule 4 (B1) run-b1", "Rule 4 (B1b) run-b1"]
     # "none" appears nowhere in the interface (visible text, options, values of the controls).
@@ -383,14 +383,20 @@ def test_layout_tooltip_errors_speed_and_set_limits(server: tuple[str, list], br
     page.focus("button[aria-describedby=seed-tip]")
     assert page.eval_on_selector("#seed-tip", "e => getComputedStyle(e).visibility") == "visible"
     assert "seed" in page.inner_text("#seed-tip").lower() and len(page.inner_text("#seed-tip")) > 40
-    # An error stays until an action succeeds: running without a session, then creating one.
-    page.click("#live")
+    # Without a session the run buttons are disabled.
+    for b in ("#live", "#fast", "#pause", "#resume", "#reset", "#close"):
+        assert page.is_disabled(b), b
+    # An error stays until an action succeeds: creating a session with the empty list, then with random orders.
+    page.select_option("#session-set", "__current__")
+    page.click("#create")
     page.wait_for_function("document.querySelector('#msg').className === 'err'")
-    assert "Create a session first" in page.inner_text("#msg")
+    assert "is empty" in page.inner_text("#msg")
+    page.select_option("#session-set", "")
     before = len(sessions)
     page.click("#create")
     _sent(sessions, before)
-    page.wait_for_function("!document.querySelector('#msg').textContent.includes('Create a session first')")
+    page.wait_for_function("!document.querySelector('#msg').textContent.includes('is empty')")
+    assert page.is_enabled("#live") and page.is_enabled("#close")
     # The live speed can be changed while the run goes on (POST /run with the new speed); a paused live
     # run resumes at the speed selected.
     RUN_CALLS.clear()
@@ -413,6 +419,8 @@ def test_layout_tooltip_errors_speed_and_set_limits(server: tuple[str, list], br
     assert not page.is_disabled("#csv-download") and page.is_disabled("#add")
     page.click("#set-rows tr:nth-child(1) button[data-a=dup]")
     assert "At most 30" in page.inner_text("#set-errors")
+    page.select_option("#entry-method", "generate")  # one way to enter orders at a time
+    assert page.is_hidden("#add") and page.is_visible("#generate")
     page.fill("#gen-count", "5")
     page.click("#generate")  # the fake platform has no /product-sets/generate: the error is shown
     page.wait_for_function("document.querySelector('#set-errors').textContent.includes('404')")
@@ -526,4 +534,21 @@ def test_optimize_order_panel(server: tuple[str, list], browser: Any, tmp_path: 
     page.click("#tab-session")
     page.wait_for_function("document.querySelector('#sid').textContent === '–'")
     assert OPT["calls"][-2:] == [("cancel", "s1"), ("delete", "s1")]
+    page.close()
+
+
+def test_close_resets_the_view(server: tuple[str, list], browser: Any) -> None:
+    """Close: the plant, indicators and header go back to empty, a notice says the session ended, and the run
+    buttons are disabled again."""
+    url, _ = server
+    page = browser.new_page()
+    page.goto(f"{url}/ui")
+    _ready(page)
+    page.click("#create")
+    page.wait_for_function("document.querySelector('#sid').textContent === 's1'")
+    page.click("#close")
+    page.wait_for_function("document.querySelector('#msg').textContent.includes('Session ended')")
+    assert page.eval_on_selector("#msg", "e => e.className") == "ok"
+    assert page.inner_text("#sid") == "–" and page.inner_text("#runstate") == "–" and "No session yet" in page.inner_text("#kpis")
+    assert page.evaluate("layout") is None and page.is_disabled("#live") and page.is_disabled("#close")
     page.close()
