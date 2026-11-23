@@ -1,0 +1,78 @@
+# Deploy to AWS (infra/README.md): build the platform and agent images, push them to ECR and update the instance.
+# Manual on purpose (Actions > Deploy to AWS > Run workflow, from main): both lines merge to main often and not
+# every merge should reach the platform users see. No AWS keys: GitHub OIDC assumes the role Terraform created.
+name: Deploy to AWS
+
+on:
+  workflow_dispatch:
+
+permissions:
+  id-token: write   # OIDC token for AWS
+  contents: read
+
+concurrency:
+  group: deploy-aws
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: eu-north-1
+  PROJECT: aclopi
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Log in to ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push the images
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+          TAG: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          docker build -f docker/Dockerfile -t "$REGISTRY/$PROJECT-platform:$TAG" -t "$REGISTRY/$PROJECT-platform:latest" .
+          docker build -f docker/agent.Dockerfile -t "$REGISTRY/$PROJECT-agent:$TAG" -t "$REGISTRY/$PROJECT-agent:latest" .
+          for repo in platform agent; do
+            docker push "$REGISTRY/$PROJECT-$repo:$TAG"
+            docker push "$REGISTRY/$PROJECT-$repo:latest"
+          done
+
+      # The instance reads this tag at every boot, so an instance that is off (out of hours) gets it next morning.
+      - name: Record the tag to deploy
+        run: |
+          aws ssm put-parameter --name "/$PROJECT/deploy/image_tag" --type String \
+            --value "${{ github.sha }}" --overwrite >/dev/null
+
+      - name: Update the running instance
+        run: |
+          set -euo pipefail
+          ids=$(aws ec2 describe-instances \
+            --filters "Name=tag:Role,Values=$PROJECT-platform" "Name=instance-state-name,Values=running" \
+            --query 'Reservations[].Instances[].InstanceId' --output text)
+          if [ -z "$ids" ]; then
+            echo "No running instance (out of hours?). It will start with ${{ github.sha }} at its next boot."
+            exit 0
+          fi
+          cmd=$(aws ssm send-command --instance-ids $ids --document-name AWS-RunShellScript \
+            --comment "deploy ${{ github.sha }}" \
+            --parameters 'commands=["/opt/aclopi/bin/start.sh"]' \
+            --timeout-seconds 900 --query Command.CommandId --output text)
+          echo "SSM command $cmd on $ids"
+          for id in $ids; do
+            aws ssm wait command-executed --command-id "$cmd" --instance-id "$id" || true
+            status=$(aws ssm get-command-invocation --command-id "$cmd" --instance-id "$id" --query Status --output text)
+            aws ssm get-command-invocation --command-id "$cmd" --instance-id "$id" \
+              --query StandardOutputContent --output text | tail -20
+            echo "$id: $status"
+            [ "$status" = "Success" ]
+          done
