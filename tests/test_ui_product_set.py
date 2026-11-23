@@ -277,8 +277,8 @@ def test_no_scenarios_and_live_decision_panel(server: tuple[str, list], browser:
                 level: 'code-obvious', reason: 'única cercana', late: true, latency_ms: 95.0});
     }""", long_reason)
     rows = page.eval_on_selector_all("#dec-rows tr", "els => els.map(e => [...e.cells].map(c => c.textContent))")
-    assert rows[0] == ["340", "p202 (E)", "O5", "M6", "code-obvious", "única cercana", "95 ms", "⚠ late"]
-    assert rows[1][:5] == ["300", "p201 (A)", "O2", "M3", "llm"] and rows[1][6:] == ["812 ms", ""]
+    assert rows[0] == ["340", "p202 (E)", "O5", "M6", "Obvious (code)", "única cercana", "95 ms", "⚠ late"]
+    assert rows[1][:5] == ["300", "p201 (A)", "O2", "M3", "AI (LLM)"] and rows[1][6:] == ["812 ms", ""]
     assert rows[1][5].endswith("…") and len(rows[1][5]) == 60
     assert page.eval_on_selector("#dec-rows tr:nth-child(2) td.reason", "e => e.title") == long_reason
     page.select_option("#dec-level", "llm")
@@ -302,7 +302,7 @@ def test_run_decisions_paged_filtered_and_csv(server: tuple[str, list], browser:
     page.wait_for_function("document.querySelectorAll('#rd-rows tr').length === 50")
     assert "120 decisions" in page.inner_text("#rd-title") and "page 1 of 3" in page.inner_text("#rd-page")
     first = page.eval_on_selector("#rd-rows tr:first-child", "e => [...e.cells].map(c => c.textContent)")
-    assert first == ["1290", "p200 (A)", "O8", "M7", "code-fallback", "obvia 119", "159 ms", "⚠ late"]  # newest on top
+    assert first == ["1290", "p200 (A)", "O8", "M7", "Code (AI failed)", "obvia 119", "159 ms", "⚠ late"]  # newest on top
     page.click("#rd-next"); page.click("#rd-next")
     assert page.eval_on_selector_all("#rd-rows tr", "els => els.length") == 20
     assert page.is_disabled("#rd-next") and "page 3 of 3" in page.inner_text("#rd-page")

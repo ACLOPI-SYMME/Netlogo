@@ -35,6 +35,8 @@ With rule 4, every time a product has to choose a machine for its next operation
 | M1 (O8, O9: 100 u.t.) | ≈ 323 | ≈ 10 s | ≈ 2.5 s |
 | M2–M7 (O1–O7: 200 u.t. + random extra, 10 u.t. on average) | ≈ 645 + extra (≈ 32 on average) | ≈ 20 s or a little more | ≈ 5 s |
 
+**The agent did not answer at all (rule 3 decided).** In live mode the run never waits. When the agent sees it cannot answer before the product needs the machine (the LLM is slower than the run), it gives up and sends nothing, and the model applies its rule 3. Since 23 Nov the platform still logs that decision, from the model's own record, as a row with `decision_level: "rule3-fallback"`, `late: true`, `result: "rule3-fallback"`, the machine rule 3 chose and the reason "No answer from the agent in time: the model's rule 3 decided". The page shows it as "Rule 3 (agent too late)" with "⚠ late". If the agent still answers afterwards, that answer is a second late row.
+
 **Live runs can have late decisions; fast runs cannot.** In fast mode the run **stops** at each request and waits for the agent (state `waiting_decision`), so the answer always arrives in time. If the agent does not answer within 90 s, the run fails with `agent_unavailable` and there is no row.
 
 **What does not leave a row:**

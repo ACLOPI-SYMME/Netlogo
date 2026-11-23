@@ -26,7 +26,7 @@ Counters and timings of a session, in two groups: **`decisions`** (how the agent
 | `requests_sent` | Requests sent to the agent = recorded decisions + pending ones | count | — |
 | `decide_failed` | `/decide` sends that failed (the agent did not accept the send) | count | — |
 | `applied` | Decisions applied (not late) | count | — |
-| `late` | Late decisions | count | — |
+| `late` | Decisions that did not arrive in time: answers of the agent that came after the product had moved on, and decisions the agent never answered, which the model's rule 3 took (`rule3-fallback` rows, since 23 Nov) | count | — |
 | `unanswered` | Requests with no answer yet (or that will never have one) | count | — |
 | `by_level` | Applied ones by level | count | keys: `code-obvious`, `llm`, `llm-what-if`, `code-fallback`, `heuristic` |
 | `by_level_pct` | The same as a % of `applied` | % | — |

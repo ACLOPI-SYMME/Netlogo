@@ -108,7 +108,7 @@ And the live run, stopped when its session was deleted:
 ## Pitfalls
 
 - **`ticks` and `kpis.ticks` can differ.** KPIs are computed at most once per second, so in a run stopped half-way (in the example, deleted) they are the last ones computed: `ticks: 642` but `kpis.ticks: 633`. In a `finished` run they match.
-- **`decisions_summary` counts the whole session, not only this run.** If the session was reset and ran again, the summary also includes the decisions of the previous runs of the same session. The list of decisions (`GET /runs/{id}/decisions`) is only this run's. With one run per session (the usual case from the page) they match.
+- **`decisions_summary` is this run's only** (since 23 Nov): a reset saves the run and then starts the session's decision and what-if counts again. Runs saved before could include the decisions of earlier runs of the same session.
 - **`makespan_*`, `products_total` and `all_done` only have a value with a product set.** Without a set they are `null` and `false`.
 - **In memory, everything is lost when the API restarts.** Runs persist only with DynamoDB.
 - **Order with DynamoDB:** `GET /runs` reads the table page by page and sorts each page by date; across pages the order may not be perfect.

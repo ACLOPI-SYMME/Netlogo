@@ -521,6 +521,8 @@ class SessionRegistry:
             return
         for a in data.pop("assignments", None) or []:
             record.sources[a["source"]] = record.sources.get(a["source"], 0) + 1
+            if a["source"] == "rule3-fallback":
+                self._log_fallback(record, a)
         # The requests travel in the block's tick/progress push; "decision_required" (fast mode)
         # repeats them only to say that the run now waits: it starts the timeout, nothing is resent.
         requests = data.pop("decision_requests", None) or []
@@ -588,6 +590,27 @@ class SessionRegistry:
         if result == "rule4-not-active":
             raise Rule4Required("next-machine needs a session with rule 4", session_id)
         raise InvalidOption(f"invalid next machine: {result}", session_id)
+
+    def _log_fallback(self, record: SessionRecord, a: dict[str, Any]) -> None:
+        """The model applied rule 3 to a decision asked of the agent: no answer arrived in time (in live mode the run
+        never waits; the agent gives up when it sees it cannot answer before the product needs the machine). It is
+        logged and published as a late decision, so it shows in the decision tables; the request is no longer
+        pending. A later answer of the agent is still logged as late (next_machine)."""
+        product, seq = int(a["who"]), int(a["seq"])
+        request = record.decision_requests.pop((product, seq), None)
+        if request is None and not record.deciding:
+            return
+        entry = {
+            "tick": int(a["tick"]), "request_tick": request["tick"] if request else None, "product": product,
+            "seq": seq, "strategy": record.strategy, "decision_level": "rule3-fallback", "machine": a["chosen"],
+            "reason": "No answer from the agent in time: the model's rule 3 decided",
+            "latency_ms": round(1000 * (time.monotonic() - request["sent_mono"]), 1) if request else None,
+            "operation": a.get("operation") or (request.get("operation") if request else None),
+            "product_type": request.get("product_type") if request else None,
+            "agent_latencies": None, "late": True, "result": "rule3-fallback",
+        }
+        self._log_decision(record, entry)
+        self._publish_decision(record, entry)
 
     @staticmethod
     def _publish_decision(record: SessionRecord, entry: dict[str, Any]) -> None:
@@ -753,8 +776,15 @@ class SessionRegistry:
 
     async def after_reset(self, record: SessionRecord, result: dict[str, Any] | None = None) -> None:
         """Reset: new run from tick 0 (tick-0 scenario events applied again, from the reset response);
-        watching clients get a fresh snapshot."""
+        watching clients get a fresh snapshot. The run in progress is saved first; then the session's decision
+        and what-if counts start again, so its metrics are the new run's only."""
         self.save_run(record, "stopped", "reset")
+        record.decision_log.clear()
+        record.decision_requests.clear()
+        record.sources.clear()
+        record.decide_failed = 0
+        record.run_decision_start = 0
+        record.whatif_metrics = WhatIfMetrics()
         record.events.clear()
         record.scenario_events.clear()
         record.add_scenario_events((result or {}).get("scenario_events"))

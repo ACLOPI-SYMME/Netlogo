@@ -358,12 +358,17 @@
   <div id="decisions-panel" class="panel">
     <div class="row" style="justify-content: space-between">
       <div><h2>Agent decisions</h2>
-        <p class="hint" style="margin: 0">Rule 4 only: for each operation of a product, the machine the AI agent chose, and why.
-          The 50 newest, newest first.</p></div>
-      <label class="field"><span>Level</span><select id="dec-level" class="dec-level"><option value="">(all)</option></select></label>
+        <p class="hint" style="margin: 0">Rule 4 only: for each operation of a product, the machine chosen, who chose it and
+          why. The 50 newest, newest first.</p></div>
+      <label class="field"><span>Decided by</span><select id="dec-level" class="dec-level"><option value="">(all)</option></select></label>
     </div>
     <div class="table-wrap" style="margin-top: var(--s2)"><table class="set dec"><thead><tr><th>Tick</th><th>Product (type)</th><th>Operation</th>
-      <th>Chosen machine</th><th>Level</th><th>Reason</th><th>Latency</th><th>Late</th></tr></thead><tbody id="dec-rows"></tbody></table></div>
+      <th>Chosen machine</th><th>Decided by</th><th>Reason</th><th>Latency</th><th>Late</th></tr></thead><tbody id="dec-rows"></tbody></table></div>
+    <p class="hint"><b>Decided by:</b> Obvious (code): one machine is clearly best, decided by code. AI (LLM): the language
+      model. AI + what-if: the language model after testing two machines in copies of the simulation. Code (AI failed): code,
+      because the language model failed. Rule 3 (agent too late): the agent did not answer before the product needed the
+      machine, so the model's own rule 3 decided. <b>⚠ late</b>: the agent's decision did not arrive in time.
+      <b>Latency</b>: from the request to the decision.</p>
   </div>
 
   <div id="events-panel" class="panel">
@@ -509,12 +514,12 @@
   <div id="rd-box" class="panel" hidden>
     <h2>Agent decisions of run <span id="rd-title" class="mono"></span></h2>
     <div class="row">
-      <label class="field"><span>Level</span><select id="rd-level" class="dec-level"><option value="">(all)</option></select></label>
+      <label class="field"><span>Decided by</span><select id="rd-level" class="dec-level"><option value="">(all)</option></select></label>
       <button id="rd-prev">‹ Previous</button> <span id="rd-page" class="mono"></span> <button id="rd-next">Next ›</button>
       <button id="rd-csv" title="CSV file with the agent decisions of this run">Download CSV</button> <button id="rd-close" class="ghost">Close</button>
     </div>
     <div class="table-wrap" style="margin-top: var(--s2)"><table class="set dec"><thead><tr><th>Tick</th><th>Product (type)</th><th>Operation</th>
-      <th>Chosen machine</th><th>Level</th><th>Reason</th><th>Latency</th><th>Late</th></tr></thead><tbody id="rd-rows"></tbody></table></div>
+      <th>Chosen machine</th><th>Decided by</th><th>Reason</th><th>Latency</th><th>Late</th></tr></thead><tbody id="rd-rows"></tbody></table></div>
   </div>
 </section>
 </main>
@@ -621,6 +626,7 @@ function showRun(info) {
 }
 async function createSession(body) {
   if (sid) { disconnect(); await api("DELETE", `/sessions/${sid}`).catch(() => {}); }
+  resetView();  // nothing of the previous session stays on screen
   optSid = null;  // the session optimize order created (if it was that one) is gone
   const info = await api("POST", "/sessions", body);
   sessionInfo = info; sid = info.session_id; runButtons(); optState = null; clearInterval(optPoll); optPoll = null;
@@ -658,7 +664,12 @@ $("resume").onclick = () => act(() => {
 $("speed").onchange = () => {
   if (sid && runState === "running_live") act(() => api("POST", `/sessions/${sid}/run`, {mode: "live", speed: +$("speed").value}));
 };
-$("reset").onclick = () => act(() => { requireSession(); return api("POST", `/sessions/${sid}/reset`); });
+$("reset").onclick = () => act(async () => {
+  requireSession();
+  const info = await api("POST", `/sessions/${sid}/reset`);
+  resetPanels(); showDecisions();  // a new run: the agent's figures and the decisions start again
+  return info;
+});
 $("close").onclick = () => act(async () => {
   requireSession();
   const ran = (runState && runState !== "idle") || Number($("tick").textContent) > 0;
@@ -818,13 +829,17 @@ function runButtons() {
   const busy = optActive() && sid === optSid;
   for (const b of ["live", "fast", "pause", "resume", "reset", "close"]) $(b).disabled = !sid || (busy && ["live", "fast", "reset"].includes(b));
 }
+function resetPanels() {
+  // a new run (reset) or a new session: decisions, the agent's figures, indicators and events start empty
+  events = []; $("events").innerHTML = "";
+  liveDecisions = []; renderLiveDecisions();
+  $("kpis").innerHTML = `<p class="muted">Waiting for data…</p>`;
+  $("decisions").classList.add("muted"); $("decisions").textContent = "–";
+}
 function resetView() {
   // the session is gone: the plant, the indicators, the decisions and the events go back to empty
   layout = null; frames = []; playTick = null; lastState = null; hover = null;
-  events = []; $("events").innerHTML = "";
-  liveDecisions = []; renderLiveDecisions();
-  $("kpis").innerHTML = `<p class="muted">No session yet.</p>`;
-  $("decisions").classList.add("muted"); $("decisions").textContent = "–";
+  resetPanels(); $("kpis").innerHTML = `<p class="muted">No session yet.</p>`;
   runState = null; runMode = null; delete $("runstate").dataset.state;
   for (const id of ["runstate", "tick", "rate", "sid", "list-progress"]) $(id).textContent = "–";
   $("probe").textContent = ""; $("seed-used").hidden = true;
@@ -1004,12 +1019,17 @@ const levelsSeen = new Set();
 const asDecision = d => ({tick: d.tick, product: d.product, product_type: d.product_type, operation: d.operation,
                           machine: d.machine, level: d.level ?? d.decision_level, reason: d.reason ?? "",
                           latency_ms: d.latency_ms, late: !!d.late});
+// Who decided, in words (the API keeps the codes: decision_level)
+const LEVEL_NAMES = {"code-obvious": "Obvious (code)", "llm": "AI (LLM)", "llm-what-if": "AI + what-if",
+                     "code-fallback": "Code (AI failed)", "heuristic": "Heuristic (B1 / B1b)",
+                     "rule3-fallback": "Rule 3 (agent too late)"};
+const levelName = l => LEVEL_NAMES[l] ?? l ?? "–";
 function decisionRows(list) {
   if (!list.length) return `<tr><td colspan="8" class="empty">No decisions.</td></tr>`;
   return list.map(d => {
     const reason = String(d.reason ?? ""), short = reason.length > REASON_CHARS ? reason.slice(0, REASON_CHARS - 1) + "…" : reason;
     return `<tr class="${d.late ? "late" : ""}"><td class="num">${d.tick ?? "–"}</td><td>p${d.product}${d.product_type ? ` (${esc(d.product_type)})` : ""}</td>
-      <td class="mono">${esc(d.operation ?? "–")}</td><td class="mono">${esc(d.machine)}</td><td>${esc(d.level ?? "–")}</td>
+      <td class="mono">${esc(d.operation ?? "–")}</td><td class="mono">${esc(d.machine)}</td><td title="${esc(d.level ?? "")}">${esc(levelName(d.level))}</td>
       <td class="reason" title="${esc(reason)}">${esc(short) || "–"}</td>
       <td class="num">${d.latency_ms === null || d.latency_ms === undefined ? "–" : Math.round(d.latency_ms) + " ms"}</td>
       <td>${d.late ? "⚠ late" : ""}</td></tr>`;
@@ -1021,7 +1041,7 @@ function noteLevels(list) {  // the level filters offer every level seen
   if (!added) return;
   document.querySelectorAll("select.dec-level").forEach(sel => {
     const v = sel.value;
-    sel.innerHTML = `<option value="">(all)</option>` + [...levelsSeen].sort().map(l => `<option>${esc(l)}</option>`).join("");
+    sel.innerHTML = `<option value="">(all)</option>` + [...levelsSeen].sort().map(l => `<option value="${esc(l)}">${esc(levelName(l))}</option>`).join("");
     sel.value = v;
   });
 }
