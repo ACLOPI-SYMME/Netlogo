@@ -29,27 +29,21 @@ variable "root_volume_gb" {
   default = 30
 }
 
-variable "initial_capacity" {
-  description = "Instances right after the first apply (0 or 1). Afterwards the schedule decides; Terraform ignores changes"
-  type        = number
-  default     = 1
-}
-
 variable "schedule_timezone" {
   type    = string
   default = "Europe/Paris"
 }
 
 variable "schedule_start" {
-  description = "Cron (in schedule_timezone) that turns the platform on. Section 0 of the Línea B context: start >= 10 min before the users"
+  description = "EventBridge Scheduler cron (in schedule_timezone) that starts the instance: cron(min hour day-of-month month day-of-week year). Start >= 10 min before the users"
   type        = string
-  default     = "45 8 * * 1-5"
+  default     = "cron(45 8 ? * MON-FRI *)"
 }
 
 variable "schedule_stop" {
-  description = "Cron (in schedule_timezone) that turns the platform off"
+  description = "EventBridge Scheduler cron (in schedule_timezone) that stops the instance"
   type        = string
-  default     = "0 12 * * 1-5"
+  default     = "cron(0 12 ? * MON-FRI *)"
 }
 
 variable "schedule_label" {

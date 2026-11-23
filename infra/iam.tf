@@ -57,19 +57,6 @@ resource "aws_iam_role_policy" "instance" {
         Action   = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject", "s3:ListBucket"]
         Resource = [aws_s3_bucket.artifacts.arn, "${aws_s3_bucket.artifacts.arn}/*"]
       },
-      {
-        # The user data re-attaches the Elastic IP when the ASG replaces the instance.
-        Sid      = "ElasticIp"
-        Effect   = "Allow"
-        Action   = ["ec2:AssociateAddress"]
-        Resource = ["arn:aws:ec2:${var.region}:${data.aws_caller_identity.current.account_id}:elastic-ip/${aws_eip.platform.allocation_id}", "arn:aws:ec2:${var.region}:${data.aws_caller_identity.current.account_id}:instance/*", "arn:aws:ec2:${var.region}:${data.aws_caller_identity.current.account_id}:network-interface/*"]
-      },
-      {
-        Sid      = "Describe"
-        Effect   = "Allow"
-        Action   = ["ec2:DescribeAddresses", "ec2:DescribeInstances"]
-        Resource = ["*"]
-      },
     ]
   })
 }

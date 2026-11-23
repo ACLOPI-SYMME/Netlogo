@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # First boot of a new instance (cloud-init runs it once). Installs Docker, the AWS CLI, the CloudWatch Agent and
 # the VPN client, writes the stack to /opt/aclopi and enables the systemd units. What has to happen at EVERY boot
-# (Elastic IP, secrets, containers, VPN) lives in those units, because a warm-pool instance is stopped and started.
+# (secrets, containers, VPN, health metrics) lives in those units, because the instance is stopped and started daily.
 # Rendered by Terraform (infra/compute.tf): $${...} is bash, $${} without the double dollar is Terraform.
 set -euxo pipefail
 exec > >(tee -a /var/log/aclopi-user-data.log) 2>&1
@@ -22,8 +22,7 @@ cat > /opt/aws/amazon-cloudwatch-agent/etc/aclopi.json <<'EOF'
   "agent": { "metrics_collection_interval": 60 },
   "metrics": {
     "namespace": "ACLOPI",
-    "append_dimensions": { "AutoScalingGroupName": "$${aws:AutoScalingGroupName}" },
-    "aggregation_dimensions": [["AutoScalingGroupName"]],
+    "append_dimensions": { "InstanceId": "$${aws:InstanceId}" },
     "metrics_collected": {
       "mem": { "measurement": ["mem_used_percent"] },
       "disk": { "measurement": ["used_percent"], "resources": ["/"] }
@@ -52,7 +51,6 @@ cat > /opt/aclopi/bin/common.sh <<'EOF'
 export PATH="/snap/bin:/usr/local/bin:$PATH"
 AWS_REGION="${region}"
 PARAM_PREFIX="${param_prefix}"
-EIP_ALLOCATION="${eip_allocation}"
 ECR_REGISTRY="${ecr_registry}"
 PLATFORM_IMAGE="${platform_repo}"
 AGENT_IMAGE="${agent_repo}"
@@ -113,7 +111,7 @@ EOF
 
 cat > /etc/systemd/system/aclopi.service <<'EOF'
 [Unit]
-Description=ACLOPI - Elastic IP, secrets and containers (platform + agent)
+Description=ACLOPI - secrets and containers (platform + agent)
 After=docker.service network-online.target snapd.seeded.service
 Requires=docker.service
 Wants=network-online.target
