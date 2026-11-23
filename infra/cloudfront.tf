@@ -49,6 +49,9 @@ resource "aws_cloudfront_distribution" "main" {
       origin_read_timeout      = 60
       origin_keepalive_timeout = 5
     }
+    # Instance off: show the offline page after ~5 s instead of 3 attempts x 10 s.
+    connection_attempts = 1
+    connection_timeout  = 5
 
     custom_header {
       name  = "X-Origin-Verify"

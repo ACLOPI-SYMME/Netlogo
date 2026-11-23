@@ -1,4 +1,7 @@
-# One EC2 instance in an ASG of 1 (self-healing), warm pool (stopped off-hours), schedule and Elastic IP.
+# One EC2 instance, started and stopped on a schedule (EventBridge Scheduler), with a fixed Elastic IP.
+# Decided 23 Nov: a plain instance instead of an ASG of 1 + warm pool. Stopping keeps the disk (image and VPN
+# already installed), so the next start takes ~2-3 min; AWS automatic recovery moves it to another host on a
+# hardware failure. A broken instance is replaced by hand: terraform apply -replace=aws_instance.platform
 
 data "aws_ami" "ubuntu" {
   most_recent = true
@@ -13,63 +16,48 @@ data "aws_ami" "ubuntu" {
   }
 }
 
-# Fixed origin of CloudFront. Stays associated while the instance is stopped in the warm pool;
-# the boot script re-associates it when the ASG creates a new instance.
-resource "aws_eip" "platform" {
-  domain = "vpc"
-  tags   = { Name = "${var.project}-platform" }
-}
-
 locals {
   ecr_registry = "${data.aws_caller_identity.current.account_id}.dkr.ecr.${var.region}.amazonaws.com"
 
   user_data = templatefile("${path.module}/files/user_data.sh.tftpl", {
-    region         = var.region
-    project        = var.project
-    param_prefix   = local.param_prefix
-    eip_allocation = aws_eip.platform.allocation_id
-    ecr_registry   = local.ecr_registry
-    platform_repo  = aws_ecr_repository.app["platform"].repository_url
-    agent_repo     = aws_ecr_repository.app["agent"].repository_url
-    table_prefix   = local.table_prefix
-    llm_hostname   = var.llm_hostname
-    llm_port       = var.llm_port
-    image_tag      = var.image_tag
-    log_group_app  = aws_cloudwatch_log_group.app["platform"].name
-    log_group_agt  = aws_cloudwatch_log_group.app["agent"].name
-    log_group_sys  = aws_cloudwatch_log_group.app["system"].name
-    agent_env      = join("\n", [for k, v in var.agent_env : "${k}=${v}"])
-    platform_env   = join("\n", [for k, v in var.platform_env : "${k}=${v}"])
-    compose_file   = file("${path.module}/files/docker-compose.aws.yml")
-    vpn_script     = file("${path.module}/files/vpn.sh")
-    start_script   = file("${path.module}/files/start.sh")
-    health_script  = file("${path.module}/files/health.sh")
+    region        = var.region
+    project       = var.project
+    param_prefix  = local.param_prefix
+    ecr_registry  = local.ecr_registry
+    platform_repo = aws_ecr_repository.app["platform"].repository_url
+    agent_repo    = aws_ecr_repository.app["agent"].repository_url
+    table_prefix  = local.table_prefix
+    llm_hostname  = var.llm_hostname
+    llm_port      = var.llm_port
+    image_tag     = var.image_tag
+    log_group_app = aws_cloudwatch_log_group.app["platform"].name
+    log_group_agt = aws_cloudwatch_log_group.app["agent"].name
+    log_group_sys = aws_cloudwatch_log_group.app["system"].name
+    agent_env     = join("\n", [for k, v in var.agent_env : "${k}=${v}"])
+    platform_env  = join("\n", [for k, v in var.platform_env : "${k}=${v}"])
+    compose_file  = file("${path.module}/files/docker-compose.aws.yml")
+    vpn_script    = file("${path.module}/files/vpn.sh")
+    start_script  = file("${path.module}/files/start.sh")
+    health_script = file("${path.module}/files/health.sh")
   })
 }
 
-resource "aws_launch_template" "platform" {
-  name_prefix   = "${var.project}-platform-"
-  image_id      = data.aws_ami.ubuntu.id
-  instance_type = var.instance_type
-  user_data     = base64gzip(local.user_data) # cloud-init accepts gzip; keeps it far below the 16 KB limit
+resource "aws_instance" "platform" {
+  ami                         = data.aws_ami.ubuntu.id
+  instance_type               = var.instance_type
+  subnet_id                   = aws_subnet.public.id
+  vpc_security_group_ids      = [aws_security_group.platform.id]
+  iam_instance_profile        = aws_iam_instance_profile.instance.name
+  associate_public_ip_address = true                        # replaced by the Elastic IP once it is attached
+  user_data_base64            = base64gzip(local.user_data) # cloud-init accepts gzip; far below the 16 KB limit
+  monitoring                  = false
 
-  iam_instance_profile {
-    arn = aws_iam_instance_profile.instance.arn
-  }
-
-  network_interfaces {
-    associate_public_ip_address = true # needed to reach the AWS API before the Elastic IP is attached
-    security_groups             = [aws_security_group.platform.id]
-  }
-
-  block_device_mappings {
-    device_name = data.aws_ami.ubuntu.root_device_name
-    ebs {
-      volume_size           = var.root_volume_gb
-      volume_type           = "gp3"
-      encrypted             = true
-      delete_on_termination = true
-    }
+  root_block_device {
+    volume_size           = var.root_volume_gb
+    volume_type           = "gp3"
+    encrypted             = true
+    delete_on_termination = true
+    tags                  = { Name = "${var.project}-platform" }
   }
 
   metadata_options {
@@ -77,73 +65,76 @@ resource "aws_launch_template" "platform" {
     http_put_response_hop_limit = 2          # containers (boto3 in the API) reach the instance role
   }
 
-  monitoring {
-    enabled = false
+  maintenance_options {
+    auto_recovery = "default" # move to healthy hardware if the host fails
   }
 
-  tag_specifications {
-    resource_type = "instance"
-    tags          = { Name = "${var.project}-platform", Role = "${var.project}-platform" }
-  }
-  tag_specifications {
-    resource_type = "volume"
-    tags          = { Name = "${var.project}-platform" }
-  }
-}
-
-resource "aws_autoscaling_group" "platform" {
-  name                      = "${var.project}-platform"
-  min_size                  = 0
-  max_size                  = 1
-  desired_capacity          = var.initial_capacity
-  vpc_zone_identifier       = aws_subnet.public[*].id
-  health_check_type         = "EC2" # no load balancer (decided 9 Nov); /health/ready is watched by an alarm
-  health_check_grace_period = 300
-  capacity_rebalance        = false
-
-  launch_template {
-    id      = aws_launch_template.platform.id
-    version = aws_launch_template.platform.latest_version
-  }
-
-  # Off-hours the instance goes back STOPPED to the warm pool and the same one starts the next morning
-  # (image and VPN already on its disk). Decided 28 Oct (Línea B context, section 0).
-  warm_pool {
-    pool_state                  = "Stopped"
-    min_size                    = 0
-    max_group_prepared_capacity = 1
-    instance_reuse_policy {
-      reuse_on_scale_in = true
-    }
-  }
-
-  tag {
-    key                 = "Role"
-    value               = "${var.project}-platform"
-    propagate_at_launch = true
-  }
+  tags = { Name = "${var.project}-platform", Role = "${var.project}-platform" }
 
   lifecycle {
-    ignore_changes = [desired_capacity] # the schedule moves it
+    # The user data runs only on the first boot, and a newer Ubuntu AMI must not replace a working instance.
+    # To apply either one: terraform apply -replace=aws_instance.platform
+    ignore_changes = [ami, user_data, user_data_base64]
   }
 }
 
-resource "aws_autoscaling_schedule" "start" {
-  scheduled_action_name  = "${var.project}-start"
-  autoscaling_group_name = aws_autoscaling_group.platform.name
-  recurrence             = var.schedule_start
-  time_zone              = var.schedule_timezone
-  min_size               = 0
-  max_size               = 1
-  desired_capacity       = 1
+# Fixed origin of CloudFront; stays attached while the instance is stopped.
+resource "aws_eip" "platform" {
+  domain   = "vpc"
+  instance = aws_instance.platform.id
+  tags     = { Name = "${var.project}-platform" }
 }
 
-resource "aws_autoscaling_schedule" "stop" {
-  scheduled_action_name  = "${var.project}-stop"
-  autoscaling_group_name = aws_autoscaling_group.platform.name
-  recurrence             = var.schedule_stop
-  time_zone              = var.schedule_timezone
-  min_size               = 0
-  max_size               = 1
-  desired_capacity       = 0
+# ----- schedule: EventBridge Scheduler calls EC2 StartInstances / StopInstances -----
+
+resource "aws_iam_role" "scheduler" {
+  name = "${var.project}-scheduler"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "scheduler.amazonaws.com" }
+      Action    = "sts:AssumeRole"
+      Condition = { StringEquals = { "aws:SourceAccount" = data.aws_caller_identity.current.account_id } }
+    }]
+  })
+}
+
+resource "aws_iam_role_policy" "scheduler" {
+  name = "${var.project}-scheduler"
+  role = aws_iam_role.scheduler.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      { Sid = "StartStop", Effect = "Allow", Action = ["ec2:StartInstances", "ec2:StopInstances"], Resource = [aws_instance.platform.arn] },
+      {
+        # Starting an instance with an encrypted disk uses the EBS key.
+        Sid       = "EncryptedDisk"
+        Effect    = "Allow"
+        Action    = ["kms:CreateGrant", "kms:Decrypt", "kms:GenerateDataKeyWithoutPlaintext", "kms:ReEncrypt*"]
+        Resource  = ["*"]
+        Condition = { StringEquals = { "kms:ViaService" = "ec2.${var.region}.amazonaws.com" } }
+      },
+    ]
+  })
+}
+
+resource "aws_scheduler_schedule" "platform" {
+  for_each = {
+    start = { cron = var.schedule_start, action = "startInstances" }
+    stop  = { cron = var.schedule_stop, action = "stopInstances" }
+  }
+  name                         = "${var.project}-${each.key}"
+  schedule_expression          = each.value.cron
+  schedule_expression_timezone = var.schedule_timezone
+
+  flexible_time_window {
+    mode = "OFF"
+  }
+
+  target {
+    arn      = "arn:aws:scheduler:::aws-sdk:ec2:${each.value.action}"
+    role_arn = aws_iam_role.scheduler.arn
+    input    = jsonencode({ InstanceIds = [aws_instance.platform.id] })
+  }
 }

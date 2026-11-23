@@ -15,8 +15,8 @@ EC2: platform + agent (Docker) ─ VPN (openconnect, split tunnel) ─► univer
 
 | Piece | What it does |
 |---|---|
-| ASG of 1 + warm pool | Turns the instance on and off on a schedule (Europe/Paris); off-hours it stays **stopped** and the same one starts next morning (image and VPN already on disk). Replaces it if it fails |
-| Elastic IP | Fixed origin for CloudFront. Re-attached at boot if the ASG creates a new instance |
+| EC2 + EventBridge Scheduler | One instance, started and stopped on a schedule (Europe/Paris, default Mon–Fri 08:45–12:00). Stopped, it keeps its disk (image and VPN installed), so a start takes ~2–3 min. AWS automatic recovery moves it to healthy hardware if the host fails |
+| Elastic IP | Fixed origin for CloudFront; stays attached while the instance is stopped |
 | CloudFront | The only way in. HTTPS without our own domain, no caching, WebSockets. The security group accepts port 80 only from CloudFront and the API rejects CloudFront requests without the secret header (`aclopi/api/origin.py`) |
 | VPN | `aclopi-vpn.service`: openconnect + vpn-slice; **only** the LLM server's IP goes through the tunnel. Reconnects by itself |
 | Secrets | Parameter Store (`/aclopi/...`), read at every boot. Never in git, in the image or in the user data |
@@ -53,13 +53,14 @@ AWS CLI v2 with a profile for an administrator user (not root), Docker, `gh` (op
    docker build -f docker/Dockerfile -t $REG/aclopi-platform:latest . && docker push $REG/aclopi-platform:latest
    docker build -f docker/agent.Dockerfile -t $REG/aclopi-agent:latest . && docker push $REG/aclopi-agent:latest
    ```
-6. **Everything else.** `terraform apply`. It prints `platform_url`. The instance needs ~5 minutes the first time
-   (packages, images, 7 NetLogo workers); until then CloudFront shows the offline page.
+6. **Everything else.** `terraform apply`. It prints `platform_url`. The instance starts right away and needs ~5 minutes
+   the first time (packages, images, 7 NetLogo workers); until then CloudFront shows the offline page. It stays on
+   until the next scheduled stop: stop it by hand when you finish checking (table below).
 7. **GitHub.** `gh variable set AWS_DEPLOY_ROLE_ARN --body "$(terraform output -raw github_deploy_role_arn)"`
    (or Settings → Secrets and variables → Actions → Variables).
 8. **E-mail.** Confirm the SNS subscription AWS sends to `alert_email`, or no alarm arrives.
-9. **Check.** Open `platform_url`. Then measure the start time (Línea B context, section 0: 5 normal starts and 1 with a
-   new instance) and adjust `schedule_start`.
+9. **Check.** Open `platform_url`. Then measure the start time (5 stop → start cycles, from `start-instances` until
+   `/health/ready` answers) and adjust `schedule_start`.
 
 If the account already has a GitHub OIDC provider, set `create_github_oidc_provider = false`.
 
@@ -70,8 +71,9 @@ If the account already has a GitHub OIDC provider, set `create_github_oidc_provi
 | Deploy a new version | Actions → **Deploy to AWS** → Run workflow (from `main`). Builds, pushes to ECR, records the tag in `/aclopi/deploy/image_tag` and restarts the containers. If the instance is off, it gets the version at its next boot |
 | Change infrastructure | Edit the `.tf` → `terraform plan` → `terraform apply` → commit. The state lives in S3 with locking: no pulling or pushing it by hand. Never change resources from the console |
 | Change a secret | `bash scripts/aws/put-secrets.sh`, then redeploy (or reboot). `ROTATE=1` generates new internal secrets; after rotating `origin_verify`, `terraform apply` too |
-| Change the instance type, schedule, agent settings | Variables in `terraform.tfvars` → `terraform apply`. User-data changes reach a new instance only: start an instance refresh (`aws autoscaling start-instance-refresh --auto-scaling-group-name aclopi-platform`) |
-| Turn it on now / off now | `aws autoscaling set-desired-capacity --auto-scaling-group-name aclopi-platform --desired-capacity 1` (or 0) |
+| Change the instance type, schedule | Variables → `terraform apply`. A new instance type stops and starts the instance (sessions in progress are lost) |
+| Change the user data, the instance scripts or the agent settings (`agent_env`) | They are written on the first boot only: `terraform apply -replace=aws_instance.platform` (new instance, ~5 min; the Elastic IP moves to it) |
+| Turn it on now / off now | `aws ec2 start-instances --instance-ids $(terraform output -raw instance_id)` (or `stop-instances`). The schedule still stops it at the next stop time |
 | Shell on the instance | Systems Manager → Session Manager (there is no SSH). Logs: `/var/log/aclopi/`, `docker compose -f /opt/aclopi/docker-compose.yml logs` |
 | Logs and metrics | CloudWatch: log groups `/aclopi/platform`, `/aclopi/agent`, `/aclopi/system`; dashboard `aclopi` |
 

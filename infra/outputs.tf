@@ -21,8 +21,9 @@ output "elastic_ip" {
   value       = aws_eip.platform.public_ip
 }
 
-output "autoscaling_group" {
-  value = aws_autoscaling_group.platform.name
+output "instance_id" {
+  description = "For aws ec2 start-instances / stop-instances / Session Manager"
+  value       = aws_instance.platform.id
 }
 
 output "artifacts_bucket" {

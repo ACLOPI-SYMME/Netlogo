@@ -24,7 +24,7 @@ locals {
     platform-not-ready = { metric = "PlatformReady", threshold = 1, op = "LessThanThreshold", periods = 5, stat = "Maximum", dims = {}, desc = "/health/ready has failed for 5 minutes while the instance is on" }
     agent-down         = { metric = "AgentUp", threshold = 1, op = "LessThanThreshold", periods = 5, stat = "Maximum", dims = {}, desc = "The platform cannot reach the agent service for 5 minutes" }
     vpn-down           = { metric = "VpnUp", threshold = 1, op = "LessThanThreshold", periods = 5, stat = "Maximum", dims = {}, desc = "No VPN tunnel for 5 minutes: the agent has no LLM (rule 3 decides)" }
-    memory-high        = { metric = "mem_used_percent", threshold = 85, op = "GreaterThanThreshold", periods = 5, stat = "Average", dims = { AutoScalingGroupName = aws_autoscaling_group.platform.name }, desc = "Memory above 85% for 5 minutes" }
+    memory-high        = { metric = "mem_used_percent", threshold = 85, op = "GreaterThanThreshold", periods = 5, stat = "Average", dims = { InstanceId = aws_instance.platform.id }, desc = "Memory above 85% for 5 minutes" }
   }
 }
 
@@ -66,8 +66,8 @@ resource "aws_cloudwatch_dashboard" "main" {
           region = var.region
           period = 60
           metrics = [
-            ["AWS/EC2", "CPUUtilization", "AutoScalingGroupName", aws_autoscaling_group.platform.name],
-            ["ACLOPI", "mem_used_percent", "AutoScalingGroupName", aws_autoscaling_group.platform.name],
+            ["AWS/EC2", "CPUUtilization", "InstanceId", aws_instance.platform.id],
+            ["ACLOPI", "mem_used_percent", "InstanceId", aws_instance.platform.id],
           ]
         }
       },
