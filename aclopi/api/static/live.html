@@ -628,7 +628,7 @@ async function createSession(body) {
   resetView();  // nothing of the previous session stays on screen
   optSid = null;  // the session optimize order created (if it was that one) is gone
   const info = await api("POST", "/sessions", body);
-  sessionInfo = info; sid = info.session_id; runButtons(); optState = null; clearInterval(optPoll); optPoll = null;
+  sessionInfo = info; sid = info.session_id; storeSet(STORE_SID, sid); runButtons(); optState = null; clearInterval(optPoll); optPoll = null;
   $("opt-blocked").textContent = ""; $("opt-blocked").dataset.api = "";
   $("sid").textContent = sid.slice(0, 8); $("sid").title = sid;
   $("seed-value").textContent = info.parameters.seed + (info.seed_source === "random" ? " (random)" : "");
@@ -775,7 +775,12 @@ function handle(m) {
     case "finished": showKpis(m.kpis); msg(`Run finished at tick ${m.tick}` + (m.reason ? ` (${m.reason})` : "")); break;
     case "resync": msg(`Resynchronising (${m.reason}, ${m.dropped} messages dropped)`); break;
     case "run_error": msg(`Run error: ${m.error}`, true); break;
-    case "closed": if (m.code !== "session_deleted") msg(`Session closed: ${m.code} – ${m.reason}`, true); break;
+    case "closed":
+      if (m.code === "session_deleted") break;
+      if (["session_lost", "session_expired", "session_not_found"].includes(m.code)) {
+        storeSet(STORE_SID, null); sid = null; optSid = null; disconnect(); resetView();
+      }
+      msg(`Session closed: ${m.code} – ${m.reason}`, true); break;
   }
 }
 
@@ -916,6 +921,7 @@ async function refreshOptimize() {
 }
 function forgetSession() {
   if (sid === optSid) optSid = null;
+  storeSet(STORE_SID, null);
   sid = null; $("sid").textContent = "–"; $("list-progress").textContent = "–"; disconnect();
 }
 async function closeOptSession() {
@@ -925,7 +931,7 @@ async function closeOptSession() {
   clearInterval(optPoll); optPoll = null;
   if (sid === s) disconnect();
   await api("DELETE", `/sessions/${s}`).catch(() => {});
-  if (sid === s) { sid = null; disconnect(); resetView(); }
+  if (sid === s) { sid = null; storeSet(STORE_SID, null); disconnect(); resetView(); }
   $("opt-session").textContent = "";
   renderOptimize();
 }
@@ -947,9 +953,6 @@ function leaveOptimize() {
     await closeOptSession();
   })();
 }
-window.addEventListener("pagehide", () => {
-  if (optSid && !optApplied) { try { fetch(`/sessions/${optSid}`, {method: "DELETE", keepalive: true}); } catch (e) {} }
-});
 async function startOptimize() {
   $("opt-blocked").textContent = ""; $("opt-blocked").dataset.api = "";
   const blocked = reason => { $("opt-blocked").textContent = reason; $("opt-blocked").dataset.api = "1"; renderOptimize(); };
@@ -1093,11 +1096,11 @@ const CURRENT_LIST = "__current__";  // session-set option: send the list being 
 function setError(text) { $("set-errors").textContent = text || ""; }
 async function setAct(fn) { try { await fn(); } catch (err) { setError(err.message); } }  // every action reports its error here
 function markDirty(v) {
-  dirty = v; $("set-dirty").textContent = v ? "unsaved changes" : "";
+  dirty = v; $("set-dirty").textContent = v ? "not saved as a set" : "";
+  if (typeof saveList === "function") saveList();
   if (v && setItems.length) $("session-set").value = CURRENT_LIST;  // what the user sees is what runs
   if (typeof updateListTip === "function") updateListTip();
 }
-window.addEventListener("beforeunload", e => { if (dirty) { e.preventDefault(); e.returnValue = ""; } });
 function confirmDiscard() { return !dirty || confirm("The set has unsaved changes. Discard them?"); }
 // A product of the list as the page keeps it; empty PO / Item ID / # / DueDate are "".
 const asItem = p => ({po: p.po ?? "", item_id: p.item_id ?? "", number: p.number ?? "", type: p.type,
@@ -1124,6 +1127,7 @@ function renderSet() {
   $("set-save").disabled = !setItems.length;
   $("add").disabled = setItems.length >= MAX_PRODUCTS;
   renderOptimize();  // the Optimize order button follows the list
+  if (typeof saveList === "function") saveList();  // kept in this browser
   const body = $("set-rows"); body.textContent = "";
   if (!setItems.length) { body.innerHTML = `<tr><td colspan="10" class="empty">The list is empty: add products, generate them from a seed or upload a CSV.</td></tr>`; return; }
   const dups = duplicatedIds();
@@ -1275,7 +1279,82 @@ $("set-delete").onclick = () => setAct(async () => {
   const id = $("saved-sets").value; if (!id || !confirm("Delete the saved set?")) return;
   await api("DELETE", `/product-sets/${id}`); if (setId === id) setId = null; setError(""); await refreshSaved();
 });
-setAct(refreshSaved); showEntryMethod(); renderSet();
+// ----- kept in this browser (localStorage): the session and the list of orders -----
+// Every tab of the same browser shares them: a reload, or another tab, opens the same session and the same list.
+// Other browsers (and private windows) have their own.
+const STORE_SID = "aclopi-session", STORE_LIST = "aclopi-orders";
+function storeGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+function storeSet(k, v) { try { if (v === null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch (e) {} }
+function saveList() {
+  try { storeSet(STORE_LIST, JSON.stringify({items: setItems, setId, dirty, name: $("set-name").value})); } catch (e) {}  // also before init
+}
+function loadStoredList(text) {
+  try {
+    const v = JSON.parse(text);
+    setItems = (v.items || []).map(asItem); setId = v.setId ?? null;
+    if (v.name) $("set-name").value = v.name;
+    markDirty(!!v.dirty); renderSet();
+  } catch (e) {}
+}
+async function adoptSession(info) {
+  // an existing session (saved in this browser): header, form, live connection, decisions and optimize order
+  sessionInfo = info; sid = info.session_id; storeSet(STORE_SID, sid);
+  $("sid").textContent = sid.slice(0, 8); $("sid").title = sid;
+  $("seed-value").textContent = info.parameters.seed + (info.seed_source === "random" ? " (random)" : "");
+  $("seed-used").hidden = false;
+  $("rule").value = String(info.parameters.rule); $("horizon").value = String(info.parameters.horizon_ticks);
+  const setKnown = info.product_set_id && [...$("session-set").options].some(o => o.value === info.product_set_id);
+  $("session-set").value = setKnown ? info.product_set_id : (info.products ? CURRENT_LIST : ""); updateListTip();
+  showRun(info);
+  connect();  // the snapshot brings the plant, the indicators and the events
+  try {  // the snapshot has no decisions: the latest ones come from the session's metrics
+    const m = await api("GET", `/sessions/${sid}/metrics`);
+    const log = (m.decisions && m.decisions.log) || [];
+    liveDecisions = log.slice(-MAX_LIVE_DECISIONS).reverse().map(asDecision);
+    noteLevels(liveDecisions); renderLiveDecisions();
+  } catch (e) {}
+  showDecisions();
+  if (info.optimize_status) {  // its optimize order: progress, best option and table come back
+    try {
+      optState = await api("GET", `/sessions/${sid}/optimize-order`);
+      optSid = sid; optItems = optState.products.map(asItem); optApplied = optState.applied !== null;
+      optListKey = optApplied ? listKey() : null;
+      if (optActive()) { clearInterval(optPoll); optPoll = setInterval(refreshOptimize, 2000); }
+    } catch (e) {}
+  }
+  renderOptimize(); runButtons();
+}
+async function restoreSession(note) {
+  const saved = storeGet(STORE_SID);
+  if (!saved || saved === sid) return;
+  let info = null;
+  try { info = await api("GET", `/sessions/${saved}`); } catch (e) {}
+  if (info && info.status === "active") {
+    await adoptSession(info);
+    msg(note || "Reconnected to your session.", false, true);
+    return;
+  }
+  storeSet(STORE_SID, null);
+  msg(info ? `Your previous session ended (${info.status === "expired" ? "closed for inactivity" : "lost"}` +
+             `${info.lost_reason ? ": " + info.lost_reason : ""}).` : "Your previous session no longer exists.", false, true);
+}
+// another tab created, replaced or closed the session, or changed the list of orders
+window.addEventListener("storage", e => {
+  if (e.key === STORE_SID) {
+    if (e.newValue === sid) return;
+    if (sid) { disconnect(); sid = null; optSid = null; resetView(); }
+    optState = null; clearInterval(optPoll); optPoll = null; renderOptimize();
+    if (e.newValue) restoreSession("Now showing the session created in another tab.");
+    else msg("Session ended (closed in another tab).", false, true);
+  } else if (e.key === STORE_LIST && e.newValue) {
+    loadStoredList(e.newValue);
+  }
+});
+
+const storedList = storeGet(STORE_LIST);
+if (storedList) loadStoredList(storedList);
+setAct(refreshSaved).then(() => restoreSession());  // after the saved sets: the session's set is then in the list
+showEntryMethod(); renderSet();
 
 // ----- past runs (L5.7) -----
 let runs = [], runsCursor = null;

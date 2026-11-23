@@ -101,6 +101,8 @@ def fake_platform(sessions: list[dict[str, Any]]) -> FastAPI:
 
     @app.get("/sessions/{sid}")
     def get_session(sid: str) -> Any:
+        if OPT["session"] is None or OPT.get("deleted"):
+            return JSONResponse({"code": "session_not_found", "detail": "gone"}, status_code=404)
         return OPT["session"]
 
     @app.post("/sessions/{sid}/optimize-order/cancel")
@@ -112,6 +114,7 @@ def fake_platform(sessions: list[dict[str, Any]]) -> FastAPI:
     @app.delete("/sessions/{sid}", status_code=204)
     def delete_session(sid: str) -> None:
         OPT["calls"].append(("delete", sid))
+        OPT["deleted"] = True
 
     @app.post("/sessions/{sid}/run")
     async def run(sid: str, request: Request) -> dict[str, Any]:
@@ -151,7 +154,10 @@ def fake_platform(sessions: list[dict[str, Any]]) -> FastAPI:
         body = await request.json()
         sessions.append(body)
         products = [{"type": p["type"], "priority": p.get("priority", 80)} for p in body.get("products") or []] or None
-        OPT["session"] = {"session_id": "s1", "parameters": {"seed": 1, "rule": body.get("rule", 3)}, "seed_source": "random",
+        OPT["deleted"] = False
+        OPT["session"] = {"session_id": "s1", "status": "active",
+                          "parameters": {"seed": 1, "rule": body.get("rule", 3), "horizon_ticks": body.get("horizon_ticks", 10000)},
+                          "seed_source": "random",
                           "warnings": [], "scenario": {"id": "S0", "params": {}}, "run_state": "idle", "ticks": 0,
                           "products_total": len(products) if products else None, "products": products}
         OPT["state"] = None
@@ -559,3 +565,44 @@ def test_close_resets_the_view(server: tuple[str, list], browser: Any) -> None:
     assert page.inner_text("#sid") == "–" and page.inner_text("#runstate") == "–" and "No session yet" in page.inner_text("#kpis")
     assert page.evaluate("layout") is None and page.is_disabled("#live") and page.is_disabled("#close")
     page.close()
+
+
+def test_session_and_orders_kept_in_the_browser(server: tuple[str, list], browser: Any) -> None:
+    """The session and the list of orders survive a reload and are shared by the tabs of the same browser;
+    closing the session in one tab clears the others; a session that no longer exists is forgotten."""
+    url, _ = server
+    ctx = browser.new_context()  # one browser: its tabs share localStorage
+    page = ctx.new_page()
+    page.on("dialog", lambda d: d.accept())
+    page.goto(f"{url}/ui")
+    _ready(page)
+    page.click("#create")
+    page.wait_for_function("document.querySelector('#sid').textContent === 's1'")
+    page.click("#tab-set")
+    page.click("#add"); page.click("#add")  # two orders, not saved as a set
+    page.reload()
+    _ready(page)
+    page.wait_for_function("document.querySelector('#sid').textContent === 's1'")
+    assert page.is_enabled("#live") and page.get_attribute("#sid", "title") == "s1"  # the fake has no WebSocket: no msg check
+    assert page.eval_on_selector_all("#set-rows tr", "els => els.length") == 2
+    # another tab of the same browser: the same session and the same list; a change of the list reaches it
+    other = ctx.new_page()
+    other.goto(f"{url}/ui")
+    _ready(other)
+    other.wait_for_function("document.querySelector('#sid').textContent === 's1'")
+    assert other.eval_on_selector_all("#set-rows tr", "els => els.length") == 2
+    page.click("#tab-set")
+    page.click("#add")
+    other.wait_for_function("document.querySelectorAll('#set-rows tr').length === 3")
+    # Close in one tab: the other one clears its view
+    page.click("#tab-session")
+    page.click("#close")
+    other.wait_for_function("document.querySelector('#sid').textContent === '–'")
+    assert "closed in another tab" in other.inner_text("#msg")
+    # a session saved in the browser that no longer exists is forgotten, with a notice
+    other.evaluate("localStorage.setItem('aclopi-session', 'gone-1')")
+    other.reload()
+    _ready(other)
+    other.wait_for_function("document.querySelector('#msg').textContent.includes('no longer exists')")
+    assert other.evaluate("localStorage.getItem('aclopi-session')") is None and other.inner_text("#sid") == "–"
+    ctx.close()

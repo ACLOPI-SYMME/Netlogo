@@ -646,8 +646,9 @@ class SessionRegistry:
             "single_option": record.sources.get("single-option", 0),
             "latency_ms": {"mean": round(sum(lat) / len(lat), 1), "p95": lat[min(len(lat) - 1, int(round(0.95 * (len(lat) - 1))))],
                            "max": lat[-1], "n": len(lat)} if lat else None,
-            "log": [{k: d[k] for k in ("tick", "request_tick", "product", "seq", "machine", "decision_level", "late",
-                                       "latency_ms", "reason")} for d in record.decision_log],
+            "log": [{**{k: d[k] for k in ("tick", "request_tick", "product", "seq", "machine", "decision_level", "late",
+                                          "latency_ms", "reason")},
+                     "operation": d.get("operation"), "product_type": d.get("product_type")} for d in record.decision_log],
         }
 
     # ----- results (L5.7) -----
