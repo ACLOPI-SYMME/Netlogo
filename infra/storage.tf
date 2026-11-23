@@ -80,7 +80,7 @@ resource "aws_s3_bucket_public_access_block" "offline" {
 resource "aws_s3_object" "offline_page" {
   bucket        = aws_s3_bucket.offline.id
   key           = "offline/index.html"
-  content       = templatefile("${path.module}/files/offline.html.tftpl", { start = var.schedule_start, stop = var.schedule_stop, tz = var.schedule_timezone })
+  content       = templatefile("${path.module}/files/offline.html.tftpl", { label = var.schedule_label })
   content_type  = "text/html; charset=utf-8"
   cache_control = "max-age=10"
 }

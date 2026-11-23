@@ -43,13 +43,19 @@ variable "schedule_timezone" {
 variable "schedule_start" {
   description = "Cron (in schedule_timezone) that turns the platform on. Section 0 of the Línea B context: start >= 10 min before the users"
   type        = string
-  default     = "30 7 * * 1-5"
+  default     = "45 8 * * 1-5"
 }
 
 variable "schedule_stop" {
   description = "Cron (in schedule_timezone) that turns the platform off"
   type        = string
-  default     = "0 19 * * 1-5"
+  default     = "0 12 * * 1-5"
+}
+
+variable "schedule_label" {
+  description = "Opening hours shown on the offline page; keep it in line with schedule_start/schedule_stop"
+  type        = string
+  default     = "Monday to Friday, 09:00-12:00 (Paris time)"
 }
 
 # ----- application -----
@@ -109,7 +115,7 @@ variable "alert_email" {
 
 variable "monthly_budget_usd" {
   type    = number
-  default = 100
+  default = 30
 }
 
 # ----- GitHub Actions -----
