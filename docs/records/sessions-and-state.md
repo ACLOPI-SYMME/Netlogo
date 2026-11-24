@@ -56,6 +56,19 @@ Reading: the session is still alive (`active`) although the run finished (`finis
 - **`status` belongs to the session; `run_state` belongs to the run.** An `active` session can have a `finished` run.
 - **A session closes by itself** after 30 min without requests (`ACLOPI_SESSION_IDLE_TIMEOUT_S`): it becomes `expired` and its run, if half-way, is saved as `stopped`.
 
+## The page keeps the session in the browser
+
+The page (`/ui`) keeps two things in the browser's `localStorage` (since 23 Nov):
+- `aclopi-session`: the id of the session;
+- `aclopi-orders`: the list of production orders of the Order entry tab, with its set name and whether it was saved as a set.
+
+Every tab of the same browser shares them; other browsers and private windows have their own.
+
+- **Reload, or another tab:** the page opens the same session (`GET /sessions/{id}`). It reconnects the WebSocket (the snapshot brings the plant, indicators and events), refills the agent's decisions from `GET /sessions/{id}/metrics` (`decisions.log`, which carries `operation` and `product_type` since then), and its "Optimize order" from `GET /sessions/{id}/optimize-order`. The list of orders comes back as it was, even if it was never saved as a set.
+- **Several tabs at once:** they watch the same session and any of them can run it. Creating, replacing or closing the session in one tab is followed by the others. A change of the list of orders reaches the others too.
+- **A session that no longer exists** (closed for inactivity, lost, deleted) is forgotten when the page opens, with a notice.
+- **No login:** anyone with a session's id can open it, as before. A browser that is closed leaves its session until it closes for inactivity (`ACLOPI_SESSION_IDLE_TIMEOUT_S`, 30 min).
+
 ## Plant snapshot (`GET /sessions/{id}/state`)
 
 ### What it is, when and how to see it
