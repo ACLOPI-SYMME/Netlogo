@@ -1,6 +1,6 @@
 # AWS deployment
 
-Terraform for the cloud platform: one EC2 instance (`m7i.xlarge`, Ubuntu 26.04) with the platform and the agent in
+Terraform for the cloud platform: one EC2 instance (`m7i-flex.large` on the AWS Free plan, Ubuntu 26.04) with the platform and the agent in
 Docker, behind CloudFront, in Stockholm (`eu-north-1`). Design and decisions: project document
 "Contexto Línea B - Arquitectura Cloud", sections 0, 0.1 and 0.2.
 
@@ -27,11 +27,11 @@ scripts, offline page). Deployment workflow: `.github/workflows/deploy-aws.yml`.
 
 ## First deployment
 
-Requirements: AWS account on the **paid plan** (the free plan does not allow `xlarge` instances), Terraform >= 1.10,
-AWS CLI v2 with a profile for an administrator user (not root), Docker, `gh` (optional).
+Requirements: AWS account (Free plan: defaults below; paid plan: see "Sizing"), Terraform >= 1.10,
+AWS CLI v2 >= 2.32 with a profile (`aws login --profile <profile>` for project team members), Docker, `gh` (optional).
 
 1. **vCPU quota.** Service Quotas → EC2 → "Running On-Demand Standard (A, C, D, H, I, M, R, T, Z) instances" in
-   `eu-north-1` must be ≥ 4 (≥ 8 if you ever test a second instance). Ask for more if not: it can take 1–2 days.
+   `eu-north-1` must be ≥ 2 (≥ 4 for `m7i.xlarge`). Ask for more if not: it can take 1–2 days.
 2. **Credentials.** `export AWS_PROFILE=<profile>` (PowerShell: `$env:AWS_PROFILE="<profile>"`).
 3. **State bucket (once).**
    ```bash
@@ -64,6 +64,16 @@ AWS CLI v2 with a profile for an administrator user (not root), Docker, `gh` (op
 
 If the account already has a GitHub OIDC provider, set `create_github_oidc_provider = false`.
 
+## Sizing
+
+| Plan | `instance_type` | `platform_env` | Simultaneous users |
+|---|---|---|---|
+| Free (default) | `m7i-flex.large` (2 vCPU / 8 GB, the largest the Free plan allows) | `ACLOPI_N_SESSION_WORKERS=2`, `ACLOPI_N_WHATIF_WORKERS=1` | 2 (more wait in the queue) |
+| Paid | `m7i.xlarge` (4 vCPU / 16 GB) | `5` and `2` | 5 |
+
+Moving between them: set both in `terraform.tfvars`, then `terraform apply -replace=aws_instance.platform`
+(`platform_env` is written on the first boot). The platform container is capped at 6 GB in both cases.
+
 ## Day to day
 
 | Task | How |
@@ -72,7 +82,7 @@ If the account already has a GitHub OIDC provider, set `create_github_oidc_provi
 | Change infrastructure | Edit the `.tf` → `terraform plan` → `terraform apply` → commit. The state lives in S3 with locking: no pulling or pushing it by hand. Never change resources from the console |
 | Change a secret | `bash scripts/aws/put-secrets.sh`, then redeploy (or reboot). `ROTATE=1` generates new internal secrets; after rotating `origin_verify`, `terraform apply` too |
 | Change the instance type, schedule | Variables → `terraform apply`. A new instance type stops and starts the instance (sessions in progress are lost) |
-| Change the user data, the instance scripts or the agent settings (`agent_env`) | They are written on the first boot only: `terraform apply -replace=aws_instance.platform` (new instance, ~5 min; the Elastic IP moves to it) |
+| Change the user data, the instance scripts or the settings (`agent_env`, `platform_env`) | They are written on the first boot only: `terraform apply -replace=aws_instance.platform` (new instance, ~5 min; the Elastic IP moves to it) |
 | Turn it on now / off now | `aws ec2 start-instances --instance-ids $(terraform output -raw instance_id)` (or `stop-instances`). The schedule still stops it at the next stop time |
 | Shell on the instance | Systems Manager → Session Manager (there is no SSH). Logs: `/var/log/aclopi/`, `docker compose -f /opt/aclopi/docker-compose.yml logs` |
 | Logs and metrics | CloudWatch: log groups `/aclopi/platform`, `/aclopi/agent`, `/aclopi/system`; dashboard `aclopi` |
