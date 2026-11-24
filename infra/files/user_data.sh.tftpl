@@ -3,6 +3,7 @@
 # the VPN client, writes the stack to /opt/aclopi and enables the systemd units. What has to happen at EVERY boot
 # (secrets, containers, VPN, health metrics) lives in those units, because the instance is stopped and started daily.
 # Rendered by Terraform (infra/compute.tf): $${...} is bash, $${} without the double dollar is Terraform.
+# Each embedded file has its own heredoc delimiter: start.sh contains its own "EOF" heredoc (24 Nov bug).
 set -euxo pipefail
 exec > >(tee -a /var/log/aclopi-user-data.log) 2>&1
 
@@ -17,7 +18,7 @@ systemctl enable --now docker
 curl -fsSL -o /tmp/cwagent.deb https://s3.${region}.amazonaws.com/amazoncloudwatch-agent-${region}/ubuntu/amd64/latest/amazon-cloudwatch-agent.deb
 dpkg -i /tmp/cwagent.deb
 mkdir -p /var/log/aclopi
-cat > /opt/aws/amazon-cloudwatch-agent/etc/aclopi.json <<'EOF'
+cat > /opt/aws/amazon-cloudwatch-agent/etc/aclopi.json <<'ACLOPI_CWAGENT_JSON'
 {
   "agent": { "metrics_collection_interval": 60 },
   "metrics": {
@@ -39,14 +40,14 @@ cat > /opt/aws/amazon-cloudwatch-agent/etc/aclopi.json <<'EOF'
     }
   }
 }
-EOF
+ACLOPI_CWAGENT_JSON
 /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -s \
   -c file:/opt/aws/amazon-cloudwatch-agent/etc/aclopi.json
 
 # ----- the stack -----
 mkdir -p /opt/aclopi/bin /opt/aclopi/results
 
-cat > /opt/aclopi/bin/common.sh <<'EOF'
+cat > /opt/aclopi/bin/common.sh <<'ACLOPI_COMMON_SH'
 # Shared by the aclopi scripts. Values fixed by Terraform.
 export PATH="/snap/bin:/usr/local/bin:$PATH"
 AWS_REGION="${region}"
@@ -63,36 +64,36 @@ DEFAULT_IMAGE_TAG="${image_tag}"
 param() { aws ssm get-parameter --region "$AWS_REGION" --name "$PARAM_PREFIX/$1" --query Parameter.Value --output text; }
 param_secure() { aws ssm get-parameter --region "$AWS_REGION" --name "$PARAM_PREFIX/$1" --with-decryption --query Parameter.Value --output text; }
 log() { echo "$(date -Is) [$(basename "$0")] $*"; }
-EOF
+ACLOPI_COMMON_SH
 
-cat > /opt/aclopi/docker-compose.yml <<'EOF'
+cat > /opt/aclopi/docker-compose.yml <<'ACLOPI_COMPOSE_YML'
 ${compose_file}
-EOF
+ACLOPI_COMPOSE_YML
 
-cat > /opt/aclopi/platform.env <<'EOF'
+cat > /opt/aclopi/platform.env <<'ACLOPI_PLATFORM_ENV'
 ${platform_env}
-EOF
+ACLOPI_PLATFORM_ENV
 
-cat > /opt/aclopi/agent.env <<'EOF'
+cat > /opt/aclopi/agent.env <<'ACLOPI_AGENT_ENV'
 ${agent_env}
-EOF
+ACLOPI_AGENT_ENV
 
-cat > /opt/aclopi/bin/vpn.sh <<'EOF'
+cat > /opt/aclopi/bin/vpn.sh <<'ACLOPI_VPN_SH'
 ${vpn_script}
-EOF
+ACLOPI_VPN_SH
 
-cat > /opt/aclopi/bin/start.sh <<'EOF'
+cat > /opt/aclopi/bin/start.sh <<'ACLOPI_START_SH'
 ${start_script}
-EOF
+ACLOPI_START_SH
 
-cat > /opt/aclopi/bin/health.sh <<'EOF'
+cat > /opt/aclopi/bin/health.sh <<'ACLOPI_HEALTH_SH'
 ${health_script}
-EOF
+ACLOPI_HEALTH_SH
 
 chmod 755 /opt/aclopi/bin/*.sh
 
 # ----- systemd units -----
-cat > /etc/systemd/system/aclopi-vpn.service <<'EOF'
+cat > /etc/systemd/system/aclopi-vpn.service <<'ACLOPI_VPN_UNIT'
 [Unit]
 Description=ACLOPI - university VPN (split tunnel to the LLM server)
 After=network-online.target
@@ -107,9 +108,9 @@ StandardError=append:/var/log/aclopi/vpn.log
 
 [Install]
 WantedBy=multi-user.target
-EOF
+ACLOPI_VPN_UNIT
 
-cat > /etc/systemd/system/aclopi.service <<'EOF'
+cat > /etc/systemd/system/aclopi.service <<'ACLOPI_UNIT'
 [Unit]
 Description=ACLOPI - secrets and containers (platform + agent)
 After=docker.service network-online.target snapd.seeded.service
@@ -128,18 +129,18 @@ StandardError=append:/var/log/aclopi/start.log
 
 [Install]
 WantedBy=multi-user.target
-EOF
+ACLOPI_UNIT
 
-cat > /etc/systemd/system/aclopi-health.service <<'EOF'
+cat > /etc/systemd/system/aclopi-health.service <<'ACLOPI_HEALTH_UNIT'
 [Unit]
 Description=ACLOPI - publish health metrics
 
 [Service]
 Type=oneshot
 ExecStart=/opt/aclopi/bin/health.sh
-EOF
+ACLOPI_HEALTH_UNIT
 
-cat > /etc/systemd/system/aclopi-health.timer <<'EOF'
+cat > /etc/systemd/system/aclopi-health.timer <<'ACLOPI_HEALTH_TIMER'
 [Unit]
 Description=ACLOPI - health metrics every minute
 
@@ -149,7 +150,7 @@ OnUnitActiveSec=1min
 
 [Install]
 WantedBy=timers.target
-EOF
+ACLOPI_HEALTH_TIMER
 
 systemctl daemon-reload
 systemctl enable aclopi-vpn.service aclopi.service aclopi-health.timer
