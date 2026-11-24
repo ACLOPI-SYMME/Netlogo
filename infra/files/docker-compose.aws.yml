@@ -24,8 +24,8 @@ services:
     volumes:
       - ./results:/app/results
     restart: unless-stopped
-    mem_limit: 12g
-    memswap_limit: 12g
+    mem_limit: 6g # 8 GB instance; also enough for 7 workers on m7i.xlarge (4.6 GB peak measured in L4)
+    memswap_limit: 6g
     healthcheck:
       test: ["CMD", "python", "-c", "import sys, urllib.request; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=4).status == 200 else 1)"]
       interval: 15s

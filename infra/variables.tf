@@ -13,9 +13,9 @@ variable "region" {
 # ----- compute -----
 
 variable "instance_type" {
-  description = "m7i.xlarge (4 vCPU / 16 GB). Next step if CPU falls short: m7a.xlarge (4 physical cores)"
+  description = "m7i-flex.large (2 vCPU / 8 GB): the largest type the AWS Free plan allows; sized for platform_env (2 sessions + 1 what-if). On the paid plan: m7i.xlarge with 5 sessions + 2 what-if"
   type        = string
-  default     = "m7i.xlarge"
+  default     = "m7i-flex.large"
 }
 
 variable "ami_name_filter" {
@@ -29,27 +29,27 @@ variable "root_volume_gb" {
   default = 30
 }
 
-variable "initial_capacity" {
-  description = "Instances right after the first apply (0 or 1). Afterwards the schedule decides; Terraform ignores changes"
-  type        = number
-  default     = 1
-}
-
 variable "schedule_timezone" {
   type    = string
   default = "Europe/Paris"
 }
 
 variable "schedule_start" {
-  description = "Cron (in schedule_timezone) that turns the platform on. Section 0 of the Línea B context: start >= 10 min before the users"
+  description = "EventBridge Scheduler cron (in schedule_timezone) that starts the instance: cron(min hour day-of-month month day-of-week year). Start >= 10 min before the users"
   type        = string
-  default     = "30 7 * * 1-5"
+  default     = "cron(45 8 ? * MON-FRI *)"
 }
 
 variable "schedule_stop" {
-  description = "Cron (in schedule_timezone) that turns the platform off"
+  description = "EventBridge Scheduler cron (in schedule_timezone) that stops the instance"
   type        = string
-  default     = "0 19 * * 1-5"
+  default     = "cron(0 12 ? * MON-FRI *)"
+}
+
+variable "schedule_label" {
+  description = "Opening hours shown on the offline page; keep it in line with schedule_start/schedule_stop"
+  type        = string
+  default     = "Monday to Friday, 09:00-12:00 (Paris time)"
 }
 
 # ----- application -----
@@ -93,10 +93,12 @@ variable "agent_env" {
 }
 
 variable "platform_env" {
-  description = "Extra settings of the platform API (aclopi/api/settings.py)"
+  description = "Extra settings of the platform API (aclopi/api/settings.py). Written on the first boot: changing it needs terraform apply -replace=aws_instance.platform"
   type        = map(string)
   default = {
-    ACLOPI_LOG_LEVEL = "INFO"
+    ACLOPI_LOG_LEVEL         = "INFO"
+    ACLOPI_N_SESSION_WORKERS = "2" # simultaneous sessions (5 on m7i.xlarge)
+    ACLOPI_N_WHATIF_WORKERS  = "1" # what-if copies (2 on m7i.xlarge)
   }
 }
 
@@ -109,7 +111,7 @@ variable "alert_email" {
 
 variable "monthly_budget_usd" {
   type    = number
-  default = 100
+  default = 30
 }
 
 # ----- GitHub Actions -----

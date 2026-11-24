@@ -1,8 +1,8 @@
 # Copy to terraform.tfvars (not in git). Only alert_email is required; the rest have defaults (variables.tf).
 alert_email = "you@example.com"
 
-# instance_type      = "m7i.xlarge"   # m7a.xlarge if the load test asks for more CPU
-# schedule_start     = "30 7 * * 1-5" # Europe/Paris
-# schedule_stop      = "0 19 * * 1-5"
-# monthly_budget_usd = 100
-# initial_capacity   = 1               # 0 = do not start the instance on the first apply
+# instance_type      = "m7i-flex.large" # Free plan; paid plan: "m7i.xlarge" + platform_env with 5 sessions / 2 what-if
+# schedule_start     = "cron(45 8 ? * MON-FRI *)" # Europe/Paris; ready ~09:00
+# schedule_stop      = "cron(0 12 ? * MON-FRI *)"
+# schedule_label     = "Monday to Friday, 09:00-12:00 (Paris time)"
+# monthly_budget_usd = 30

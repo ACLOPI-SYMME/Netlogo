@@ -1,11 +1,7 @@
-# VPC with 2 public subnets (no NAT Gateway: ~39 USD/month saved). Only the instance lives here.
+# VPC with one public subnet (no NAT Gateway: ~39 USD/month saved). Only the instance lives here.
 
 data "aws_availability_zones" "available" {
   state = "available"
-}
-
-locals {
-  azs = slice(data.aws_availability_zones.available.names, 0, 2)
 }
 
 resource "aws_vpc" "main" {
@@ -21,12 +17,11 @@ resource "aws_internet_gateway" "main" {
 }
 
 resource "aws_subnet" "public" {
-  count                   = length(local.azs)
   vpc_id                  = aws_vpc.main.id
-  cidr_block              = cidrsubnet(aws_vpc.main.cidr_block, 8, count.index)
-  availability_zone       = local.azs[count.index]
+  cidr_block              = cidrsubnet(aws_vpc.main.cidr_block, 8, 0)
+  availability_zone       = data.aws_availability_zones.available.names[0]
   map_public_ip_on_launch = true
-  tags                    = { Name = "${var.project}-public-${local.azs[count.index]}" }
+  tags                    = { Name = "${var.project}-public" }
 }
 
 resource "aws_route_table" "public" {
@@ -39,8 +34,7 @@ resource "aws_route_table" "public" {
 }
 
 resource "aws_route_table_association" "public" {
-  count          = length(aws_subnet.public)
-  subnet_id      = aws_subnet.public[count.index].id
+  subnet_id      = aws_subnet.public.id
   route_table_id = aws_route_table.public.id
 }
 
