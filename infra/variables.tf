@@ -13,9 +13,9 @@ variable "region" {
 # ----- compute -----
 
 variable "instance_type" {
-  description = "m7i.xlarge (4 vCPU / 16 GB). Next step if CPU falls short: m7a.xlarge (4 physical cores)"
+  description = "m7i-flex.large (2 vCPU / 8 GB): the largest type the AWS Free plan allows; sized for platform_env (2 sessions + 1 what-if). On the paid plan: m7i.xlarge with 5 sessions + 2 what-if"
   type        = string
-  default     = "m7i.xlarge"
+  default     = "m7i-flex.large"
 }
 
 variable "ami_name_filter" {
@@ -93,10 +93,12 @@ variable "agent_env" {
 }
 
 variable "platform_env" {
-  description = "Extra settings of the platform API (aclopi/api/settings.py)"
+  description = "Extra settings of the platform API (aclopi/api/settings.py). Written on the first boot: changing it needs terraform apply -replace=aws_instance.platform"
   type        = map(string)
   default = {
-    ACLOPI_LOG_LEVEL = "INFO"
+    ACLOPI_LOG_LEVEL         = "INFO"
+    ACLOPI_N_SESSION_WORKERS = "2" # simultaneous sessions (5 on m7i.xlarge)
+    ACLOPI_N_WHATIF_WORKERS  = "1" # what-if copies (2 on m7i.xlarge)
   }
 }
 
