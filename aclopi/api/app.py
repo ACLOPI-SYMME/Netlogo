@@ -41,7 +41,7 @@ from aclopi.api.models import (
 from aclopi.workers.protocol import NoFreeWorker
 from aclopi.api.agent import AgentClient
 from aclopi.contracts.agent import bearer_matches
-from aclopi.api.product_sets import InMemoryProductSetStore, parse_csv, summary, to_csv
+from aclopi.api.product_sets import InMemoryProductSetStore, parse_csv, sample_order, summary, to_csv
 from aclopi.api.results import DynamoProductSetStore, DynamoResultsStore, InMemoryResultsStore
 from aclopi.api.optimize import get_optimization
 from aclopi.api.origin import OriginVerifyMiddleware
@@ -331,11 +331,15 @@ def create_app(
              summary="Saved runs, newest first; optional filters and simple paging (cursor)")
     async def list_runs(seed: int | None = None, strategy: str | None = None, rule: int | None = None,
                         product_set_id: str | None = None,
+                        created_from: float | None = Query(None, description="Only runs created at or after this "
+                                                                             "time (Unix seconds)"),
+                        created_to: float | None = Query(None, description="Only runs created at or before this "
+                                                                           "time (Unix seconds)"),
                         scenario: str | None = Query(None, description="Scenario id (runs saved before scenarios "
                                                                         "were taken out)"),
                         limit: int = Query(50, ge=1, le=500), cursor: str | None = None) -> Any:
         filters = {"seed": seed, "strategy": strategy, "rule": rule, "product_set_id": product_set_id,
-                   "scenario_id": scenario}
+                   "scenario_id": scenario, "created_from": created_from, "created_to": created_to}
         rows, next_cursor = await asyncio.to_thread(runtime.results.list_runs, filters, limit, cursor)
         return {"runs": rows, "next_cursor": next_cursor}
 
@@ -377,7 +381,8 @@ def create_app(
         return {"products": [ProductItem(**p).model_dump() for p in products], **summary(products)}
 
     @app.post("/product-sets/generate", response_model=GeneratedProducts, tags=["product-sets"],
-              summary="The products the model generates from a seed (fixed sequence); seed optional",
+              summary="The products the model generates from a seed (fixed sequence), as a sample order with "
+                      "PO, Item ID, # and DueDate; seed optional",
               responses=errors.responses(503))
     async def generate_products(body: GenerateRequest) -> Any:
         registry = runtime.require_ready()
@@ -391,7 +396,7 @@ def create_app(
             items = await registry.run(worker.request, "product_sequence", seed=seed, count=body.count)
         finally:
             borrow.__exit__(None, None, None)
-        products = [{"type": t, "priority": int(p)} for t, p in items]
+        products = sample_order([{"type": t, "priority": int(p)} for t, p in items], seed)
         return {"seed": seed, "seed_source": seed_source, "products": products, **summary(products)}
 
     @app.get("/product-sets/{set_id}", response_model=ProductSet, tags=["product-sets"],

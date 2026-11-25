@@ -303,7 +303,7 @@
           <select id="rule"><option value="1">Rule 1 — Random machine</option><option value="2">Rule 2 — Nearest machine</option>
             <option value="3" selected>Rule 3 — Potential fields</option><option value="4">Rule 4 — AI agent</option></select></label>
         <label class="field"><span>Production orders</span>
-          <select id="session-set"><option value="">Random (generated from the seed)</option><option value="__current__">Production orders (Order entry tab)</option></select></label>
+          <select id="session-set"><option value="__current__">Production orders (Order entry tab)</option></select></label>
         <span class="field" id="list-tip-box" hidden><span>&nbsp;</span><span class="check"><span class="tip">
           <button type="button" aria-label="About Production orders (Order entry tab)" aria-describedby="list-tip">i</button>
           <span id="list-tip" role="tooltip">The session uses the list of production orders as it is right now in the Order
@@ -371,7 +371,7 @@
   </div>
 
   <div id="events-panel" class="panel">
-    <h2>Model events <small class="muted">(last 200)</small></h2>
+    <h2>Model events <small class="muted">(last 200, newest first)</small></h2>
     <div id="events"></div>
   </div>
 </section>
@@ -380,14 +380,14 @@
 <section id="page-set" class="page" role="tabpanel" hidden>
   <div class="panel">
     <h2>Production Order Entry</h2>
-    <p class="muted" style="margin: 0 0 var(--s3)">Fill the list of production orders (right). Orders enter the plant in
+    <p class="muted" style="margin: 0 0 var(--s3)">Create the production order (right). Its products enter the plant in
       the order of the list; at most <span class="mono">30</span>.</p>
     <label class="field" style="margin-bottom: var(--s3)"><span>How do you want to enter the orders?</span>
       <select id="entry-method">
         <option value="manual">Enter orders manually</option>
         <option value="csv">Import a CSV file</option>
         <option value="saved">Load a saved set</option>
-        <option value="generate">Generate a sample list</option>
+        <option value="generate">Generate a sample order</option>
       </select></label>
 
     <div class="option" id="entry-manual">
@@ -437,7 +437,8 @@
       <button id="generate">Generate</button>
     </div>
     <div class="row"><span id="gen-used" class="muted mono"></span></div>
-    <p class="hint">The orders the model itself would create (for tests). It <b>replaces</b> the current list.</p>
+    <p class="hint">A sample order: the products the model itself would create, with every column of the CSV (one PO
+      <span class="mono">PO-xxxxx</span>, a numeric Item ID per type, # and DueDate). It <b>replaces</b> the current list.</p>
     </div>
     <hr class="rule">
     <h3>Keep the list</h3>
@@ -493,12 +494,15 @@
   <div class="panel">
     <div class="row">
       <label class="field"><span>Seed</span><input id="runs-seed" type="number"></label>
+      <label class="field"><span>From</span><input id="runs-from" type="datetime-local"></label>
+      <label class="field"><span>To</span><input id="runs-to" type="datetime-local"></label>
       <label class="field"><span>Rule</span><select id="runs-rule"><option value="">(all)</option><option value="1">Rule 1</option><option value="2">Rule 2</option><option value="3">Rule 3</option><option value="4">Rule 4</option></select></label>
       <button id="runs-refresh">Refresh</button> <button id="runs-more" hidden>More</button>
       <button id="runs-compare" class="primary">Compare selected</button>
     </div>
-    <p class="hint">Saved runs, grouped by seed. Select any two or more runs, in one group or in several, and press
-      "Compare selected".</p>
+    <p class="hint">Saved runs, grouped by production order and seed: the runs of a group simulated the same products
+      under the same random draws (the order of entry may differ), so they compare fairly. Select 2 to 5 runs, in one
+      group or in several, and press "Compare selected".</p>
     <div id="runs-msg" class="err" style="margin-top: var(--s2)"></div>
     <div id="runs-groups"></div>
   </div>
@@ -726,8 +730,8 @@ function addEvents(list) {
   if (!list || !list.length) return;
   events.push(...list);
   if (events.length > MAX_EVENTS) events = events.slice(-MAX_EVENTS);
-  $("events").innerHTML = events.map(eventLine).join("");
-  $("events").scrollTop = 1e9;
+  $("events").innerHTML = events.map(eventLine).reverse().join("");  // newest at the top
+  $("events").scrollTop = 0;
 }
 function showListProgress() {
   if (!lastState || !lastState.product_list_active) { $("list-progress").textContent = sid ? "Random" : "–"; return; }
@@ -881,11 +885,11 @@ function renderOptimize() {
       <span>Saving: ${savingText(best)}</span>
       <div style="margin: var(--s2) 0">${seqDots(o.products, best.order)}</div>
       ${o.applied === best.index ? `<b>✓ Applied to the production orders</b>` : `<button id="opt-use-best" class="primary" ${canApply ? "" : "disabled"}>Use this</button>`}`
-    : `<span class="muted">No complete simulation yet${o.evaluated.length ? " (the horizon is too short for the list)" : ""}.</span>`;
+    : `<span class="muted">No complete simulation yet.</span>`;
   if ($("opt-use-best")) $("opt-use-best").onclick = () => applyOrder(best.index);
   const rows = o.evaluated.map(c => `<tr class="${c.index === o.best ? "best" : ""} ${c.index === o.applied ? "applied" : ""}">
       <td>${esc(c.label)}${c.index === o.applied ? " ✓" : ""}</td>
-      <td class="num">${c.all_done ? `${ut(c.makespan_time)} u.t. <span class="muted">(${c.makespan_ticks})</span>` : `<span class="muted">not done by the horizon</span>`}</td>
+      <td class="num">${c.all_done ? `${ut(c.makespan_time)} u.t. <span class="muted">(${c.makespan_ticks})</span>` : `<span class="muted">not finished</span>`}</td>
       <td class="num">${savingText(c)}</td>
       <td><details data-order="${c.index}" ${openOrders.has(c.index) ? "open" : ""}><summary>view order</summary>${seqDots(o.products, c.order)}</details></td>
       <td>${c.index === o.applied ? "" : `<button data-apply="${c.index}" ${canApply ? "" : "disabled"}>Use this order</button>`}</td></tr>`);
@@ -903,7 +907,8 @@ function renderOptimize() {
   }
   if (o.warning) whyText += `${whyText ? "<br>" : ""}<span class="err">${esc(o.warning)}</span>`;
   if (o.status === "failed") whyText += `${whyText ? "<br>" : ""}<span class="err">Optimization failed: ${esc(o.error || "")}</span>`;
-  if (o.status === "cancelled") whyText += `${whyText ? "<br>" : ""}<span class="muted">Cancelled: the list keeps its order.</span>`;
+  if (o.status === "cancelled") whyText += `${whyText ? "<br>" : ""}<span class="muted">Cancelled: the list keeps its order` +
+    `${o.evaluated.length ? ", or use any order tested above" : ""}.</span>`;
   $("opt-why").innerHTML = whyText;
 }
 async function refreshOptimize() {
@@ -1009,7 +1014,9 @@ $("opt-start").onclick = () => startOptimize();
 $("opt-cancel").onclick = () => act(async () => {
   $("opt-cancel").disabled = true;
   try { optState = await api("POST", `/sessions/${sid}/optimize-order/cancel`); } finally { $("opt-cancel").disabled = false; }
-  if (!optApplied) await closeOptSession();  // cancelled without choosing: the session made here frees its place
+  // the session stays (idle at tick 0), so any order tested can still be used; leaving the tab closes it
+  clearInterval(optPoll); optPoll = null;
+  try { sessionInfo = await api("GET", `/sessions/${sid}`); showRun(sessionInfo); } catch (e) {}
   renderOptimize();
 });
 
@@ -1258,10 +1265,9 @@ async function refreshSaved() {
   $("saved-sets").innerHTML = opts || `<option value="">(no saved sets)</option>`;
   $("set-open").disabled = $("set-delete").disabled = !sets.length;
   const chosen = $("session-set").value;
-  $("session-set").innerHTML = `<option value="">Random (generated from the seed)</option>`
-    + `<option value="${CURRENT_LIST}">Production orders (Order entry tab)</option>` + opts;
+  $("session-set").innerHTML = `<option value="${CURRENT_LIST}">Production orders (Order entry tab)</option>` + opts;
   $("session-set").value = chosen;
-  if ($("session-set").value !== chosen) $("session-set").value = "";
+  if ($("session-set").value !== chosen) $("session-set").value = CURRENT_LIST;
   updateListTip();
 }
 $("set-save").onclick = () => setAct(async () => {
@@ -1304,7 +1310,7 @@ async function adoptSession(info) {
   $("seed-used").hidden = false;
   $("rule").value = String(info.parameters.rule); $("horizon").value = String(info.parameters.horizon_ticks);
   const setKnown = info.product_set_id && [...$("session-set").options].some(o => o.value === info.product_set_id);
-  $("session-set").value = setKnown ? info.product_set_id : (info.products ? CURRENT_LIST : ""); updateListTip();
+  $("session-set").value = setKnown ? info.product_set_id : CURRENT_LIST; updateListTip();
   showRun(info);
   connect();  // the snapshot brings the plant, the indicators and the events
   try {  // the snapshot has no decisions: the latest ones come from the session's metrics
@@ -1363,6 +1369,14 @@ async function loadRuns(reset) {
   const q = new URLSearchParams({limit: "50"});
   if ($("runs-seed").value.trim()) q.set("seed", $("runs-seed").value.trim());
   if ($("runs-rule").value) q.set("rule", $("runs-rule").value);
+  const when = (id, end) => {  // the browser's local time; "To" includes its whole minute
+    const v = $(id).value; if (!v) return null;
+    const t = new Date(v).getTime() / 1000;
+    return Number.isFinite(t) ? String(end ? t + 59.999 : t) : null;
+  };
+  const from = when("runs-from", false), to = when("runs-to", true);
+  if (from) q.set("created_from", from);
+  if (to) q.set("created_to", to);
   if (!reset && runsCursor) q.set("cursor", runsCursor);
   try {
     const page = await api("GET", `/runs?${q}`);
@@ -1376,36 +1390,76 @@ function makespanText(k) {
   if (!k.all_done || k.makespan_time === null || k.makespan_time === undefined) return "not finished";
   return `${k.makespan_time.toFixed(1)} u.t. (${k.makespan_ticks} ticks)`;
 }
-// Runs grouped by seed (scrolls: the whole list, and each group); any runs can be compared, from any group.
-function listText(r) {
-  if (!r.products_hash) return "Random";
+// Runs grouped by production order (the same products, in any order of entry) and seed (scrolls: the whole
+// list, and each group). The title names the order; each seed is a "test" of that order (tooltip: the seed).
+// At most MAX_COMPARE runs can be compared, from any group.
+const MAX_COMPARE = 5;
+const runsSelected = new Set();
+function orderName(r) {
+  if (!r.products_hash) return "Random products";
   const saved = savedSets.find(x => x.id === r.product_set_id);
-  return saved ? `"${saved.name}" (${r.products ? r.products.length : "?"})` : `List ${r.products_hash.slice(0, 8)}`;
+  if (saved) return `"${saved.name}"`;
+  const pos = [...new Set((r.products || []).map(p => p.po).filter(Boolean))];
+  if (pos.length) return pos[0] + (pos.length > 1 ? ` +${pos.length - 1} PO` : "");
+  return "Unsaved order";
+}
+function orderContent(r) {
+  if (!r.products) return "";
+  const counts = {};
+  r.products.forEach(p => { counts[p.type] = (counts[p.type] || 0) + 1; });
+  const types = Object.entries(counts).map(([t, n]) => `${n} ${t}`).join(" · ");
+  return `${r.products.length} product${r.products.length > 1 ? "s" : ""} (${types})`;
+}
+function listText(r) { return orderName(r) + (r.products ? ` (${r.products.length})` : ""); }
+function orderKey(r) {
+  // the same products whatever their order of entry (an optimized order stays with its original)
+  if (!r.products_hash) return "random";
+  if (!r.products) return r.products_hash;
+  return JSON.stringify(r.products.map(p => JSON.stringify([p.po ?? "", p.item_id ?? "", p.number ?? "", p.type,
+                                                            p.priority ?? 80])).sort());
+}
+function syncCompareLimit() {
+  const full = runsSelected.size >= MAX_COMPARE;
+  document.querySelectorAll("#runs-groups input[type=checkbox]").forEach(c => {
+    c.disabled = full && !c.checked;
+    const why = c.disabled ? `You can select at most ${MAX_COMPARE} runs to compare` : "";
+    c.title = why; c.parentElement.title = why;
+  });
 }
 function renderRuns() {
   const box = $("runs-groups"); box.textContent = "";
   if (!runs.length) { box.innerHTML = `<p class="empty">No runs saved yet.</p>`; return; }
   const groups = new Map();
   for (const r of runs) {
-    if (!groups.has(r.seed)) groups.set(r.seed, []);
-    groups.get(r.seed).push(r);
+    const key = `${orderKey(r)}|${r.seed}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(r);
   }
-  for (const [seed, rs] of groups) {
-    const g = document.createElement("div");
+  // test number of each seed within its order: the oldest first, so the numbers do not move as new runs arrive
+  const tests = new Map(), perOrder = new Map();
+  [...groups.values()].sort((a, b) => Math.min(...a.map(r => r.created_at)) - Math.min(...b.map(r => r.created_at)))
+    .forEach(rs => { const k = orderKey(rs[0]); perOrder.set(k, (perOrder.get(k) || 0) + 1); tests.set(rs, perOrder.get(k)); });
+  for (const rs of groups.values()) {
+    const g = document.createElement("div"), first = rs[0], content = orderContent(first);
     g.className = "run-group";
-    g.innerHTML = `<h3>Seed ${esc(seed)} <small class="muted">(${rs.length} run${rs.length > 1 ? "s" : ""})</small></h3>
+    g.innerHTML = `<h3 title="Seed ${esc(first.seed)}">${esc(orderName(first))} — test ${tests.get(rs)}
+      <small class="muted">${esc(content)}${content ? " · " : ""}${rs.length} run${rs.length > 1 ? "s" : ""}</small></h3>
       <div class="table-wrap"><table class="set"><thead><tr><th></th><th>Run</th><th>Started</th><th>Status</th><th>Rule</th><th>Seed</th><th>Orders</th>
         <th>Ticks</th><th>Makespan</th><th>Mean flow</th><th>Work</th><th>Finished</th><th>Created</th><th></th></tr></thead><tbody></tbody></table></div>`;
     const body = g.querySelector("tbody");
     rs.forEach(r => {
       const k = r.kpis || {};
       const tr = document.createElement("tr");
-      tr.innerHTML = `<td><input type="checkbox" data-id="${r.run_id}" aria-label="Select run ${r.run_id.slice(0, 6)}"></td><td class="mono" title="${esc(r.run_id)}">${esc(r.run_id.slice(0, 6))}</td><td class="num">${new Date(r.created_at * 1000).toLocaleString()}</td>
+      tr.innerHTML = `<td><input type="checkbox" data-id="${r.run_id}" ${runsSelected.has(r.run_id) ? "checked" : ""} aria-label="Select run ${r.run_id.slice(0, 6)}"></td><td class="mono" title="${esc(r.run_id)}">${esc(r.run_id.slice(0, 6))}</td><td class="num">${new Date(r.created_at * 1000).toLocaleString()}</td>
         <td>${r.status}${r.reason ? " (" + esc(r.reason) + ")" : ""}</td><td>${esc(ruleText(r))}${hasScenario(r) ? ` <span title="${esc(scenarioText(r.scenario))}">[${esc(r.scenario_id)}]</span>` : ""}</td>
         <td class="num">${r.seed}${r.seed_source === "random" ? "*" : ""}</td><td>${esc(listText(r))}</td>
-        <td class="num">${fmt(r.ticks)}</td><td class="num"><b>${makespanText(k)}</b></td><td class="num">${fmt(k.mean_flow_time)}</td><td class="num">${fmt(k.work_completed)}</td>
+        <td class="num">${fmt(r.ticks)}</td><td class="num">${makespanText(k)}</td><td class="num">${fmt(k.mean_flow_time)}</td><td class="num">${fmt(k.work_completed)}</td>
         <td class="num">${fmt(k.finished)}</td><td class="num">${fmt(k.created)}</td>
         <td style="white-space:nowrap"><button data-a="decisions">Decisions</button><button data-a="repeat">Repeat</button><button data-a="csv" title="CSV file with the parameters, indicators and agent decisions of this run">CSV</button></td>`;
+      tr.querySelector("input[type=checkbox]").onchange = e => {
+        if (e.target.checked) runsSelected.add(r.run_id); else runsSelected.delete(r.run_id);
+        syncCompareLimit();
+      };
       tr.querySelector('[data-a="repeat"]').onclick = () => repeatRun(r);
       tr.querySelector('[data-a="csv"]').onclick = () => exportRun(r).catch(e => { $("runs-msg").textContent = e.message; });
       tr.querySelector('[data-a="decisions"]').onclick = () => showRunDecisions(r).catch(e => { $("runs-msg").textContent = e.message; });
@@ -1413,6 +1467,7 @@ function renderRuns() {
     });
     box.appendChild(g);
   }
+  syncCompareLimit();
 }
 // Rule as the user sees it: rule 4 is the agent; b1 / b1b runs (created through the API) say so.
 const STRATEGY_NAMES = {b1: "B1", b1b: "B1b"};
@@ -1447,19 +1502,19 @@ async function exportRun(r) {
   download(`run-${r.run_id.slice(0, 8)}.csv`, lines.join("\n") + "\n");
 }
 $("runs-refresh").onclick = () => loadRuns(true);
+$("runs-from").onchange = $("runs-to").onchange = () => loadRuns(true);
 $("runs-more").onclick = () => loadRuns(false);
 // The indicators compared, with the names the user reads
 const COMPARE_ROWS = [["makespan", "Makespan (last order finished)"], ["mean_flow_time", "Mean flow time (u.t.)"],
                       ["work_completed", "Processing work done (u.t.)"], ["finished", "Orders finished"],
                       ["created", "Orders created"], ["throughput", "Throughput (orders / u.t.)"], ["all_done", "All orders finished"]];
 $("runs-compare").onclick = () => {
-  const ids = [...document.querySelectorAll('#runs-groups input[type=checkbox]:checked')].map(c => c.dataset.id);
-  const rs = runs.filter(r => ids.includes(r.run_id));
+  const rs = runs.filter(r => runsSelected.has(r.run_id));
   const box = $("runs-compare-box");
   if (rs.length < 2) { box.classList.add("muted"); box.textContent = "Select at least 2 runs"; return; }
   const cell = (r, k) => k === "makespan" ? makespanText(r.kpis || {}) : fmt((r.kpis || {})[k]);
   const head = `<tr><th>Indicator</th>${rs.map(r => `<th>${esc(ruleText(r))} ${r.run_id.slice(0, 6)}</th>`).join("")}</tr>`;
-  const info = [["Seed", r => r.seed], ["Orders", r => listText(r)]]
+  const info = [["Seed", r => r.seed], ["Order", r => listText(r)]]
     .map(([label, f]) => `<tr><td>${label}</td>${rs.map(r => `<td>${esc(f(r))}</td>`).join("")}</tr>`).join("");
   const rows = COMPARE_ROWS.map(([k, label]) => `<tr><td>${label}</td>${rs.map(r => `<td class="num">${cell(r, k)}</td>`).join("")}</tr>`).join("");
   const seeds = new Set(rs.map(r => r.seed)), lists = new Set(rs.map(r => r.products_hash || `random:${r.seed}`));
@@ -1581,15 +1636,15 @@ function draw(now) {
   if (!a) return;
   const span = b.tick - a.tick;
   const f = span <= 0 || span > MAX_INTERP_TICKS ? 1 : Math.min(1, Math.max(0, (playTick - a.tick) / span));
-  const r = Math.max(9, Math.min(14, view.s * 2.8));  // grows with the figure
+  const r = Math.max(18, Math.min(28, view.s * 5.6));  // grows with the figure
   let found = null;
-  ctx.font = `600 ${Math.round(Math.max(10, Math.min(15, view.s * 3.2)))}px ${c.font}`; ctx.textAlign = "center";
+  ctx.font = `600 ${Math.round(Math.max(18, Math.min(28, view.s * 6)))}px ${c.font}`; ctx.textAlign = "center";
   for (const [id, pb] of b.products) {
     const pa = a.products.get(id) || pb;
     const [x, y] = tf({x: pa.x + (pb.x - pa.x) * f, y: pa.y + (pb.y - pa.y) * f});
     ctx.beginPath(); ctx.arc(x, y, r, 0, 2 * Math.PI);
     ctx.fillStyle = TYPE_COLORS[pb.type] || "#777"; ctx.fill();
-    ctx.lineWidth = 1.5; ctx.strokeStyle = c.paper; ctx.stroke();
+    ctx.lineWidth = 2; ctx.strokeStyle = c.paper; ctx.stroke();
     ctx.fillStyle = "#fff"; ctx.fillText(pb.type || "?", x, y + 0.5);
     if (hover && Math.hypot(hover.x - x, hover.y - y) <= r + 3) found = pb;
   }

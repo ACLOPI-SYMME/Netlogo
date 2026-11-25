@@ -73,7 +73,7 @@ Test page: `http://localhost:8000/ui`. API: `http://localhost:8000/docs`.
 - **When a run is saved:** when it finishes, fails or is stopped. Stopped means `DELETE`, `reset`, inactivity or loss of the worker.
 - **If DynamoDB fails:** the error is written to the log and the run is not affected.
 
-Queries: `GET /runs` (filters `seed`, `strategy`, `rule`, `product_set_id`; paging with `cursor`), `GET /runs/{id}` and `GET /runs/{id}/decisions`. The "History Logs" tab of `/ui` shows them, with Repeat, Compare and CSV export. How to read each field: `docs/records/README.md`.
+Queries: `GET /runs` (filters `seed`, `strategy`, `rule`, `product_set_id`, `created_from` / `created_to`; paging with `cursor`), `GET /runs/{id}` and `GET /runs/{id}/decisions`. The "History Logs" tab of `/ui` shows them, with Repeat, Compare and CSV export. How to read each field: `docs/records/README.md`.
 
 ## Test
 

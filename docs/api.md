@@ -68,7 +68,7 @@ If the startup fails, the JSON log says which worker failed and why. Then the po
 **Results (L5.7).**
 - Each run is saved when it finishes, fails or is stopped, in memory or in DynamoDB depending on `ACLOPI_DYNAMODB_ENDPOINT` / `ACLOPI_RESULTS_STORE`.
 - Routes:
-  - `GET /runs`, with filters `seed`, `strategy`, `rule`, `product_set_id`, `scenario` (only useful for runs saved before scenarios were taken out), `limit` and `cursor`;
+  - `GET /runs`, with filters `seed`, `strategy`, `rule`, `product_set_id`, `created_from` / `created_to` (Unix seconds, inclusive), `scenario` (only useful for runs saved before scenarios were taken out), `limit` and `cursor`;
   - `GET /runs/{id}`;
   - `GET /runs/{id}/decisions`: each decision also carries `operation` and `product_type` (those saved since that change). The page shows them with the "Decisions" button (History Logs tab), paginated and downloadable as CSV.
 - `SessionInfo.last_run_id` gives the session's last saved run.
@@ -209,6 +209,7 @@ A session with a request in progress never closes.
 | `ACLOPI_OPTIMIZE_ROUNDS` | `2` | Optimize order: rounds with the AI (replaces `ACLOPI_OPTIMIZE_ROUNDS_FULL`) |
 | `ACLOPI_OPTIMIZE_MAX_PRODUCTS` | `50` | Optimize order: longest list (422 above) |
 | `ACLOPI_OPTIMIZE_SEED` | `1` | Optimize order: fixed seed of every estimate (not the session's) |
+| `ACLOPI_OPTIMIZE_MAX_TICKS` | `100000` | Optimize order: safety cap of each estimate (no fixed horizon) |
 | `ACLOPI_OPTIMIZE_BLOCK_WHEN_LIVE_AGENT` | `1` | Optimize order: provisional rule, refused while live agent sessions run (`0` removes it) |
 | `ACLOPI_OPTIMIZE_MAX_WAIT_S` | `300` | Optimize order: total wait for a turn at the AI (429) before failing |
 | `ACLOPI_OPTIMIZE_AI_TIMEOUT_S` | `90` | Optimize order: timeout of each `POST /sequence/propose` |

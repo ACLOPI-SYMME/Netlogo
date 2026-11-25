@@ -15,7 +15,7 @@ How to read each field: [records/optimize-order.md](records/optimize-order.md).
 2. Press "Optimize order", under the list of production orders. Its help text says: "It can take about 3 minutes; you can use the best option found at any time".
    - **The session it needs.** The page creates it (`POST /sessions`) with:
      - the list of production orders;
-     - the rule and horizon chosen in the Visualization tab;
+     - the rule and horizon chosen in the Visualization tab (the horizon is the real run's; the estimates have none);
      - the seed of this tab's "Set a seed" checkbox, or a random one, which is shown.
 
      Then it starts the optimization.
@@ -29,7 +29,7 @@ How to read each field: [records/optimize-order.md](records/optimize-order.md).
    - the list of production orders shows the new order in the same editable table, so it can still be adjusted or saved.
 5. Run from Visualization, with the session already set up. If the list was edited after "Use this", running creates a new session with the edited list, with the same rule, horizon and seed. The estimate and the real result are both kept, so they can be compared.
 
-**Without choosing an order**, the page closes the session it created and frees its place. This happens with "Cancel", with leaving the Order entry tab, and with closing the page.
+**Without choosing an order**, the page closes the session it created and frees its place. This happens with leaving the Order entry tab, with loading another list, and with closing the page. After "Cancel" the session stays (idle at tick 0), so any order already tested can still be used ("Use this order"); leaving the tab then closes it.
 
 ## Rounds
 
@@ -58,7 +58,8 @@ Rules of the rounds:
   - strategy: rules 1–3 → `rule1`–`rule3`; rule 4 → `b1b` (`b1` if the session uses `b1`);
   - mode `Deterministic`;
   - the fixed seed `ACLOPI_OPTIMIZE_SEED` (1 by default), not the session's: the same list with the same rule gives the same times in any session;
-  - `max_ticks` = the session's horizon. If the list does not finish by then, the order shows "not done by the horizon" and has no makespan.
+  - no fixed horizon: each order runs until its list is done. `max_ticks` (`ACLOPI_OPTIMIZE_MAX_TICKS`, 100,000) is only a safety cap; an order that does not finish by then shows "not finished" and has no makespan.
+  - The real run still ends at the session's horizon: with a long list, choose a horizon large enough in Visualization.
 - **The AI fails or brings nothing valid:** the rounds end with what was evaluated so far (at least the original and the heuristic). It is not an error: the status is `done`, with a `warning`.
 - **Agent down:** the platform does not call it. The optimization ends after round 0 with the warning "the AI is not available; only the original and the heuristic were compared". The platform knows the agent is down from its health check (`GET /health` of the agent, the same check the platform already runs).
 - **AI timeout:** 90 s per call (`ACLOPI_OPTIMIZE_AI_TIMEOUT_S`). After that, the optimization ends with what was evaluated so far.
@@ -162,6 +163,7 @@ When an order is applied, the session keeps `optimization`. It shows in `GET /se
 | `ACLOPI_OPTIMIZE_MAX_WAIT_S` | `300` | Total wait for a turn at the AI (429) before failing |
 | `ACLOPI_OPTIMIZE_AI_TIMEOUT_S` | `90` | Timeout of each `POST /sequence/propose` |
 | `ACLOPI_OPTIMIZE_SEED` | `1` | Fixed seed of every estimate (not the session's) |
+| `ACLOPI_OPTIMIZE_MAX_TICKS` | `100000` | Safety cap of each estimate (it stops when the list is done; no fixed horizon) |
 
 **Mock agent** (`aclopi.agent_mock`, for tests and local runs). `POST /sequence/propose` takes `products`, `evaluated`, `strategy` and `mode`. It answers:
 
