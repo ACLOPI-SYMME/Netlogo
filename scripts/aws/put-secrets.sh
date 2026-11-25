@@ -31,6 +31,10 @@ echo "University VPN (Cisco Secure Client)"
 put vpn/server   String       "$(ask '  VPN server address (as in Cisco Secure Client)')"
 put vpn/user     String       "$(ask '  VPN user')"
 put vpn/password SecureString "$(ask '  VPN password' secret)"
+echo "  Server certificate pin: only if openconnect on the instance says 'signer not found' and suggests"
+echo "  --servercert pin-sha256:... (copy that value). It changes when the university renews its certificate."
+pin="$(ask '  VPN server certificate pin (pin-sha256:...; Enter for none)')"
+put vpn/servercert String "${pin:-none}"
 echo
 
 echo "LLM (Strata)"
