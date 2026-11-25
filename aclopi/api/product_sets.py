@@ -11,6 +11,7 @@ import csv
 import hashlib
 import io
 import json
+import random
 import time
 import uuid
 from typing import Any, Protocol
@@ -41,6 +42,27 @@ def products_hash(products: list[dict[str, Any]]) -> str:
     simulation. PO, Item ID, # and due date do not reach the model, so they do not change it."""
     canonical = json.dumps([[p["type"], int(p["priority"])] for p in products], separators=(",", ":"))
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def sample_order(products: list[dict[str, Any]], seed: int) -> list[dict[str, Any]]:
+    """PO, Item ID, # and DueDate for a generated sample order (pure, the same for the same seed): one PO
+    "PO-xxxxx" for the whole order, a numeric Item ID per product type, # numbered within each Item ID, and a
+    due date (u.t.) that grows along the list. Type and priority are kept as generated."""
+    rng = random.Random(seed)
+    po = f"PO-{rng.randint(10000, 99999)}"
+    items: dict[str, str] = {}
+    numbers: dict[str, int] = {}
+    due, out = 0.0, []
+    for p in products:
+        t = p["type"]
+        while t not in items:
+            item = str(rng.randint(1000, 9999))
+            if item not in items.values():
+                items[t] = item
+        numbers[t] = numbers.get(t, 0) + 1
+        due += rng.uniform(40.0, 80.0)
+        out.append({**p, "po": po, "item_id": items[t], "number": str(numbers[t]), "due_date": round(due, 1)})
+    return out
 
 
 class InMemoryProductSetStore:

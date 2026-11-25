@@ -17,6 +17,23 @@
             "title": "Decide Sent",
             "type": "integer"
           },
+          "kind": {
+            "anyOf": [
+              {
+                "enum": [
+                  "mock",
+                  "real",
+                  "other"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "From the configured URL's host: agent-mock -> mock, agent -> real (docs/deploy-local.md)",
+            "title": "Kind"
+          },
           "last_check": {
             "anyOf": [
               {
@@ -59,6 +76,18 @@
             ],
             "title": "Status",
             "type": "string"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "ACLOPI_AGENT_URL: the agent the platform talks to",
+            "title": "Url"
           }
         },
         "required": [
@@ -3530,7 +3559,7 @@
             "description": "Platform starting (platform_starting), no free worker (no_free_worker), worker unavailable (worker_unavailable), too many fast runs (fast_run_limit) or agent down (agent_unavailable)"
           }
         },
-        "summary": "The products the model generates from a seed (fixed sequence); seed optional",
+        "summary": "The products the model generates from a seed (fixed sequence), as a sample order with PO, Item ID, # and DueDate; seed optional",
         "tags": [
           "product-sets"
         ]
@@ -3843,6 +3872,42 @@
                 }
               ],
               "title": "Product Set Id"
+            }
+          },
+          {
+            "description": "Only runs created at or after this time (Unix seconds)",
+            "in": "query",
+            "name": "created_from",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only runs created at or after this time (Unix seconds)",
+              "title": "Created From"
+            }
+          },
+          {
+            "description": "Only runs created at or before this time (Unix seconds)",
+            "in": "query",
+            "name": "created_to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only runs created at or before this time (Unix seconds)",
+              "title": "Created To"
             }
           },
           {

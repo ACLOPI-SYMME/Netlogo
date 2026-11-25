@@ -21,7 +21,7 @@ A fixed list of products (an order list: PO, Item ID, #, type, priority and due 
 | `GET /product-sets/{id}/csv` | The set as CSV (`PO,Item ID,#,Type,Priority,DueDate`) |
 | `POST /product-sets`, `PUT /product-sets/{id}`, `DELETE /product-sets/{id}` | Create, replace, delete |
 | `POST /product-sets/parse-csv` | Validates an uploaded CSV and returns the list (does not save it) |
-| `POST /product-sets/generate` | The products the model would generate with a seed (does not save them) |
+| `POST /product-sets/generate` | The products the model would generate with a seed, as a sample order with PO (`PO-xxxxx`), Item ID, # and DueDate (does not save them) |
 | Page, **Order entry** tab | "Production Order Entry": enter orders manually ("Add order"), import a CSV file, load a saved set ("Load"); "Save as set", "Export CSV", "Clear list", "Generate" (a sample list from a seed), "Delete" |
 
 ## Fields

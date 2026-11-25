@@ -65,6 +65,7 @@ class Settings:
     optimize_max_wait_s: float = 300.0  # waiting for a turn at the agent (429) before failing
     optimize_ai_timeout_s: float = 90.0  # per POST /sequence/propose
     optimize_seed: int = 1  # fixed seed of every estimate: same list and rule -> same times in any session
+    optimize_max_ticks: int = 100_000  # safety cap of each simulation (it stops when the list is done)
 
     def run_options(self) -> dict[str, float | int]:
         return {"live_update_s": self.live_update_ms / 1000.0, "fast_block_ticks": self.fast_block_ticks,
@@ -115,4 +116,5 @@ class Settings:
             optimize_max_wait_s=_float(env, "ACLOPI_OPTIMIZE_MAX_WAIT_S", 300.0),
             optimize_ai_timeout_s=_float(env, "ACLOPI_OPTIMIZE_AI_TIMEOUT_S", 90.0),
             optimize_seed=_int(env, "ACLOPI_OPTIMIZE_SEED", 1),
+            optimize_max_ticks=_int(env, "ACLOPI_OPTIMIZE_MAX_TICKS", 100_000),
         )

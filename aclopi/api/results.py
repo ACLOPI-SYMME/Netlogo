@@ -43,8 +43,21 @@ def new_run_id() -> str:
     return uuid.uuid4().hex
 
 
+RANGE_FILTERS = {"created_from": ("created_at", "gte"), "created_to": ("created_at", "lte")}
+
+
 def _matches(run: dict[str, Any], filters: dict[str, Any]) -> bool:
-    return all(run.get(k) == v for k, v in filters.items() if v is not None)
+    for k, v in filters.items():
+        if v is None:
+            continue
+        if k in RANGE_FILTERS:
+            field, op = RANGE_FILTERS[k]
+            value = run.get(field)
+            if value is None or (value < v if op == "gte" else value > v):
+                return False
+        elif run.get(k) != v:
+            return False
+    return True
 
 
 class InMemoryResultsStore:
@@ -144,7 +157,11 @@ class DynamoResultsStore:
         for key, value in filters.items():
             if value is None:
                 continue
-            cond = Attr(key).eq(to_dynamo(value))
+            if key in RANGE_FILTERS:
+                field, op = RANGE_FILTERS[key]
+                cond = getattr(Attr(field), op)(to_dynamo(value))
+            else:
+                cond = Attr(key).eq(to_dynamo(value))
             expression = cond if expression is None else expression & cond
         rows: list[dict[str, Any]] = []
         start_key = json.loads(base64.urlsafe_b64decode(cursor.encode())) if cursor else None

@@ -10,8 +10,9 @@ Rounds, all on the session's own worker (simulate_list, aclopi.sim.sequencing) a
 
 Every simulation uses the fixed seed ACLOPI_OPTIMIZE_SEED (1; not the session's, so the same list and
 rule give the same times in any session), the strategy of its rule (rules 1-3 -> rule1-rule3; rule 4 ->
-b1b, or b1 when the session uses b1), mode Deterministic and the session's horizon as max_ticks. The
-times always come from simulate_list, never from the AI's text.
+b1b, or b1 when the session uses b1) and mode Deterministic. There is no fixed horizon: each order runs
+until its list is done (ACLOPI_OPTIMIZE_MAX_TICKS, 100000, is only a safety cap), so a long list is not
+cut by the session's horizon. The times always come from simulate_list, never from the AI's text.
 
 simulate_list sets the worker up again, so at the end (done, cancelled or failed) the session's own setup
 is made again: with its order (nothing applied: the session is as it was) or with the chosen one
@@ -132,7 +133,7 @@ class OrderOptimization:
         self.active = True  # until the session's setup is made again (restore or apply)
         self.products = [dict(p) for p in record.product_list or []]  # the list as it was at the start
         p = record.parameters
-        self.seed, self.max_ticks = int(settings.optimize_seed), int(p["horizon_ticks"])
+        self.seed, self.max_ticks = int(settings.optimize_seed), int(settings.optimize_max_ticks)
         self.strategy = sim_strategy(int(p["rule"]), record.strategy)
         self.evaluated: list[dict[str, Any]] = []
         self.discarded: list[dict[str, Any]] = []
