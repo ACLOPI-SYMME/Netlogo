@@ -98,11 +98,18 @@ cat > /etc/systemd/system/aclopi-vpn.service <<'ACLOPI_VPN_UNIT'
 Description=ACLOPI - university VPN (split tunnel to the LLM server)
 After=network-online.target
 Wants=network-online.target
+# Never give up on its own: connection problems are retried with the growing delay below.
+StartLimitIntervalSec=0
 
 [Service]
 ExecStart=/opt/aclopi/bin/vpn.sh
+# Reconnect after a cut (session timeout, network): 30 s, then longer waits up to 15 min between attempts.
 Restart=always
 RestartSec=30
+RestartSteps=5
+RestartMaxDelaySec=15min
+# Exit 3 = wrong settings (bad login or server, certificate pin mismatch): do not retry (vpn.sh).
+RestartPreventExitStatus=3
 StandardOutput=append:/var/log/aclopi/vpn.log
 StandardError=append:/var/log/aclopi/vpn.log
 
